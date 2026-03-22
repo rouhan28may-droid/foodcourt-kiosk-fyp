@@ -1,9 +1,3 @@
-/**
- * storage.js
- * Cloud-synced demo state using Supabase.
- * Keeps local cache, syncs one shared JSON state row to cloud.
- * Demo only: last write wins.
- */
 window.FC = window.FC || {};
 
 FC.KEY = "fc_state_v2";
@@ -173,24 +167,6 @@ FC.seed = async function(){
   FC.setState(seeded);
   FC.log("System seeded from JSON files.");
   FC.startCloudSync();
-};
-
-FC.startCloudSync = function(){
-  if(FC._cloudSyncStarted) return;
-  FC._cloudSyncStarted = true;
-
-  setInterval(async () => {
-    const remote = await FC.pullRemoteState();
-    if(!remote || !remote.data) return;
-
-    const localStamp = FC.getRemoteStamp();
-    const remoteTime = new Date(remote.updated_at || 0).getTime();
-    const localTime = new Date(localStamp || 0).getTime();
-
-    if(remoteTime > localTime) {
-      FC.applyRemoteState(remote.data, remote.updated_at, true);
-    }
-  }, FC.POLL_MS);
 };
 
 FC.uid = function(prefix="ORD"){
