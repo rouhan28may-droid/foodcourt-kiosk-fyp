@@ -272,7 +272,7 @@
     if(!loggedIn) return;
     renderAll();
   }, 1400);
-  window.addEventListener("fc:state-changed", () => {
+ window.addEventListener("fc:state-changed", () => {
   if (loggedIn) renderAll();
 });
 })();

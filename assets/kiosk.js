@@ -976,13 +976,12 @@
   }
 
   renderAll();
+window.addEventListener("fc:state-changed", () => {
+  renderAll();
 
-  window.addEventListener("fc:state-changed", () => {
-    renderAll();
-
-    if (awaitingOrderId) {
-      const o = FC.getOrder(awaitingOrderId);
-      if (o) renderFlow(o);
-    }
-  });
+  if (awaitingOrderId) {
+    const o = FC.getOrder(awaitingOrderId);
+    if (o) renderFlow(o);
+  }
+});
 })();

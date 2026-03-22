@@ -237,7 +237,7 @@
 
   renderAll();
   setInterval(renderAll, 1500);
-  window.addEventListener("fc:state-changed", () => {
+ window.addEventListener("fc:state-changed", () => {
   renderAll();
 });
 })();
