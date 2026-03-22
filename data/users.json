@@ -1,0 +1,26 @@
+{
+  "admins": [
+    {
+      "username": "admin",
+      "password": "admin123",
+      "role": "owner_admin"
+    }
+  ],
+  "restaurants": [
+    {
+      "username": "spicehub",
+      "password": "1234",
+      "restaurantId": "r1"
+    },
+    {
+      "username": "pastaco",
+      "password": "1234",
+      "restaurantId": "r2"
+    },
+    {
+      "username": "greenbowl",
+      "password": "1234",
+      "restaurantId": "r3"
+    }
+  ]
+}

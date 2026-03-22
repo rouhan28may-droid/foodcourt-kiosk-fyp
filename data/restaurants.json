@@ -1,0 +1,158 @@
+{
+  "restaurants": [
+    {
+      "id": "r1",
+      "name": "Spice Hub",
+      "tagline": "Desi \u2022 Grilled \u2022 Fast",
+      "online": true,
+      "prepTimeMins": 18,
+      "menu": [
+        {
+          "id": "m101",
+          "name": "Chicken Biryani",
+          "price": 550,
+          "category": "Rice",
+          "available": true,
+          "fast": false
+        },
+        {
+          "id": "m102",
+          "name": "Beef Burger",
+          "price": 650,
+          "category": "Burgers",
+          "available": true,
+          "fast": true
+        },
+        {
+          "id": "m103",
+          "name": "Seekh Kebab Roll",
+          "price": 380,
+          "category": "Rolls",
+          "available": true,
+          "fast": true
+        },
+        {
+          "id": "m104",
+          "name": "Chicken Karahi (Half)",
+          "price": 1050,
+          "category": "Desi",
+          "available": true,
+          "fast": false
+        },
+        {
+          "id": "m105",
+          "name": "Mint Raita",
+          "price": 80,
+          "category": "Sides",
+          "available": true,
+          "fast": true
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "name": "Pasta & Co.",
+      "tagline": "Italian \u2022 Cheesy \u2022 Comfort",
+      "online": true,
+      "prepTimeMins": 15,
+      "menu": [
+        {
+          "id": "m201",
+          "name": "Alfredo Pasta",
+          "price": 790,
+          "category": "Pasta",
+          "available": true,
+          "fast": false
+        },
+        {
+          "id": "m202",
+          "name": "Spicy Arrabbiata",
+          "price": 760,
+          "category": "Pasta",
+          "available": true,
+          "fast": false
+        },
+        {
+          "id": "m203",
+          "name": "Garlic Bread",
+          "price": 220,
+          "category": "Sides",
+          "available": true,
+          "fast": true
+        },
+        {
+          "id": "m204",
+          "name": "Lasagna Slice",
+          "price": 590,
+          "category": "Bakes",
+          "available": true,
+          "fast": false
+        },
+        {
+          "id": "m205",
+          "name": "Cola (Can)",
+          "price": 180,
+          "category": "Drinks",
+          "available": true,
+          "fast": true
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "name": "Green Bowl",
+      "tagline": "Healthy \u2022 Fresh \u2022 Lean",
+      "online": true,
+      "prepTimeMins": 12,
+      "menu": [
+        {
+          "id": "m301",
+          "name": "Chicken Caesar Salad",
+          "price": 690,
+          "category": "Salads",
+          "available": true,
+          "fast": true
+        },
+        {
+          "id": "m302",
+          "name": "Protein Wrap",
+          "price": 640,
+          "category": "Wraps",
+          "available": true,
+          "fast": true
+        },
+        {
+          "id": "m303",
+          "name": "Fresh Juice (Orange)",
+          "price": 320,
+          "category": "Drinks",
+          "available": true,
+          "fast": true
+        },
+        {
+          "id": "m304",
+          "name": "Quinoa Bowl",
+          "price": 780,
+          "category": "Bowls",
+          "available": true,
+          "fast": false
+        },
+        {
+          "id": "m305",
+          "name": "Greek Yogurt Cup",
+          "price": 250,
+          "category": "Dessert",
+          "available": true,
+          "fast": true
+    
+        } 
+      ]
+    }
+  ],
+  "settings": {
+    "currency": "PKR",
+    "taxRate": 0.13,
+    "idleAdsAfterSeconds": 150,
+    "paymentTimeoutSeconds": 120
+  }
+}

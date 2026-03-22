@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hardware Layer Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
+      <div>
+        <div class="text-sm text-slate-400">Integration Layer</div>
+        <div class="text-xl font-semibold">Hardware Console (Simulated)</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="resetBtn" class="btn-ghost text-sm">Reset Devices</button>
+        <a href="index.html" class="btn-ghost text-sm">Home</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+    <section class="glass p-5 rounded-3xl">
+      <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <div class="text-xs uppercase tracking-widest text-slate-400">System Health</div>
+          <div id="healthLabel" class="text-2xl font-semibold mt-2">—</div>
+          <div id="healthIssues" class="text-sm text-slate-300 mt-2"></div>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="simulateLatencyBtn" class="btn-ghost text-sm">Simulate Latency Spike</button>
+          <button id="lockKioskBtn" class="btn-ghost text-sm">Lock/Unlock Kiosk</button>
+          <button id="rebootBtn" class="btn-primary text-sm">Reboot Kiosk</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid lg:grid-cols-12 gap-6">
+      <section class="lg:col-span-7 space-y-6">
+        <section class="glass p-5 rounded-3xl">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-lg font-semibold">Devices</div>
+              <div class="text-sm text-slate-400 mt-1">Toggle online/offline and adjust simulated states.</div>
+            </div>
+            <div class="pill">Real device in future: <span class="text-slate-200">USB Printer • QR Gateway • Network</span></div>
+          </div>
+          <div id="devicesPanel" class="mt-4 space-y-3"></div>
+        </section>
+
+        <section class="glass p-5 rounded-3xl">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-lg font-semibold">Test Actions</div>
+              <div class="text-sm text-slate-400 mt-1">Show supervisor how hardware integration would work.</div>
+            </div>
+          </div>
+
+          <div class="mt-4 grid sm:grid-cols-2 gap-3">
+            <button id="testPrintBtn" class="btn-primary">Print Test Receipt</button>
+            <button id="consumePaperBtn" class="btn-ghost">Consume Paper</button>
+            <button id="gatewaySuccessBtn" class="btn-ghost">Gateway Verify Success</button>
+            <button id="gatewayFailBtn" class="btn-ghost">Gateway Verify Failure</button>
+          </div>
+
+          <div class="mt-4 text-xs text-slate-400">
+            In a real build this maps to: printer driver, payment webhook callback, device heartbeat, kiosk watchdog.
+          </div>
+        </section>
+      </section>
+
+      <aside class="lg:col-span-5 space-y-6">
+        <section class="glass p-5 rounded-3xl">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-lg font-semibold">Device Logs</div>
+              <div class="text-sm text-slate-400 mt-1">Last 30 events</div>
+            </div>
+            <button id="clearLogsBtn" class="btn-ghost text-sm">Clear</button>
+          </div>
+          <div id="deviceLogs" class="mt-4 space-y-2"></div>
+        </section>
+
+        <section class="glass p-5 rounded-3xl">
+          <div class="text-lg font-semibold">Offline Mode (Demo)</div>
+          <div class="text-sm text-slate-400 mt-1">Orders queued locally when network is down.</div>
+          <div class="mt-4 flex items-center justify-between text-sm text-slate-300">
+            <span>Local Queue</span>
+            <span class="pill"><span id="queueCount">0</span> orders</span>
+          </div>
+          <div class="mt-4 flex gap-2 flex-wrap">
+            <button id="queueFakeOrderBtn" class="btn-ghost text-sm">Queue Fake Order</button>
+            <button id="flushQueueBtn" class="btn-primary text-sm">Flush Queue</button>
+          </div>
+          <div class="mt-3 text-xs text-slate-400">
+            Real implementation: IndexedDB + retry worker + checksum + sync when online.
+          </div>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/supabase.js"></script>
+<script src="assets/storage.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/hardware.js"></script>
+</body>
+</html>

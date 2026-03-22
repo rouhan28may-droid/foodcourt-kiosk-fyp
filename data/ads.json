@@ -1,0 +1,32 @@
+{
+  "ads": [
+    {
+      "id": "ad1",
+      "title": "\ud83d\udd25 Lunch Deals",
+      "subtitle": "Save up to 20% on combos",
+      "restaurantId": "r1",
+      "enabled": true
+    },
+    {
+      "id": "ad2",
+      "title": "\ud83e\uddc0 Extra Cheese Day",
+      "subtitle": "Add garlic bread for 99 PKR",
+      "restaurantId": "r2",
+      "enabled": true
+    },
+    {
+      "id": "ad3",
+      "title": "\ud83e\udd57 Go Healthy",
+      "subtitle": "Fresh bowls \u2022 High protein",
+      "restaurantId": "r3",
+      "enabled": true
+    },
+    {
+      "id": "ad4",
+      "title": "\ud83d\udcb3 QR Payments Accepted",
+      "subtitle": "JazzCash \u2022 EasyPaisa \u2022 Bank QR",
+      "restaurantId": null,
+      "enabled": true
+    }
+  ]
+}

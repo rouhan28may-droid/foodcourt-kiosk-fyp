@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Restaurant Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
+      <div>
+        <div class="text-sm text-slate-400">Operations</div>
+        <div class="text-xl font-semibold">Restaurant Dashboard</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="logoutBtn" class="btn-ghost text-sm hidden">Logout</button>
+        <a href="index.html" class="btn-ghost text-sm">Home</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6">
+    <!-- login -->
+    <section id="loginBox" class="max-w-xl mx-auto glass p-6 rounded-3xl">
+      <div class="text-lg font-semibold">Login</div>
+      <div class="text-sm text-slate-400 mt-1">Demo: spicehub/1234 • pastaco/1234 • greenbowl/1234</div>
+      <div class="mt-5 grid sm:grid-cols-2 gap-3">
+        <input id="userInput" class="tws-input" placeholder="Username" />
+        <input id="passInput" class="tws-input" placeholder="Password" type="password" />
+      </div>
+      <button id="loginBtn" class="btn-primary w-full mt-4">Sign In</button>
+      <div id="loginErr" class="text-sm text-red-300 mt-3"></div>
+    </section>
+
+    <!-- app -->
+    <section id="appBox" class="hidden">
+      <div class="grid lg:grid-cols-12 gap-6">
+        <!-- left -->
+        <section class="lg:col-span-8 space-y-6">
+          <div class="glass p-5 rounded-3xl">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div class="text-xs uppercase tracking-widest text-slate-400">Restaurant</div>
+                <div id="restName" class="text-2xl font-semibold mt-1"></div>
+                <div class="text-sm text-slate-400 mt-1">Approve/reject orders & manage status.</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="pill">Online: <span id="onlineLabel">Yes</span></span>
+                <button id="toggleOnlineBtn" class="btn-ghost text-sm">Toggle Online</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass p-5 rounded-3xl">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div class="text-lg font-semibold">Pending Approval</div>
+              <div class="text-sm text-slate-400">Kiosk sends order → you approve/reject</div>
+            </div>
+            <div id="pendingList" class="mt-4 space-y-3"></div>
+          </div>
+
+          <div class="glass p-5 rounded-3xl">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div class="text-lg font-semibold">Active Orders</div>
+              <div class="text-sm text-slate-400">Update status (Preparing → Ready → Completed)</div>
+            </div>
+            <div id="activeList" class="mt-4 space-y-3"></div>
+          </div>
+        </section>
+
+        <!-- right -->
+        <aside class="lg:col-span-4 space-y-6">
+          <div class="glass p-5 rounded-3xl">
+            <div class="text-lg font-semibold">Menu Management</div>
+            <div class="text-sm text-slate-400 mt-1">Disable items if out-of-stock.</div>
+            <div id="menuList" class="mt-4 space-y-2"></div>
+          </div>
+
+          <div class="glass p-5 rounded-3xl">
+            <div class="flex items-center justify-between">
+              <div class="text-lg font-semibold">Sales Today</div>
+              <button id="exportBtn" class="btn-ghost text-sm">Export XLSX</button>
+            </div>
+            <div class="mt-4 space-y-2 text-sm">
+              <div class="flex justify-between text-slate-300"><span>Paid Orders</span><span id="paidCount">0</span></div>
+              <div class="flex justify-between text-slate-300"><span>Revenue</span><span id="revenue">0</span></div>
+              <div class="flex justify-between text-slate-300"><span>Best Seller</span><span id="bestSeller">—</span></div>
+            </div>
+            <div class="mt-4 text-xs text-slate-400">
+              “Email report” is simulated by XLSX download.
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/supabase.js"></script>
+<script src="assets/storage.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/restaurant.js"></script>
+</body>
+</html>

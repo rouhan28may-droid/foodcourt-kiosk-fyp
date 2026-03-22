@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Customer Kiosk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100 overflow-x-hidden">
+  <div id="adsOverlay" class="hidden fixed inset-0 z-50 bg-slate-950/95 backdrop-blur">
+    <div class="h-full w-full flex items-center justify-center px-8">
+      <div class="max-w-3xl w-full rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-10 shadow-2xl">
+        <div class="text-xs uppercase tracking-widest text-slate-300">Idle Mode • Ads</div>
+        <div id="adTitle" class="mt-3 text-4xl font-semibold leading-tight">Advertisement</div>
+        <div id="adSubtitle" class="mt-3 text-slate-200 text-lg"></div>
+        <div class="mt-8 flex items-center justify-between">
+          <div class="text-sm text-slate-400">Touch anywhere to return</div>
+          <div class="text-xs text-slate-400">Impressions tracked</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
+      <div>
+        <div class="text-sm text-slate-400">Food Court</div>
+        <div class="text-xl font-semibold">Customer Touch Kiosk</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="resetBtn" class="btn-ghost text-sm">Reset Demo</button>
+        <a href="hardware.html" class="btn-ghost text-sm">Hardware</a>
+        <a href="index.html" class="btn-ghost text-sm">Home</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6">
+    <div class="grid lg:grid-cols-12 gap-6">
+      <!-- left -->
+      <section class="lg:col-span-8">
+        <div class="glass p-4 rounded-3xl">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div class="flex gap-2 flex-wrap" id="restaurantTabs"></div>
+            <div class="text-sm text-slate-300 flex items-center gap-2">
+              <span class="pill">Tax: <span id="taxRateLabel">13%</span></span>
+              <span class="pill">Queue: <span id="queueCount">0</span></span>
+            </div>
+          </div>
+
+          <div class="mt-5">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="text-lg font-semibold" id="activeRestaurantName">Restaurant</div>
+                <div class="text-sm text-slate-400" id="activeRestaurantTagline">Tagline</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <input id="searchInput" class="tws-input w-60" placeholder="Search items..." />
+                <select id="categorySelect" class="tws-select w-44"></select>
+              </div>
+            </div>
+
+            <div id="menuGrid" class="mt-5 grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+          </div>
+        </div>
+
+        <!-- order flow -->
+        <div id="flowPanel" class="mt-6 hidden"></div>
+      </section>
+
+      <!-- right cart -->
+      <aside class="lg:col-span-4">
+        <div class="glass p-5 rounded-3xl sticky top-24">
+          <div class="flex items-center justify-between">
+            <div class="text-lg font-semibold">Your Cart</div>
+            <button id="clearCartBtn" class="btn-ghost text-xs">Clear</button>
+          </div>
+
+          <div id="cartItems" class="mt-4 space-y-3"></div>
+
+          <div class="mt-5 border-t border-white/10 pt-4 space-y-2 text-sm">
+            <div class="flex justify-between text-slate-300"><span>Subtotal</span><span id="subtotal">0</span></div>
+            <div class="flex justify-between text-slate-300"><span>Tax</span><span id="tax">0</span></div>
+            <div class="flex justify-between text-slate-100 text-base font-semibold"><span>Total</span><span id="total">0</span></div>
+          </div>
+
+          <button id="checkoutBtn" class="btn-primary w-full mt-5">Checkout</button>
+
+          <div class="mt-4 text-xs text-slate-400 leading-relaxed">
+            Flow: Kiosk → Restaurant Approval → QR Payment → Receipt → Prep Queue
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- payment modal -->
+  <div id="paymentModal" class="hidden fixed inset-0 z-50 bg-black/70">
+    <div class="h-full w-full flex items-center justify-center px-6">
+      <div class="max-w-xl w-full rounded-3xl bg-slate-950 border border-white/10 shadow-2xl p-6">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">Payment</div>
+            <div class="text-xl font-semibold mt-1">Scan QR to Pay</div>
+            <div id="payAmount" class="text-slate-300 mt-1"></div>
+          </div>
+          <button id="closePaymentBtn" class="btn-ghost text-sm">Close</button>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-6 mt-6 items-center">
+          <div class="rounded-2xl border border-white/10 bg-white p-4">
+            <div id="qrBox"></div>
+          </div>
+          <div class="space-y-3">
+            <div class="text-sm text-slate-300">
+              Payment must be verified before order is placed.
+            </div>
+            <div class="pill w-fit">Timeout: <span id="payCountdown">--</span>s</div>
+            <div class="flex gap-2 flex-wrap">
+              <button id="simulatePayBtn" class="btn-primary">Simulate Payment Success</button>
+              <button id="simulateFailBtn" class="btn-ghost">Simulate Failure</button>
+            </div>
+            <div id="payStatus" class="text-sm text-slate-300"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- receipt modal -->
+  <div id="receiptModal" class="hidden fixed inset-0 z-50 bg-black/70">
+    <div class="h-full w-full flex items-center justify-center px-6">
+      <div class="max-w-xl w-full rounded-3xl bg-slate-950 border border-white/10 shadow-2xl p-6">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">Receipt</div>
+            <div class="text-xl font-semibold mt-1">Order Confirmed</div>
+            <div id="receiptHint" class="text-slate-300 mt-1 text-sm"></div>
+          </div>
+          <button id="closeReceiptBtn" class="btn-ghost text-sm">Close</button>
+        </div>
+
+        <div id="printArea" class="mt-6 rounded-2xl border border-white/10 bg-white text-slate-950 p-5">
+          <!-- injected -->
+        </div>
+
+        <div class="mt-5 flex items-center justify-between gap-3">
+          <button id="printBtn" class="btn-primary">Print Receipt</button>
+          <button id="doneBtn" class="btn-ghost">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/supabase.js"></script>
+<script src="assets/storage.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/kiosk.js"></script>
+</body>
+</html>
