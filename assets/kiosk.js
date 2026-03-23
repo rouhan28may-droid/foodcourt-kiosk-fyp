@@ -1,263 +1,515 @@
-
 (async function () {
-  await FC.seed();
+  window.FC = window.FC || {};
 
-  const elTabs = document.getElementById("restaurantTabs");
-  const elMenu = document.getElementById("menuGrid");
-  const elCart = document.getElementById("cartItems");
-  const elSubtotal = document.getElementById("subtotal");
-  const elTax = document.getElementById("tax");
-  const elTotal = document.getElementById("total");
-  const elCheckout = document.getElementById("checkoutBtn");
-  const elClearCart = document.getElementById("clearCartBtn");
-  const elReset = document.getElementById("resetBtn");
+  const $ = (id) => document.getElementById(id);
 
-  const elActiveName = document.getElementById("activeRestaurantName");
-  const elActiveTagline = document.getElementById("activeRestaurantTagline");
-  const elTaxRateLabel = document.getElementById("taxRateLabel");
-  const elQueueCount = document.getElementById("queueCount");
+  function safeArray(v) {
+    return Array.isArray(v) ? v : [];
+  }
 
-  const elSearch = document.getElementById("searchInput");
-  const elCategory = document.getElementById("categorySelect");
-  const elFlowPanel = document.getElementById("flowPanel");
+  function safeObject(v) {
+    return v && typeof v === "object" ? v : {};
+  }
 
-  // payment + receipt
-  const paymentModal = document.getElementById("paymentModal");
-  const qrBox = document.getElementById("qrBox");
-  const payAmount = document.getElementById("payAmount");
-  const payCountdown = document.getElementById("payCountdown");
-  const payStatus = document.getElementById("payStatus");
-  const closePaymentBtn = document.getElementById("closePaymentBtn");
-  const simulatePayBtn = document.getElementById("simulatePayBtn");
-  const simulateFailBtn = document.getElementById("simulateFailBtn");
+  function safeState() {
+    try {
+      if (typeof FC.getStateSafe === "function") return FC.getStateSafe();
+      return typeof FC.getState === "function" ? (FC.getState() || {}) : {};
+    } catch {
+      return {};
+    }
+  }
 
-  const receiptModal = document.getElementById("receiptModal");
-  const printArea = document.getElementById("printArea");
-  const receiptHint = document.getElementById("receiptHint");
-  const closeReceiptBtn = document.getElementById("closeReceiptBtn");
-  const printBtn = document.getElementById("printBtn");
-  const doneBtn = document.getElementById("doneBtn");
+  function safeSessionRead(key, fallback) {
+    try {
+      return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+    } catch {
+      return fallback;
+    }
+  }
 
-  // ads overlay
-  const adsOverlay = document.getElementById("adsOverlay");
-  const adTitle = document.getElementById("adTitle");
-  const adSubtitle = document.getElementById("adSubtitle");
+  function logSafe(message) {
+    try {
+      if (typeof FC.log === "function") FC.log(message);
+    } catch (err) {
+      console.error("kiosk.js log failed", err);
+    }
+  }
 
-  // session state
+  function alertSafe(message) {
+    try {
+      window.alert(message);
+    } catch {
+      console.warn(message);
+    }
+  }
+
+  async function seedSafe() {
+    try {
+      if (typeof FC.seed === "function") {
+        await FC.seed();
+      }
+    } catch (err) {
+      console.error("kiosk.js: seed failed", err);
+    }
+  }
+
+  async function getOrderSafe(orderId) {
+    if (!orderId) return null;
+    try {
+      return await Promise.resolve(FC.getOrder(orderId));
+    } catch (err) {
+      console.error("kiosk.js: getOrder failed", err);
+      return null;
+    }
+  }
+
+  async function createOrderSafe(payload) {
+    return await Promise.resolve(FC.createOrder(payload));
+  }
+
+  async function updateOrderSafe(orderId, patch) {
+    return await Promise.resolve(FC.updateOrder(orderId, patch));
+  }
+
+  async function fetchAllOrdersSafe() {
+    try {
+      if (typeof FC.fetchAllOrders === "function") {
+        return await FC.fetchAllOrders();
+      }
+    } catch (err) {
+      console.warn("kiosk.js: fetchAllOrders failed, falling back to local state", err);
+    }
+
+    const s = safeState();
+    return safeArray(s.orders);
+  }
+
+  function nowISO() {
+    try {
+      if (typeof FC.nowISO === "function") return FC.nowISO();
+    } catch {}
+    return new Date().toISOString();
+  }
+
+  function money(value) {
+    try {
+      if (typeof FC.money === "function") return FC.money(value);
+    } catch {}
+    return String(value ?? 0);
+  }
+
+  function computeTotals(items) {
+    try {
+      if (typeof FC.computeTotals === "function") return FC.computeTotals(items);
+    } catch {}
+    const subtotal = safeArray(items).reduce((sum, it) => sum + (Number(it.price || 0) * Number(it.qty || 0)), 0);
+    const tax = Math.round(subtotal * 0.13);
+    return { subtotal, tax, total: subtotal + tax };
+  }
+
+  function trackAdImpressionSafe(adId) {
+    try {
+      if (typeof FC.trackAdImpression === "function") {
+        FC.trackAdImpression(adId);
+      }
+    } catch (err) {
+      console.error("kiosk.js: trackAdImpression failed", err);
+    }
+  }
+
+  function simulateGatewayVerifySafe(success) {
+    try {
+      if (typeof FC.simulateGatewayVerify === "function") {
+        FC.simulateGatewayVerify(success);
+      }
+    } catch (err) {
+      console.error("kiosk.js: simulateGatewayVerify failed", err);
+    }
+  }
+
+  function simulatePrinterPaperUseSafe() {
+    try {
+      if (typeof FC.simulatePrinterPaperUse === "function") {
+        FC.simulatePrinterPaperUse();
+      }
+    } catch (err) {
+      console.error("kiosk.js: simulatePrinterPaperUse failed", err);
+    }
+  }
+
+  const elTabs = $("restaurantTabs");
+  const elMenu = $("menuGrid");
+  const elCart = $("cartItems");
+  const elSubtotal = $("subtotal");
+  const elTax = $("tax");
+  const elTotal = $("total");
+  const elCheckout = $("checkoutBtn");
+  const elClearCart = $("clearCartBtn");
+  const elReset = $("resetBtn");
+
+  const elActiveName = $("activeRestaurantName");
+  const elActiveTagline = $("activeRestaurantTagline");
+  const elTaxRateLabel = $("taxRateLabel");
+  const elQueueCount = $("queueCount");
+
+  const elSearch = $("searchInput");
+  const elCategory = $("categorySelect");
+  const elFlowPanel = $("flowPanel");
+
+  const paymentModal = $("paymentModal");
+  const qrBox = $("qrBox");
+  const payAmount = $("payAmount");
+  const payCountdown = $("payCountdown");
+  const payStatus = $("payStatus");
+  const closePaymentBtn = $("closePaymentBtn");
+  const simulatePayBtn = $("simulatePayBtn");
+  const simulateFailBtn = $("simulateFailBtn");
+
+  const receiptModal = $("receiptModal");
+  const printArea = $("printArea");
+  const receiptHint = $("receiptHint");
+  const closeReceiptBtn = $("closeReceiptBtn");
+  const printBtn = $("printBtn");
+  const doneBtn = $("doneBtn");
+
+  const adsOverlay = $("adsOverlay");
+  const adTitle = $("adTitle");
+  const adSubtitle = $("adSubtitle");
+
   const sessionKey = "fc_session";
-  const session = JSON.parse(localStorage.getItem(sessionKey) || "{}");
+  const session = safeSessionRead(sessionKey, {});
   let activeRestaurantId = session.activeRestaurantId || "r1";
-  let cart = session.cart || []; // [{restaurantId, itemId, name, price, qty}]
+  let cart = safeArray(session.cart);
   let awaitingOrderId = session.awaitingOrderId || null;
 
-  const saveSession = () => {
-    localStorage.setItem(sessionKey, JSON.stringify({ activeRestaurantId, cart, awaitingOrderId }));
-  };
+  let payInterval = null;
+  let paySecondsLeft = 0;
+  let currentPayOrderId = null;
+  let currentReceiptOrderId = null;
 
-  // idle mode ads
   let idleSeconds = 0;
   let adsIdx = 0;
   let adTimer = null;
 
-  const resetIdle = () => {
+  let renderBusy = false;
+  let rerenderRequested = false;
+
+  function saveSession() {
+    localStorage.setItem(
+      sessionKey,
+      JSON.stringify({
+        activeRestaurantId,
+        cart,
+        awaitingOrderId
+      })
+    );
+  }
+
+  function getRestaurants() {
+    return safeArray(safeState().restaurants);
+  }
+
+  function getRestaurant() {
+    const restaurants = getRestaurants();
+    if (!restaurants.length) return null;
+    return restaurants.find((r) => r.id === activeRestaurantId) || restaurants[0];
+  }
+
+  function getRestaurantById(id) {
+    return getRestaurants().find((r) => r.id === id) || null;
+  }
+
+  function uniqueCategories(menu) {
+    const cats = ["All"];
+    for (const m of safeArray(menu)) {
+      if (m?.category && !cats.includes(m.category)) cats.push(m.category);
+    }
+    return cats;
+  }
+
+  function resetIdle() {
     idleSeconds = 0;
-    if (!adsOverlay.classList.contains("hidden")) {
+    if (adsOverlay && !adsOverlay.classList.contains("hidden")) {
       hideAds();
     }
-  };
+  }
 
-  const showAds = () => {
-    const s = FC.getState();
-    const enabledAds = s.ads.filter(a => a.enabled);
-    if (enabledAds.length === 0) return;
+  function hideAds() {
+    if (adsOverlay) adsOverlay.classList.add("hidden");
+    if (adTimer) clearInterval(adTimer);
+    adTimer = null;
+  }
+
+  function showAds() {
+    const s = safeState();
+    const enabledAds = safeArray(s.ads).filter((a) => a && a.enabled);
+
+    if (!enabledAds.length || !adsOverlay || !adTitle || !adSubtitle) return;
+
+    const renderAd = () => {
+      const ad = enabledAds[adsIdx % enabledAds.length];
+      if (!ad) return;
+      adTitle.textContent = ad.title || "";
+      adSubtitle.textContent = ad.subtitle || "";
+      trackAdImpressionSafe(ad.id);
+    };
 
     adsOverlay.classList.remove("hidden");
     renderAd();
+
     if (adTimer) clearInterval(adTimer);
     adTimer = setInterval(() => {
       adsIdx = (adsIdx + 1) % enabledAds.length;
       renderAd();
     }, 5000);
+  }
 
-    function renderAd() {
-      const ad = enabledAds[adsIdx];
-      adTitle.textContent = ad.title;
-      adSubtitle.textContent = ad.subtitle;
-      FC.trackAdImpression(ad.id);
-    }
-  };
-
-  const hideAds = () => {
-    adsOverlay.classList.add("hidden");
-    if (adTimer) clearInterval(adTimer);
-    adTimer = null;
-  };
-
-  // reset idle on any interaction
-  ["mousemove", "mousedown", "touchstart", "keydown", "scroll"].forEach(evt => {
+  ["mousemove", "mousedown", "touchstart", "keydown", "scroll"].forEach((evt) => {
     window.addEventListener(evt, resetIdle, { passive: true });
   });
-  adsOverlay.addEventListener("click", resetIdle);
+
+  if (adsOverlay) {
+    adsOverlay.addEventListener("click", resetIdle);
+  }
 
   setInterval(() => {
-    const s = FC.getState();
+    const s = safeState();
+    const afterSeconds = Number(s.settings?.idleAdsAfterSeconds || 240);
     idleSeconds += 1;
-    if (idleSeconds >= (s.settings.idleAdsAfterSeconds || 240)) {
+    if (idleSeconds >= afterSeconds) {
       showAds();
     }
   }, 1000);
 
-  function getRestaurant() {
-    const s = FC.getState();
-    return s.restaurants.find(r => r.id === activeRestaurantId) || s.restaurants[0];
-  }
-
-  function renderTabs() {
-    const s = FC.getState();
-    elTabs.innerHTML = "";
-    s.restaurants.forEach(r => {
-      const btn = document.createElement("button");
-      btn.className = "px-4 py-2 rounded-2xl border border-white/10 text-sm " + (r.id === activeRestaurantId ? "bg-white/10" : "bg-white/5 hover:bg-white/10");
-      btn.innerHTML = `<div class="font-semibold">${r.name}</div><div class="text-xs text-slate-400">${r.online ? "Online" : "Offline"}</div>`;
-      btn.onclick = () => {
-        activeRestaurantId = r.id;
-        saveSession();
-        renderAll();
-      };
-      elTabs.appendChild(btn);
-    });
-  }
-
-  function uniqueCategories(menu) {
-    const cats = ["All"];
-    for (const m of menu) {
-      if (!cats.includes(m.category)) cats.push(m.category);
-    }
-    return cats;
-  }
-
-  function renderCategorySelect() {
-    const r = getRestaurant();
-    const cats = uniqueCategories(r.menu);
-    const current = elCategory.value || "All";
-    elCategory.innerHTML = "";
-    cats.forEach(c => {
-      const o = document.createElement("option");
-      o.value = c;
-      o.textContent = c;
-      elCategory.appendChild(o);
-    });
-    elCategory.value = cats.includes(current) ? current : "All";
-  }
-
-  function renderMenu() {
-    const s = FC.getState();
-    const r = getRestaurant();
-    elActiveName.textContent = r.name;
-    elActiveTagline.textContent = r.tagline;
-
-    const qCount = s.orders.filter(o => ["paid", "preparing", "ready"].includes(o.status)).length;
-    elQueueCount.textContent = qCount;
-    elTaxRateLabel.textContent = Math.round((s.settings.taxRate || 0.13) * 100) + "%";
-
-    const search = (elSearch.value || "").toLowerCase().trim();
-    const cat = elCategory.value || "All";
-
-    const filtered = r.menu.filter(m => {
-      if (cat !== "All" && m.category !== cat) return false;
-      if (search && !m.name.toLowerCase().includes(search)) return false;
-      return true;
-    });
-
-    elMenu.innerHTML = "";
-    filtered.forEach(m => {
-      const card = document.createElement("div");
-      card.className = "card p-4";
-      const available = r.online && m.available;
-      card.innerHTML = `
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="font-semibold">${m.name}</div>
-            <div class="text-xs text-slate-400 mt-1">${m.category} • ${m.fast ? "Fast item" : "Standard"}</div>
-          </div>
-          <div class="text-sm font-semibold">${FC.money(m.price)}</div>
-        </div>
-        <div class="mt-4 flex items-center justify-between">
-          <div class="text-xs ${available ? "text-emerald-300" : "text-rose-300"}">${available ? "Available" : (r.online ? "Out of stock" : "Restaurant offline")}</div>
-          <button class="${available ? "btn-primary" : "btn-ghost opacity-40 cursor-not-allowed"} text-sm" ${available ? "" : "disabled"}>
-            Add
-          </button>
-        </div>
-      `;
-      const btn = card.querySelector("button");
-      btn.onclick = () => {
-        if (!available) return;
-        addToCart(r.id, m);
-      };
-      elMenu.appendChild(card);
-    });
-  }
-
   function addToCart(restaurantId, menuItem) {
-    // Enforce: cart holds items from one restaurant (simple kiosk flow)
+    if (!menuItem) return;
+
     if (cart.length && cart[0].restaurantId !== restaurantId) {
-      alert("Cart contains items from another restaurant. Clear cart to switch restaurants.");
+      alertSafe("Cart contains items from another restaurant. Clear cart to switch restaurants.");
       return;
     }
-    const found = cart.find(x => x.itemId === menuItem.id);
-    if (found) found.qty += 1;
-    else cart.push({ restaurantId, itemId: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1 });
+
+    const found = cart.find((x) => x.itemId === menuItem.id);
+    if (found) {
+      found.qty += 1;
+    } else {
+      cart.push({
+        restaurantId,
+        itemId: menuItem.id,
+        name: menuItem.name,
+        price: Number(menuItem.price || 0),
+        qty: 1
+      });
+    }
+
     saveSession();
     renderCart();
   }
 
   function updateQty(itemId, delta) {
-    const it = cart.find(x => x.itemId === itemId);
+    const it = cart.find((x) => x.itemId === itemId);
     if (!it) return;
+
     it.qty += delta;
-    if (it.qty <= 0) cart = cart.filter(x => x.itemId !== itemId);
+
+    if (it.qty <= 0) {
+      cart = cart.filter((x) => x.itemId !== itemId);
+    }
+
     saveSession();
     renderCart();
   }
 
+  function clearCart() {
+    cart = [];
+    saveSession();
+    renderCart();
+  }
+
+  async function refreshQueueCount() {
+    if (!elQueueCount) return;
+
+    const orders = await fetchAllOrdersSafe();
+    const count = safeArray(orders).filter((o) =>
+      ["paid", "preparing", "ready"].includes(o.status)
+    ).length;
+
+    elQueueCount.textContent = String(count);
+  }
+
+  function renderTabs() {
+    if (!elTabs) return;
+
+    const restaurants = getRestaurants();
+    const current = getRestaurant();
+    if (current) activeRestaurantId = current.id;
+
+    elTabs.innerHTML = "";
+
+    restaurants.forEach((r) => {
+      const btn = document.createElement("button");
+      btn.className =
+        "px-4 py-2 rounded-2xl border border-white/10 text-sm " +
+        (r.id === activeRestaurantId ? "bg-white/10" : "bg-white/5 hover:bg-white/10");
+
+      btn.innerHTML = `
+        <div class="font-semibold">${r.name || "Restaurant"}</div>
+        <div class="text-xs text-slate-400">${r.online ? "Online" : "Offline"}</div>
+      `;
+
+      btn.onclick = async () => {
+        activeRestaurantId = r.id;
+        saveSession();
+        await renderAll();
+      };
+
+      elTabs.appendChild(btn);
+    });
+  }
+
+  function renderCategorySelect() {
+    if (!elCategory) return;
+
+    const r = getRestaurant();
+    const cats = uniqueCategories(r?.menu || []);
+    const current = elCategory.value || "All";
+
+    elCategory.innerHTML = "";
+
+    cats.forEach((c) => {
+      const o = document.createElement("option");
+      o.value = c;
+      o.textContent = c;
+      elCategory.appendChild(o);
+    });
+
+    elCategory.value = cats.includes(current) ? current : "All";
+  }
+
+  async function renderMenu() {
+    if (!elMenu) return;
+
+    const s = safeState();
+    const r = getRestaurant();
+
+    if (!r) {
+      elMenu.innerHTML = `<div class="text-sm text-slate-400">No restaurants loaded.</div>`;
+      if (elActiveName) elActiveName.textContent = "Restaurant";
+      if (elActiveTagline) elActiveTagline.textContent = "Tagline";
+      return;
+    }
+
+    if (elActiveName) elActiveName.textContent = r.name || "Restaurant";
+    if (elActiveTagline) elActiveTagline.textContent = r.tagline || "Tagline";
+    if (elTaxRateLabel) {
+      elTaxRateLabel.textContent = Math.round((Number(s.settings?.taxRate || 0.13)) * 100) + "%";
+    }
+
+    await refreshQueueCount();
+
+    const search = (elSearch?.value || "").toLowerCase().trim();
+    const cat = elCategory?.value || "All";
+
+    const filtered = safeArray(r.menu).filter((m) => {
+      if (cat !== "All" && m.category !== cat) return false;
+      if (search && !String(m.name || "").toLowerCase().includes(search)) return false;
+      return true;
+    });
+
+    elMenu.innerHTML = "";
+
+    if (!filtered.length) {
+      elMenu.innerHTML = `<div class="text-sm text-slate-400">No matching items found.</div>`;
+      return;
+    }
+
+    filtered.forEach((m) => {
+      const card = document.createElement("div");
+      card.className = "card p-4";
+
+      const available = !!(r.online && m.available);
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="font-semibold">${m.name || ""}</div>
+            <div class="text-xs text-slate-400 mt-1">${m.category || "General"} • ${m.fast ? "Fast item" : "Standard"}</div>
+          </div>
+          <div class="text-sm font-semibold">${money(Number(m.price || 0))}</div>
+        </div>
+        <div class="mt-4 flex items-center justify-between">
+          <div class="text-xs ${available ? "text-emerald-300" : "text-rose-300"}">
+            ${available ? "Available" : (r.online ? "Out of stock" : "Restaurant offline")}
+          </div>
+          <button class="${available ? "btn-primary" : "btn-ghost opacity-40 cursor-not-allowed"} text-sm" ${available ? "" : "disabled"}>
+            Add
+          </button>
+        </div>
+      `;
+
+      const btn = card.querySelector("button");
+      btn.onclick = () => {
+        if (!available) return;
+        addToCart(r.id, m);
+      };
+
+      elMenu.appendChild(card);
+    });
+  }
+
   function renderCart() {
+    if (!elCart || !elSubtotal || !elTax || !elTotal || !elCheckout) return;
+
     elCart.innerHTML = "";
-    if (cart.length === 0) {
+
+    if (!cart.length) {
       elCart.innerHTML = `<div class="text-sm text-slate-400">Cart is empty. Add items to proceed.</div>`;
     } else {
-      cart.forEach(it => {
+      cart.forEach((it) => {
         const row = document.createElement("div");
         row.className = "flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/5 border border-white/10";
+
         row.innerHTML = `
           <div class="min-w-0">
-            <div class="font-semibold truncate">${it.name}</div>
-            <div class="text-xs text-slate-400 mt-1">${FC.money(it.price)} • Qty ${it.qty}</div>
+            <div class="font-semibold truncate">${it.name || ""}</div>
+            <div class="text-xs text-slate-400 mt-1">${money(Number(it.price || 0))} • Qty ${Number(it.qty || 0)}</div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <button class="btn-ghost text-sm px-3 py-2">-</button>
             <button class="btn-ghost text-sm px-3 py-2">+</button>
           </div>
         `;
+
         const [minus, plus] = row.querySelectorAll("button");
         minus.onclick = () => updateQty(it.itemId, -1);
         plus.onclick = () => updateQty(it.itemId, +1);
+
         elCart.appendChild(row);
       });
     }
 
-    const totals = FC.computeTotals(cart);
-    elSubtotal.textContent = FC.money(totals.subtotal);
-    elTax.textContent = FC.money(totals.tax);
-    elTotal.textContent = FC.money(totals.total);
+    const totals = computeTotals(cart);
+    elSubtotal.textContent = money(totals.subtotal);
+    elTax.textContent = money(totals.tax);
+    elTotal.textContent = money(totals.total);
 
     elCheckout.disabled = cart.length === 0;
     elCheckout.classList.toggle("opacity-50", cart.length === 0);
   }
 
+  function hideFlow() {
+    if (elFlowPanel) elFlowPanel.classList.add("hidden");
+  }
+
   function renderFlow(order) {
+    if (!elFlowPanel || !order) return;
+
     elFlowPanel.classList.remove("hidden");
     elFlowPanel.className = "mt-6 glass p-5 rounded-3xl";
-    const r = getRestaurant();
+
+    const r = getRestaurantById(order.restaurantId) || getRestaurant();
+    const items = safeArray(order.items);
 
     if (order.status === "pending_approval") {
       elFlowPanel.innerHTML = `
@@ -265,12 +517,13 @@
           <div>
             <div class="text-xs uppercase tracking-widest text-slate-400">Order Sent</div>
             <div class="text-xl font-semibold mt-1">Waiting for Approval</div>
-            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> sent to <span class="pill">${r.name}</span></div>
+            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> sent to <span class="pill">${r?.name || "Restaurant"}</span></div>
           </div>
           <div class="pill badge-yellow">Pending</div>
         </div>
         <div class="mt-4 text-sm text-slate-400">Restaurant will approve/reject based on availability.</div>
       `;
+      return;
     }
 
     if (order.status === "rejected") {
@@ -288,19 +541,29 @@
           <button id="cancelBtn" class="btn-ghost">Cancel</button>
         </div>
       `;
-      elFlowPanel.querySelector("#tryAgainBtn").onclick = () => {
-        awaitingOrderId = null;
-        saveSession();
-        elFlowPanel.classList.add("hidden");
-      };
-      elFlowPanel.querySelector("#cancelBtn").onclick = () => {
-        awaitingOrderId = null;
-        saveSession();
-        cart = [];
-        saveSession();
-        renderCart();
-        elFlowPanel.classList.add("hidden");
-      };
+
+      const tryAgainBtn = elFlowPanel.querySelector("#tryAgainBtn");
+      const cancelBtn = elFlowPanel.querySelector("#cancelBtn");
+
+      if (tryAgainBtn) {
+        tryAgainBtn.onclick = () => {
+          awaitingOrderId = null;
+          saveSession();
+          hideFlow();
+        };
+      }
+
+      if (cancelBtn) {
+        cancelBtn.onclick = () => {
+          awaitingOrderId = null;
+          cart = [];
+          saveSession();
+          renderCart();
+          hideFlow();
+        };
+      }
+
+      return;
     }
 
     if (order.status === "approved" || order.status === "awaiting_payment") {
@@ -309,13 +572,20 @@
           <div>
             <div class="text-xs uppercase tracking-widest text-slate-400">Approved</div>
             <div class="text-xl font-semibold mt-1">Proceed to Payment</div>
-            <div class="text-sm text-slate-300 mt-2">Estimated prep: <span class="pill">${r.prepTimeMins} min</span> • Priority: <span class="pill">${order.items.some(i => i.fast) ? "Fast items" : "Standard"}</span></div>
+            <div class="text-sm text-slate-300 mt-2">Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span> • Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span></div>
           </div>
           <div class="pill badge-green">Approved</div>
         </div>
         <button id="payBtn" class="btn-primary mt-5">Pay Now (QR)</button>
       `;
-      elFlowPanel.querySelector("#payBtn").onclick = () => openPayment(order.id);
+
+      const payBtn = elFlowPanel.querySelector("#payBtn");
+      if (payBtn) {
+        payBtn.onclick = async () => {
+          await openPayment(order.id);
+        };
+      }
+      return;
     }
 
     if (["paid", "preparing", "ready", "completed"].includes(order.status)) {
@@ -326,93 +596,143 @@
             <div class="text-xl font-semibold mt-1">Order Confirmed</div>
             <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> is now in preparation queue.</div>
           </div>
-          <div class="pill badge-green">${order.status.toUpperCase()}</div>
+          <div class="pill badge-green">${String(order.status).toUpperCase()}</div>
         </div>
         <div class="mt-4 text-sm text-slate-400">You can show this screen as proof of payment.</div>
       `;
     }
   }
 
-  let payInterval = null;
-  let paySecondsLeft = 0;
-  let currentPayOrderId = null;
-  let currentReceiptOrderId = null;
+  async function refreshFlowPanel() {
+    if (!awaitingOrderId) {
+      hideFlow();
+      return;
+    }
 
-  function openPayment(orderId) {
-    const s = FC.getState();
-    const order = FC.getOrder(orderId);
+    const o = await getOrderSafe(awaitingOrderId);
+    if (o) renderFlow(o);
+    else hideFlow();
+  }
+
+  async function openPayment(orderId) {
+    const s = safeState();
+    const order = await getOrderSafe(orderId);
     if (!order) return;
 
     currentPayOrderId = orderId;
 
-    // create QR payload
-    const payload = `PAY|${order.id}|${order.total}|${order.currency}|${Date.now()}`;
-    order.payment.attemptCount = (order.payment.attemptCount || 0) + 1;
-    order.payment.method = "QR";
-    order.payment.qrPayload = payload;
+    const payment = {
+      ...safeObject(order.payment),
+      attemptCount: Number(order.payment?.attemptCount || 0) + 1,
+      success: false,
+      method: "QR",
+      qrPayload: `PAY|${order.id}|${order.total}|${order.currency}|${Date.now()}`
+    };
 
-    // lock: awaiting payment
-    FC.updateOrder(orderId, { status: "awaiting_payment", payment: order.payment });
+    await updateOrderSafe(orderId, {
+      status: "awaiting_payment",
+      payment
+    });
 
-    // UI
-    paymentModal.classList.remove("hidden");
-    qrBox.innerHTML = "";
-    new QRCode(qrBox, { text: payload, width: 180, height: 180 });
-    payAmount.textContent = `Amount: ${FC.money(order.total)} (${order.currency})`;
-    payStatus.textContent = "Waiting for payment verification...";
-    paySecondsLeft = s.settings.paymentTimeoutSeconds || 180;
-    payCountdown.textContent = paySecondsLeft;
+    if (paymentModal) paymentModal.classList.remove("hidden");
+
+    if (qrBox) {
+      qrBox.innerHTML = "";
+      try {
+        new QRCode(qrBox, {
+          text: payment.qrPayload,
+          width: 180,
+          height: 180
+        });
+      } catch (err) {
+        console.error("kiosk.js: QRCode render failed", err);
+        qrBox.textContent = payment.qrPayload;
+      }
+    }
+
+    if (payAmount) payAmount.textContent = `Amount: ${money(order.total)} (${order.currency || "PKR"})`;
+    if (payStatus) payStatus.textContent = "Waiting for payment verification...";
+
+    paySecondsLeft = Number(s.settings?.paymentTimeoutSeconds || 180);
+    if (payCountdown) payCountdown.textContent = String(paySecondsLeft);
 
     if (payInterval) clearInterval(payInterval);
-    payInterval = setInterval(() => {
+
+    payInterval = setInterval(async () => {
       paySecondsLeft -= 1;
-      payCountdown.textContent = paySecondsLeft;
+      if (payCountdown) payCountdown.textContent = String(Math.max(paySecondsLeft, 0));
+
       if (paySecondsLeft <= 0) {
         clearInterval(payInterval);
         payInterval = null;
-        payStatus.textContent = "Payment timeout. Order cancelled.";
-        FC.updateOrder(orderId, { status: "rejected", rejectReason: "Payment timeout" });
-        setTimeout(() => closePayment(), 1200);
+
+        if (payStatus) payStatus.textContent = "Payment timeout. Order cancelled.";
+        await updateOrderSafe(orderId, {
+          status: "rejected",
+          rejectReason: "Payment timeout"
+        });
+
+        setTimeout(() => {
+          closePayment();
+        }, 1200);
       }
     }, 1000);
+
+    await refreshFlowPanel();
   }
 
-  function closePayment() {
-    paymentModal.classList.add("hidden");
+  async function closePayment() {
+    if (paymentModal) paymentModal.classList.add("hidden");
     if (payInterval) clearInterval(payInterval);
     payInterval = null;
-    qrBox.innerHTML = "";
+    if (qrBox) qrBox.innerHTML = "";
     currentPayOrderId = null;
-    // refresh flow panel
-    if (awaitingOrderId) {
-      const o = FC.getOrder(awaitingOrderId);
-      if (o) renderFlow(o);
-    }
+    await refreshFlowPanel();
   }
 
-  closePaymentBtn.onclick = closePayment;
+  if (closePaymentBtn) {
+    closePaymentBtn.onclick = async () => {
+      await closePayment();
+    };
+  }
 
-  simulateFailBtn.onclick = () => {
-    if (!currentPayOrderId) return;
-    payStatus.textContent = "Payment failed (simulated). Please retry.";
-  };
+  if (simulateFailBtn) {
+    simulateFailBtn.onclick = () => {
+      if (!currentPayOrderId) return;
+      if (payStatus) payStatus.textContent = "Payment failed (simulated). Please retry.";
+    };
+  }
 
-  simulatePayBtn.onclick = () => {
-    if (!currentPayOrderId) return;
-    const o = FC.getOrder(currentPayOrderId);
-    if (!o) return;
+  if (simulatePayBtn) {
+    simulatePayBtn.onclick = async () => {
+      if (!currentPayOrderId) return;
 
-    o.payment.success = true;
-    FC.simulateGatewayVerify(true);
-    FC.updateOrder(currentPayOrderId, { status: "paid", paidAt: FC.nowISO(), payment: o.payment });
-    FC.log(`Payment verified for ${o.id}. Order placed.`);
+      const o = await getOrderSafe(currentPayOrderId);
+      if (!o) return;
 
-    payStatus.textContent = "Payment verified ✅";
-    setTimeout(() => {
-      closePayment();
-      openReceipt(o.id);
-    }, 700);
-  };
+      const payment = {
+        ...safeObject(o.payment),
+        success: true
+      };
+
+      simulateGatewayVerifySafe(true);
+
+      await updateOrderSafe(currentPayOrderId, {
+        status: "paid",
+        paidAt: nowISO(),
+        payment
+      });
+
+      logSafe(`Payment verified for ${o.id}. Order placed.`);
+
+      if (payStatus) payStatus.textContent = "Payment verified ✅";
+
+      setTimeout(async () => {
+        await closePayment();
+        await openReceipt(o.id);
+      }, 700);
+    };
+  }
 
   function escapeHtml(value = "") {
     return String(value)
@@ -649,10 +969,10 @@
   }
 
   function buildCustomerSlip(order) {
-    const restaurant = FC.getState().restaurants.find(r => r.id === order.restaurantId);
-    const receiptDate = order.paidAt || order.createdAt || FC.nowISO();
+    const restaurant = getRestaurantById(order.restaurantId);
+    const receiptDate = order.paidAt || order.createdAt || nowISO();
 
-    const itemRows = (order.items || []).map(item => {
+    const itemRows = safeArray(order.items).map((item) => {
       const qty = Number(item.qty || 0);
       const unitPrice = Number(item.price || 0);
       const lineTotal = qty * unitPrice;
@@ -661,7 +981,7 @@
       <tr>
         <td class="item">${escapeHtml(item.name)}</td>
         <td class="qty">${qty}</td>
-        <td class="amount">${escapeHtml(FC.money(lineTotal))}</td>
+        <td class="amount">${escapeHtml(money(lineTotal))}</td>
       </tr>
     `;
     }).join("");
@@ -698,15 +1018,15 @@
       <div class="totals">
         <div class="row">
           <div class="label">Subtotal</div>
-          <div class="value">${escapeHtml(FC.money(order.subtotal || 0))}</div>
+          <div class="value">${escapeHtml(money(order.subtotal || 0))}</div>
         </div>
         <div class="row">
           <div class="label">Tax</div>
-          <div class="value">${escapeHtml(FC.money(order.tax || 0))}</div>
+          <div class="value">${escapeHtml(money(order.tax || 0))}</div>
         </div>
         <div class="row grand-total">
           <div>Total</div>
-          <div>${escapeHtml(FC.money(order.total || 0))}</div>
+          <div>${escapeHtml(money(order.total || 0))}</div>
         </div>
       </div>
 
@@ -719,10 +1039,10 @@
   }
 
   function buildRestaurantSlip(order) {
-    const restaurant = FC.getState().restaurants.find(r => r.id === order.restaurantId);
-    const receiptDate = order.paidAt || order.createdAt || FC.nowISO();
+    const restaurant = getRestaurantById(order.restaurantId);
+    const receiptDate = order.paidAt || order.createdAt || nowISO();
 
-    const itemRows = (order.items || []).map(item => {
+    const itemRows = safeArray(order.items).map((item) => {
       const qty = Number(item.qty || 0);
 
       return `
@@ -782,9 +1102,9 @@
   `;
   }
 
-  function renderReceiptPreview(orderId) {
-    const order = FC.getOrder(orderId);
-    if (!order) return;
+  async function renderReceiptPreview(orderId) {
+    const order = await getOrderSafe(orderId);
+    if (!order || !receiptModal || !printArea || !receiptHint) return;
 
     currentReceiptOrderId = orderId;
     receiptModal.classList.remove("hidden");
@@ -804,12 +1124,12 @@
     printArea.scrollTop = 0;
   }
 
-  function openReceipt(orderId) {
-    renderReceiptPreview(orderId);
+  async function openReceipt(orderId) {
+    await renderReceiptPreview(orderId);
   }
 
-  function printReceiptOnly(orderId) {
-    const order = FC.getOrder(orderId);
+  async function printReceiptOnly(orderId) {
+    const order = await getOrderSafe(orderId);
     if (!order) return;
 
     const iframe = document.createElement("iframe");
@@ -860,22 +1180,25 @@
       }
     }, 350);
 
-    FC.simulatePrinterPaperUse();
+    simulatePrinterPaperUseSafe();
   }
 
-  function closeReceipt() {
-    receiptModal.classList.add("hidden");
-    printArea.scrollTop = 0;
-    printArea.style.maxHeight = "";
-    printArea.style.overflowY = "";
-    printArea.style.overflowX = "";
-    printArea.style.paddingRight = "";
-    printArea.style.scrollBehavior = "";
-    
+  async function closeReceipt() {
+    if (receiptModal) receiptModal.classList.add("hidden");
+
+    if (printArea) {
+      printArea.scrollTop = 0;
+      printArea.style.maxHeight = "";
+      printArea.style.overflowY = "";
+      printArea.style.overflowX = "";
+      printArea.style.paddingRight = "";
+      printArea.style.scrollBehavior = "";
+    }
+
     if (awaitingOrderId) {
-      const o = FC.getOrder(awaitingOrderId);
+      const o = await getOrderSafe(awaitingOrderId);
       if (o && o.status === "paid") {
-        FC.updateOrder(o.id, { status: "preparing" });
+        await updateOrderSafe(o.id, { status: "preparing" });
       }
     }
 
@@ -884,104 +1207,156 @@
     cart = [];
     saveSession();
     renderCart();
-    elFlowPanel.classList.add("hidden");
+    hideFlow();
+    await renderAll();
   }
 
-  closeReceiptBtn.onclick = closeReceipt;
-  doneBtn.onclick = closeReceipt;
+  if (closeReceiptBtn) {
+    closeReceiptBtn.onclick = async () => {
+      await closeReceipt();
+    };
+  }
 
-  printBtn.onclick = () => {
-    if (!currentReceiptOrderId) return;
-    printReceiptOnly(currentReceiptOrderId);
-  };
-  // checkout
-  elCheckout.onclick = () => {
-    if (cart.length === 0) return;
-    const r = getRestaurant();
-    if (!r.online) {
-      alert("Restaurant is offline right now.");
+  if (doneBtn) {
+    doneBtn.onclick = async () => {
+      await closeReceipt();
+    };
+  }
+
+  if (printBtn) {
+    printBtn.onclick = async () => {
+      if (!currentReceiptOrderId) return;
+      await printReceiptOnly(currentReceiptOrderId);
+    };
+  }
+
+  if (elCheckout) {
+    elCheckout.onclick = async () => {
+      if (!cart.length) return;
+
+      const r = getRestaurant();
+      if (!r) {
+        alertSafe("No restaurant loaded.");
+        return;
+      }
+
+      if (!r.online) {
+        alertSafe("Restaurant is offline right now.");
+        return;
+      }
+
+      const allAvailable = cart.every((ci) => {
+        const mi = safeArray(r.menu).find((x) => x.id === ci.itemId);
+        return mi && mi.available;
+      });
+
+      const totals = computeTotals(cart);
+
+      const order = await createOrderSafe({
+        restaurantId: r.id,
+        items: cart.map((x) => ({
+          ...x,
+          fast: !!safeArray(r.menu).find((m) => m.id === x.itemId)?.fast
+        })),
+        totals
+      });
+
+      awaitingOrderId = order.id;
+      saveSession();
+      renderFlow(order);
+      await refreshQueueCount();
+
+      if (allAvailable && r.online) {
+        setTimeout(async () => {
+          const o = await getOrderSafe(order.id);
+          if (o && o.status === "pending_approval") {
+            await updateOrderSafe(order.id, {
+              status: "approved",
+              approvedAt: nowISO()
+            });
+            logSafe(`Order ${order.id} auto-approved (restaurant online + items available).`);
+          }
+        }, 900);
+      }
+    };
+  }
+
+  if (elClearCart) {
+    elClearCart.onclick = () => {
+      clearCart();
+    };
+  }
+
+  if (elReset) {
+    elReset.onclick = async () => {
+      if (confirm("Reset demo state? This clears all orders and settings.")) {
+        try {
+          await FC.reset();
+        } catch (err) {
+          console.error("kiosk.js: reset failed", err);
+        }
+        location.reload();
+      }
+    };
+  }
+
+  if (elSearch) {
+    elSearch.addEventListener("input", () => {
+      renderMenu();
+    });
+  }
+
+  if (elCategory) {
+    elCategory.addEventListener("change", () => {
+      renderMenu();
+    });
+  }
+
+  setInterval(async () => {
+    if (!awaitingOrderId) return;
+    const o = await getOrderSafe(awaitingOrderId);
+    if (!o) return;
+    renderFlow(o);
+    await refreshQueueCount();
+  }, 900);
+
+  async function renderAll() {
+    if (renderBusy) {
+      rerenderRequested = true;
       return;
     }
 
-    // auto-approval logic: if online and all items available -> auto approve after short delay
-    const allAvailable = cart.every(ci => {
-      const mi = r.menu.find(x => x.id === ci.itemId);
-      return mi && mi.available;
-    });
+    renderBusy = true;
 
-    const totals = FC.computeTotals(cart);
-    const order = FC.createOrder({
-      restaurantId: r.id,
-      items: cart.map(x => ({ ...x, fast: !!r.menu.find(m => m.id === x.itemId)?.fast })),
-      totals
-    });
-
-    awaitingOrderId = order.id;
-    saveSession();
-    renderFlow(order);
-
-    if (allAvailable && r.online) {
-      // simulate auto approval (efficiency improvement)
-      setTimeout(() => {
-        const o = FC.getOrder(order.id);
-        if (o && o.status === "pending_approval") {
-          FC.updateOrder(order.id, { status: "approved", approvedAt: FC.nowISO() });
-          FC.log(`Order ${order.id} auto-approved (restaurant online + items available).`);
-        }
-      }, 900);
+    try {
+      renderTabs();
+      renderCategorySelect();
+      await renderMenu();
+      renderCart();
+      await refreshFlowPanel();
+    } catch (err) {
+      console.error("kiosk.js: renderAll failed", err);
+    } finally {
+      renderBusy = false;
+      if (rerenderRequested) {
+        rerenderRequested = false;
+        renderAll();
+      }
     }
-  };
+  }
 
-  elClearCart.onclick = () => {
-    cart = [];
-    saveSession();
-    renderCart();
-  };
-  elClearCart.onclick = () => {
-    cart = [];
-    saveSession();
-    renderCart();
-  };
+  await seedSafe();
+  await renderAll();
 
-  elReset.onclick = async () => {
-    if (confirm("Reset demo state? This clears all orders and settings.")) {
-      await FC.reset();
-      location.reload();
-    }
-  };
-
-  // search + category
-  elSearch.addEventListener("input", () => renderMenu());
-  elCategory.addEventListener("change", () => renderMenu());
-
-  // polling for order updates
-  setInterval(() => {
-    if (!awaitingOrderId) return;
-    const o = FC.getOrder(awaitingOrderId);
-    if (!o) return;
-    renderFlow(o);
-  }, 900);
-
-  function renderAll() {
-    renderTabs();
-    renderCategorySelect();
-    renderMenu();
-    renderCart();
-
+  window.addEventListener("fc:state-changed", async () => {
+    await renderAll();
     if (awaitingOrderId) {
-      const o = FC.getOrder(awaitingOrderId);
+      const o = await getOrderSafe(awaitingOrderId);
       if (o) renderFlow(o);
-      else elFlowPanel.classList.add("hidden");
     }
-  }
+  });
 
-  renderAll();
-window.addEventListener("fc:state-changed", () => {
-  renderAll();
-
-  if (awaitingOrderId) {
-    const o = FC.getOrder(awaitingOrderId);
-    if (o) renderFlow(o);
-  }
-});
+  window.addEventListener("focus", () => {
+    renderAll();
+  });
 })();
