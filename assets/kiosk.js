@@ -1252,31 +1252,36 @@
 
       const totals = computeTotals(cart);
 
-      const order = await createOrderSafe({
-        restaurantId: r.id,
-        items: cart.map((x) => ({
-          ...x,
-          fast: !!safeArray(r.menu).find((m) => m.id === x.itemId)?.fast
-        })),
-        totals
-      });
+      try {
+        const order = await createOrderSafe({
+          restaurantId: r.id,
+          items: cart.map((x) => ({
+            ...x,
+            fast: !!safeArray(r.menu).find((m) => m.id === x.itemId)?.fast
+          })),
+          totals
+        });
 
-      awaitingOrderId = order.id;
-      saveSession();
-      renderFlow(order);
-      await refreshQueueCount();
+        awaitingOrderId = order.id;
+        saveSession();
+        renderFlow(order);
+        await refreshQueueCount();
 
-      if (allAvailable && r.online) {
-        setTimeout(async () => {
-          const o = await getOrderSafe(order.id);
-          if (o && o.status === "pending_approval") {
-            await updateOrderSafe(order.id, {
-              status: "approved",
-              approvedAt: nowISO()
-            });
-            logSafe(`Order ${order.id} auto-approved (restaurant online + items available).`);
-          }
-        }, 900);
+        if (allAvailable && r.online) {
+          setTimeout(async () => {
+            const o = await getOrderSafe(order.id);
+            if (o && o.status === "pending_approval") {
+              await updateOrderSafe(order.id, {
+                status: "approved",
+                approvedAt: nowISO()
+              });
+              logSafe(`Order ${order.id} auto-approved (restaurant online + items available).`);
+            }
+          }, 900);
+        }
+      } catch (err) {
+        console.error("Checkout failed:", err);
+        alertSafe(`Checkout failed: ${err.message || err}`);
       }
     };
   }
