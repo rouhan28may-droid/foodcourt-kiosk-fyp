@@ -30,10 +30,11 @@
         <div class="text-xl font-semibold">Customer Touch Kiosk</div>
       </div>
       <div class="flex items-center gap-2">
-        <button id="resetBtn" class="btn-ghost text-sm">Reset Demo</button>
-        <a href="hardware.html" class="btn-ghost text-sm">Hardware</a>
-        <a href="index.html" class="btn-ghost text-sm">Home</a>
-      </div>
+  <button id="fullscreenBtn" class="btn-primary text-sm">Full Screen</button>
+  <button id="resetBtn" class="btn-ghost text-sm">Reset Demo</button>
+  <a href="hardware.html" class="btn-ghost text-sm">Hardware</a>
+  <a href="index.html" class="btn-ghost text-sm">Home</a>
+</div>
     </div>
   </header>
 
@@ -153,7 +154,32 @@
       </div>
     </div>
   </div>
+<div id="kioskLockOverlay" class="hidden fixed inset-0 z-[80] bg-slate-950/95 backdrop-blur">
+  <div class="h-full w-full flex items-center justify-center px-6">
+    <div class="max-w-md w-full rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
+      <div class="text-xs uppercase tracking-widest text-slate-400">Kiosk Security</div>
+      <div id="kioskUnlockTitle" class="text-2xl font-semibold mt-2">Kiosk Locked</div>
+      <div id="kioskUnlockMessage" class="text-slate-300 mt-2">
+        Enter kiosk password to continue.
+      </div>
 
+      <div id="kioskLockActions" class="mt-5 space-y-3">
+        <input
+          id="kioskPinInput"
+          type="password"
+          inputmode="numeric"
+          maxlength="12"
+          class="tws-input w-full"
+          placeholder="Enter kiosk password"
+        />
+        <div id="kioskPinError" class="hidden text-sm text-rose-300">
+          Incorrect password.
+        </div>
+        <button id="kioskUnlockBtn" class="btn-primary w-full">Unlock Kiosk</button>
+      </div>
+    </div>
+  </div>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/supabaseclient.js"></script>
 <script src="assets/storage.js"></script>

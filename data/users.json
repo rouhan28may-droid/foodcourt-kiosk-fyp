@@ -22,5 +22,8 @@
       "password": "1234",
       "restaurantId": "r3"
     }
-  ]
+  ],
+  "kiosk": {
+    "password": "2468"
+  }
 }

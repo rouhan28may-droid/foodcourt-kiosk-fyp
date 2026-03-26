@@ -175,9 +175,18 @@
   const printBtn = $("printBtn");
   const doneBtn = $("doneBtn");
 
-  const adsOverlay = $("adsOverlay");
-  const adTitle = $("adTitle");
-  const adSubtitle = $("adSubtitle");
+const adsOverlay = $("adsOverlay");
+const adTitle = $("adTitle");
+const adSubtitle = $("adSubtitle");
+
+const fullscreenBtn = $("fullscreenBtn");
+const kioskLockOverlay = $("kioskLockOverlay");
+const kioskUnlockTitle = $("kioskUnlockTitle");
+const kioskUnlockMessage = $("kioskUnlockMessage");
+const kioskPinInput = $("kioskPinInput");
+const kioskPinError = $("kioskPinError");
+const kioskUnlockBtn = $("kioskUnlockBtn");
+const kioskLockActions = $("kioskLockActions");
 
   const sessionKey = "fc_session";
   const session = safeSessionRead(sessionKey, {});
@@ -190,14 +199,19 @@
   let currentPayOrderId = null;
   let currentReceiptOrderId = null;
 
-  let idleSeconds = 0;
-  let adsIdx = 0;
-  let adTimer = null;
+let idleSeconds = 0;
+let adsIdx = 0;
+let adTimer = null;
 
-  let renderBusy = false;
-  let rerenderRequested = false;
+let renderBusy = false;
+let rerenderRequested = false;
+
+let kioskPassword = "2468";
+let kioskLocallyLocked = true;
+let fullscreenPreviouslyActive = false;
 
   function saveSession() {
+  
     localStorage.setItem(
       sessionKey,
       JSON.stringify({
@@ -207,7 +221,127 @@
       })
     );
   }
+async function loadKioskCredentials() {
+  try {
+    const res = await fetch("data/users.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    kioskPassword = data?.kiosk?.password || "2468";
+  } catch (err) {
+    console.warn("kiosk.js: kiosk password load failed, using fallback", err);
+    kioskPassword = "2468";
+  }
+}
 
+function isAdminLocked() {
+  return !!safeState().devices?.kioskDisplay?.locked;
+}
+
+function isKioskLocked() {
+  return kioskLocallyLocked || isAdminLocked();
+}
+
+function showKioskLock(title, message, allowPin = true) {
+  if (!kioskLockOverlay) return;
+
+  kioskLockOverlay.classList.remove("hidden");
+
+  if (kioskUnlockTitle) kioskUnlockTitle.textContent = title || "Kiosk Locked";
+  if (kioskUnlockMessage) kioskUnlockMessage.textContent = message || "Enter kiosk password to continue.";
+
+  if (kioskPinInput) {
+    kioskPinInput.value = "";
+    kioskPinInput.disabled = !allowPin;
+  }
+
+  if (kioskUnlockBtn) {
+    kioskUnlockBtn.disabled = !allowPin;
+    kioskUnlockBtn.classList.toggle("opacity-50", !allowPin);
+  }
+
+  if (kioskPinError) {
+    kioskPinError.classList.add("hidden");
+    kioskPinError.textContent = "Incorrect password.";
+  }
+
+  setTimeout(() => {
+    if (allowPin && kioskPinInput) kioskPinInput.focus();
+  }, 30);
+}
+
+function hideKioskLock() {
+  if (!kioskLockOverlay) return;
+  if (isAdminLocked()) return;
+  kioskLockOverlay.classList.add("hidden");
+}
+
+function syncKioskLockState() {
+  if (isAdminLocked()) {
+    kioskLocallyLocked = true;
+    showKioskLock(
+      "Kiosk Locked by Admin",
+      "This kiosk was locked from the control panel. Unlock it there first.",
+      false
+    );
+    return;
+  }
+
+  if (kioskLocallyLocked) {
+    showKioskLock(
+      "Kiosk Locked",
+      "Enter kiosk password to continue using this customer dashboard.",
+      true
+    );
+  } else {
+    hideKioskLock();
+  }
+}
+
+async function unlockKioskWithPassword() {
+  if (isAdminLocked()) {
+    showKioskLock(
+      "Kiosk Locked by Admin",
+      "This kiosk was locked from the control panel. Unlock it there first.",
+      false
+    );
+    return false;
+  }
+
+  const entered = (kioskPinInput?.value || "").trim();
+
+  if (!entered || entered !== kioskPassword) {
+    if (kioskPinError) {
+      kioskPinError.textContent = "Incorrect password.";
+      kioskPinError.classList.remove("hidden");
+    }
+    if (kioskPinInput) kioskPinInput.focus();
+    return false;
+  }
+
+  kioskLocallyLocked = false;
+  hideKioskLock();
+  return true;
+}
+
+function ensureUnlockedOrBlock(message) {
+  if (!isKioskLocked()) return true;
+
+  showKioskLock(
+    "Kiosk Locked",
+    message || "Enter kiosk password to continue using this customer dashboard.",
+    !isAdminLocked()
+  );
+  return false;
+}
+
+async function enterFullscreenSafe() {
+  try {
+    await document.documentElement.requestFullscreen();
+  } catch (err) {
+    console.error("Fullscreen request failed:", err);
+    alertSafe("Fullscreen failed. Browser may have blocked it.");
+  }
+}
   function getRestaurants() {
     return safeArray(safeState().restaurants);
   }
@@ -283,9 +417,9 @@
       showAds();
     }
   }, 1000);
-
-  function addToCart(restaurantId, menuItem) {
-    if (!menuItem) return;
+function addToCart(restaurantId, menuItem) {
+  if (!ensureUnlockedOrBlock("Enter kiosk password before adding items.")) return;
+  if (!menuItem) return;
 
     if (cart.length && cart[0].restaurantId !== restaurantId) {
       alertSafe("Cart contains items from another restaurant. Clear cart to switch restaurants.");
@@ -309,8 +443,9 @@
     renderCart();
   }
 
-  function updateQty(itemId, delta) {
-    const it = cart.find((x) => x.itemId === itemId);
+function updateQty(itemId, delta) {
+  if (!ensureUnlockedOrBlock("Enter kiosk password before editing the cart.")) return;
+  const it = cart.find((x) => x.itemId === itemId);
     if (!it) return;
 
     it.qty += delta;
@@ -323,8 +458,9 @@
     renderCart();
   }
 
-  function clearCart() {
-    cart = [];
+function clearCart() {
+  if (!ensureUnlockedOrBlock("Enter kiosk password before clearing the cart.")) return;
+  cart = [];
     saveSession();
     renderCart();
   }
@@ -615,9 +751,9 @@
     if (o) renderFlow(o);
     else hideFlow();
   }
-
-  async function openPayment(orderId) {
-    const s = safeState();
+async function openPayment(orderId) {
+  if (!ensureUnlockedOrBlock("Enter kiosk password before opening payment.")) return;
+  const s = safeState();
     const order = await getOrderSafe(orderId);
     if (!order) return;
 
@@ -1130,8 +1266,8 @@
     await renderReceiptPreview(orderId);
   }
 
-  async function printReceiptOnly(orderId) {
-    const order = await getOrderSafe(orderId);
+async function printReceiptOnly(orderId) {
+  const order = await getOrderSafe(orderId);
     if (!order) return;
 
     const iframe = document.createElement("iframe");
@@ -1232,9 +1368,10 @@
     };
   }
 
-  if (elCheckout) {
-    elCheckout.onclick = async () => {
-      if (!cart.length) return;
+if (elCheckout) {
+  elCheckout.onclick = async () => {
+    if (!ensureUnlockedOrBlock("Enter kiosk password before checkout.")) return;
+    if (!cart.length) return;
 
       const r = getRestaurant();
       if (!r) {
@@ -1300,7 +1437,49 @@
       }
     };
   }
+if (elSearch) {
+  elSearch.addEventListener("input", () => {
+    renderMenu();
+  });
+}
+if (fullscreenBtn) {
+  fullscreenBtn.onclick = async () => {
+    if (!ensureUnlockedOrBlock("Enter kiosk password before entering fullscreen.")) return;
+    await enterFullscreenSafe();
+  };
+}
 
+if (kioskUnlockBtn) {
+  kioskUnlockBtn.onclick = async () => {
+    await unlockKioskWithPassword();
+  };
+}
+
+if (kioskPinInput) {
+  kioskPinInput.addEventListener("keydown", async (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      await unlockKioskWithPassword();
+    }
+  });
+}
+
+document.addEventListener("fullscreenchange", () => {
+  if (document.fullscreenElement) {
+    fullscreenPreviouslyActive = true;
+    return;
+  }
+
+  if (fullscreenPreviouslyActive) {
+    fullscreenPreviouslyActive = false;
+    kioskLocallyLocked = true;
+    showKioskLock(
+      "Fullscreen Exited",
+      "Enter kiosk password to continue after exiting fullscreen.",
+      true
+    );
+  }
+});
   if (elSearch) {
     elSearch.addEventListener("input", () => {
       renderMenu();
@@ -1346,18 +1525,23 @@
     }
   }
 
-  await seedSafe();
+await seedSafe();
+await loadKioskCredentials();
+kioskLocallyLocked = true;
+syncKioskLockState();
+await renderAll();
+
+window.addEventListener("fc:state-changed", async () => {
+  syncKioskLockState();
   await renderAll();
+  if (awaitingOrderId) {
+    const o = await getOrderSafe(awaitingOrderId);
+    if (o) renderFlow(o);
+  }
+});
 
-  window.addEventListener("fc:state-changed", async () => {
-    await renderAll();
-    if (awaitingOrderId) {
-      const o = await getOrderSafe(awaitingOrderId);
-      if (o) renderFlow(o);
-    }
-  });
-
-  window.addEventListener("focus", () => {
-    renderAll();
-  });
+window.addEventListener("focus", () => {
+  syncKioskLockState();
+  renderAll();
+});
 })();
