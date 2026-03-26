@@ -138,6 +138,8 @@
     }
   }
 
+  const APPROVAL_TIMEOUT_MS = 15000;
+
   const elTabs = $("restaurantTabs");
   const elMenu = $("menuGrid");
   const elCart = $("cartItems");
@@ -521,7 +523,7 @@
           </div>
           <div class="pill badge-yellow">Pending</div>
         </div>
-        <div class="mt-4 text-sm text-slate-400">Restaurant will approve/reject based on availability.</div>
+        <div class="mt-4 text-sm text-slate-400">Restaurant must approve manually within 15 seconds, otherwise the request will be cancelled.</div>
       `;
       return;
     }
@@ -1245,11 +1247,6 @@
         return;
       }
 
-      const allAvailable = cart.every((ci) => {
-        const mi = safeArray(r.menu).find((x) => x.id === ci.itemId);
-        return mi && mi.available;
-      });
-
       const totals = computeTotals(cart);
 
       try {
@@ -1267,18 +1264,17 @@
         renderFlow(order);
         await refreshQueueCount();
 
-        if (allAvailable && r.online) {
-          setTimeout(async () => {
-            const o = await getOrderSafe(order.id);
-            if (o && o.status === "pending_approval") {
-              await updateOrderSafe(order.id, {
-                status: "approved",
-                approvedAt: nowISO()
-              });
-              logSafe(`Order ${order.id} auto-approved (restaurant online + items available).`);
-            }
-          }, 900);
-        }
+        setTimeout(async () => {
+          const o = await getOrderSafe(order.id);
+          if (o && o.status === "pending_approval") {
+            await updateOrderSafe(order.id, {
+              status: "rejected",
+              rejectReason: "Food not available or restaurant did not respond in time"
+            });
+            logSafe(`Order ${order.id} auto-rejected after approval timeout.`);
+          }
+        }, APPROVAL_TIMEOUT_MS);
+
       } catch (err) {
         console.error("Checkout failed:", err);
         alertSafe(`Checkout failed: ${err.message || err}`);

@@ -215,6 +215,88 @@
     };
   }
 
+  let audioCtx = null;
+  let lastPendingIds = new Set();
+  let pendingSnapshotReady = false;
+
+  async function ensureAudioReady() {
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return null;
+
+      if (!audioCtx) {
+        audioCtx = new AudioContextClass();
+      }
+
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
+
+      return audioCtx;
+    } catch (err) {
+      console.warn("Audio init failed:", err);
+      return null;
+    }
+  }
+
+  async function beepNewOrder() {
+    const ctx = await ensureAudioReady();
+    if (!ctx) return;
+
+    const makeBeep = (startOffset, duration, freq) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + startOffset);
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + startOffset);
+      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + startOffset + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + startOffset + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(ctx.currentTime + startOffset);
+      osc.stop(ctx.currentTime + startOffset + duration);
+    };
+
+    try {
+      makeBeep(0, 0.16, 880);
+      makeBeep(0.22, 0.16, 988);
+    } catch (err) {
+      console.warn("Beep failed:", err);
+    }
+  }
+
+  function detectNewPendingOrders(orders) {
+    const pendingIds = new Set(
+      safeArray(orders)
+        .filter((o) => o.status === "pending_approval")
+        .map((o) => o.id)
+    );
+
+    if (!pendingSnapshotReady) {
+      lastPendingIds = pendingIds;
+      pendingSnapshotReady = true;
+      return;
+    }
+
+    let hasNewPending = false;
+    for (const id of pendingIds) {
+      if (!lastPendingIds.has(id)) {
+        hasNewPending = true;
+        break;
+      }
+    }
+
+    lastPendingIds = pendingIds;
+
+    if (hasNewPending) {
+      beepNewOrder();
+    }
+  }
+
   async function renderPending(orders) {
     if (!pendingList) return;
 
@@ -473,6 +555,9 @@
       }
 
       const orders = await getOrdersForRestaurantSafe();
+
+      detectNewPendingOrders(orders);
+
       renderSummary(orders);
       await renderPending(orders);
       await renderActive(orders);
@@ -492,6 +577,8 @@
     logoutBtn.onclick = () => {
       localStorage.removeItem(sessKey);
       restaurantId = null;
+      lastPendingIds = new Set();
+      pendingSnapshotReady = false;
       showLogin();
     };
   }
@@ -520,6 +607,7 @@
 
       restaurantId = match.restaurantId;
       saveSess();
+      await ensureAudioReady();
       showApp();
       await renderAll();
     };
@@ -538,6 +626,7 @@
 
   if (restaurantId) {
     showApp();
+    await ensureAudioReady();
     await renderAll();
   } else {
     showLogin();
