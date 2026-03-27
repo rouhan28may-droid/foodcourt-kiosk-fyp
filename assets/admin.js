@@ -49,6 +49,7 @@
 
   function getStateSafe() {
     try {
+      if (typeof FC.getStateSafe === "function") return FC.getStateSafe();
       return typeof FC.getState === "function" ? (FC.getState() || {}) : {};
     } catch {
       return {};
@@ -108,17 +109,73 @@
     }
   }
 
+  function parseISO(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function pad2(v) {
+    return String(v).padStart(2, "0");
+  }
+
+  function formatDateOnly(iso) {
+    const d = parseISO(iso);
+    if (!d) return "—";
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  }
+
+  function formatTimeOnly(iso) {
+    const d = parseISO(iso);
+    if (!d) return "—";
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }
+
+  function minutesBetween(startIso, endIso) {
+    const start = parseISO(startIso);
+    const end = parseISO(endIso);
+    if (!start || !end) return null;
+    const mins = Math.round((end.getTime() - start.getTime()) / 60000);
+    return mins >= 0 ? mins : null;
+  }
+
+  function restaurantNameFromId(restaurants, id) {
+    return safeArr(restaurants).find((r) => r.id === id)?.name || id || "Unknown";
+  }
+
+  function itemsSummary(items) {
+    return safeArr(items)
+      .map((it) => `${it.name || "Item"} x${Number(it.qty || 0)}`)
+      .join(" | ");
+  }
+
+  function totalDishQty(items) {
+    return safeArr(items).reduce((sum, it) => sum + Number(it.qty || 0), 0);
+  }
+
+  function uniqueDishCount(items) {
+    return safeArr(items).length;
+  }
+
   function normalizeOrder(order) {
     if (!order) return null;
 
-    // Supabase row shape
+    if (typeof FC.normalizeOrder === "function") {
+      try {
+        return FC.normalizeOrder(order);
+      } catch {}
+    }
+
+    const payment = safeObj(order.payment);
+    const timeline = safeObj(payment.timeline);
+
     if ("restaurant_id" in order || "order_items" in order) {
       return {
         id: order.id,
         restaurantId: order.restaurant_id,
         items: safeArr(order.order_items).map((it) => ({
           itemId: it.menu_item_id ?? null,
-          name: it.name,
+          name: it.name || "",
           price: Number(it.price || 0),
           qty: Number(it.qty || 0),
           fast: !!it.fast
@@ -129,28 +186,35 @@
         currency: order.currency || "PKR",
         status: order.status || "pending_approval",
         rejectReason: order.reject_reason || null,
-        createdAt: order.created_at || null,
-        approvedAt: order.approved_at || null,
-        paidAt: order.paid_at || null,
-        payment: safeObj(order.payment)
+        createdAt: order.created_at || timeline.placedAt || null,
+        approvedAt: order.approved_at || timeline.approvedAt || null,
+        paidAt: order.paid_at || payment.paidAt || null,
+        deliveredAt: order.delivered_at || timeline.deliveredAt || payment.deliveredAt || null,
+        payment
       };
     }
 
-    // Local/demo shape
     return {
       id: order.id,
       restaurantId: order.restaurantId,
-      items: safeArr(order.items),
+      items: safeArr(order.items).map((it) => ({
+        itemId: it.itemId ?? null,
+        name: it.name || "",
+        price: Number(it.price || 0),
+        qty: Number(it.qty || 0),
+        fast: !!it.fast
+      })),
       subtotal: Number(order.subtotal || 0),
       tax: Number(order.tax || 0),
       total: Number(order.total || 0),
       currency: order.currency || "PKR",
       status: order.status || "pending_approval",
       rejectReason: order.rejectReason || null,
-      createdAt: order.createdAt || null,
-      approvedAt: order.approvedAt || null,
-      paidAt: order.paidAt || null,
-      payment: safeObj(order.payment)
+      createdAt: order.createdAt || timeline.placedAt || null,
+      approvedAt: order.approvedAt || timeline.approvedAt || null,
+      paidAt: order.paidAt || payment.paidAt || null,
+      deliveredAt: order.deliveredAt || timeline.deliveredAt || payment.deliveredAt || null,
+      payment
     };
   }
 
@@ -202,9 +266,12 @@
   }
 
   function computeMetrics(data) {
+    const paidLike = typeof FC.orderIsPaidLike === "function"
+      ? FC.orderIsPaidLike
+      : (status) => ["paid", "preparing", "ready", "completed"].includes(status);
+
     const ordersToday = safeArr(data.orders).filter((o) => isToday(o.createdAt));
-    const paidStatuses = new Set(["paid", "preparing", "ready", "completed"]);
-    const paidToday = ordersToday.filter((o) => paidStatuses.has(o.status));
+    const paidToday = ordersToday.filter((o) => paidLike(o.status));
 
     const revenue = paidToday.reduce((sum, o) => sum + Number(o.total || 0), 0);
 
@@ -529,6 +596,17 @@
   async function exportAll() {
     const data = await getDashboardData();
 
+    if (typeof FC.exportAdminMonthlyReport === "function") {
+      const ok = await FC.exportAdminMonthlyReport({
+        restaurants: data.restaurants,
+        orders: data.orders
+      });
+      if (ok !== false) {
+        logSafe("Professional admin monthly report exported.");
+        return;
+      }
+    }
+
     if (typeof FC.downloadXLSX !== "function") {
       console.error("admin.js: FC.downloadXLSX is missing.");
       logSafe("XLSX export failed: download helper not loaded.");
@@ -536,45 +614,49 @@
     }
 
     const ordersToday = data.orders.filter((o) => isToday(o.createdAt));
-    const sheets = [];
 
-    sheets.push({
-      name: "All_Orders_Today",
-      rows: ordersToday.map((o) => ({
-        order_id: o.id,
-        restaurant: data.restaurants.find((r) => r.id === o.restaurantId)?.name || o.restaurantId,
-        status: o.status,
-        subtotal: o.subtotal,
-        tax: o.tax,
-        total: o.total,
-        created_at: o.createdAt || "",
-        approved_at: o.approvedAt || "",
-        paid_at: o.paidAt || ""
-      }))
-    });
+    const overviewRows = ordersToday.map((o) => ({
+      order_id: o.id,
+      restaurant: restaurantNameFromId(data.restaurants, o.restaurantId),
+      order_date: formatDateOnly(o.createdAt),
+      placed_at: formatTimeOnly(o.createdAt),
+      approved_at: formatTimeOnly(o.approvedAt),
+      delivered_at: formatTimeOnly(o.deliveredAt || safeObj(o.payment).timeline?.deliveredAt),
+      prep_time_minutes:
+        minutesBetween(o.approvedAt, o.deliveredAt || safeObj(o.payment).timeline?.deliveredAt) ?? "",
+      status: o.status,
+      subtotal: o.subtotal,
+      tax: o.tax,
+      total: o.total,
+      total_dish_qty: totalDishQty(o.items),
+      unique_dishes: uniqueDishCount(o.items),
+      items_summary: itemsSummary(o.items)
+    }));
 
-    data.restaurants.forEach((r) => {
-      const rows = ordersToday
-        .filter((o) => o.restaurantId === r.id)
-        .map((o) => ({
+    const lineRows = [];
+    ordersToday.forEach((o) => {
+      safeArr(o.items).forEach((it) => {
+        lineRows.push({
           order_id: o.id,
-          status: o.status,
-          subtotal: o.subtotal,
-          tax: o.tax,
-          total: o.total,
-          created_at: o.createdAt || "",
-          approved_at: o.approvedAt || "",
-          paid_at: o.paidAt || ""
-        }));
-
-      sheets.push({
-        name: String(r.name || r.id || "Restaurant").replace(/\s+/g, "_").slice(0, 31),
-        rows
+          restaurant: restaurantNameFromId(data.restaurants, o.restaurantId),
+          order_date: formatDateOnly(o.createdAt),
+          placed_at: formatTimeOnly(o.createdAt),
+          approved_at: formatTimeOnly(o.approvedAt),
+          delivered_at: formatTimeOnly(o.deliveredAt || safeObj(o.payment).timeline?.deliveredAt),
+          dish: it.name || "Item",
+          qty: Number(it.qty || 0),
+          unit_price: Number(it.price || 0),
+          line_total: Number(it.qty || 0) * Number(it.price || 0)
+        });
       });
     });
 
-    FC.downloadXLSX("FoodCourt_AllReports_Today.xlsx", sheets);
-    logSafe("All reports exported (XLSX download).");
+    FC.downloadXLSX("FoodCourt_Admin_Report_Fallback.xlsx", [
+      { name: "Orders", rows: overviewRows },
+      { name: "Order_Lines", rows: lineRows }
+    ]);
+
+    logSafe("Fallback admin report exported.");
   }
 
   async function renderAll() {

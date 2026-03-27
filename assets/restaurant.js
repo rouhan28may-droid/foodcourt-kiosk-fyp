@@ -83,6 +83,64 @@
     return new Date().toISOString();
   }
 
+  function parseISO(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function pad2(v) {
+    return String(v).padStart(2, "0");
+  }
+
+  function formatDateOnly(iso) {
+    const d = parseISO(iso);
+    if (!d) return "—";
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  }
+
+  function formatTimeOnly(iso) {
+    const d = parseISO(iso);
+    if (!d) return "—";
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }
+
+  function minutesBetween(startIso, endIso) {
+    const start = parseISO(startIso);
+    const end = parseISO(endIso);
+    if (!start || !end) return null;
+    const mins = Math.round((end.getTime() - start.getTime()) / 60000);
+    return mins >= 0 ? mins : null;
+  }
+
+  function itemsSummary(items) {
+    return safeArray(items)
+      .map((it) => `${it.name || "Item"} x${Number(it.qty || 0)}`)
+      .join(" | ");
+  }
+
+  function totalDishQty(items) {
+    return safeArray(items).reduce((sum, it) => sum + Number(it.qty || 0), 0);
+  }
+
+  function uniqueDishCount(items) {
+    return safeArray(items).length;
+  }
+
+  function buildPatchedPayment(order, timelinePatch = {}, paymentPatch = {}) {
+    const currentPayment = safeObject(order?.payment);
+    const currentTimeline = safeObject(currentPayment.timeline);
+
+    return {
+      ...currentPayment,
+      ...paymentPatch,
+      timeline: {
+        ...currentTimeline,
+        ...timelinePatch
+      }
+    };
+  }
+
   async function seedSafe() {
     try {
       if (typeof FC.seed === "function") {
@@ -344,10 +402,14 @@
       const confirmReject = div.querySelector('[data-act="confirm-reject"]');
 
       approveBtn.onclick = async () => {
+        const approvedAt = nowISO();
+
         await updateOrderSafe(o.id, {
           status: "approved",
-          approvedAt: nowISO()
+          approvedAt,
+          payment: buildPatchedPayment(o, { approvedAt })
         });
+
         logSafe(`Order ${o.id} approved by restaurant.`);
         await renderAll();
       };
@@ -420,7 +482,14 @@
       };
 
       done.onclick = async () => {
-        await updateOrderSafe(o.id, { status: "completed" });
+        const deliveredAt = nowISO();
+
+        await updateOrderSafe(o.id, {
+          status: "completed",
+          deliveredAt,
+          payment: buildPatchedPayment(o, { deliveredAt })
+        });
+
         logSafe(`Order ${o.id} → completed.`);
         await renderAll();
       };
@@ -493,40 +562,63 @@
       const r = getRestaurant();
       if (!r) return;
 
-      const orders = await getOrdersForRestaurantSafe();
-      const todayOrders = safeArray(orders).filter((o) => isToday(o.createdAt));
-      const paid = todayOrders.filter((o) => paidLikeStatus(o.status));
+      try {
+        if (typeof FC.exportRestaurantSalesReport === "function") {
+          const ok = await FC.exportRestaurantSalesReport(r.id);
+          if (ok !== false) {
+            logSafe(`Professional sales report exported for ${r.name}.`);
+            return;
+          }
+        }
 
-      const rows = paid.map((o) => ({
-        order_id: o.id,
-        status: o.status,
-        subtotal: o.subtotal,
-        tax: o.tax,
-        total: o.total,
-        created_at: o.createdAt,
-        paid_at: o.paidAt || ""
-      }));
+        const orders = await getOrdersForRestaurantSafe();
+        const todayOrders = safeArray(orders).filter((o) => isToday(o.createdAt));
+        const paid = todayOrders.filter((o) => paidLikeStatus(o.status));
 
-      const itemRows = [];
-      paid.forEach((o) => {
-        safeArray(o.items).forEach((it) => {
-          itemRows.push({
-            order_id: o.id,
-            item: it.name,
-            qty: it.qty,
-            unit_price: it.price,
-            restaurant: r.name
+        const orderRows = paid.map((o) => ({
+          order_id: o.id,
+          restaurant: r.name,
+          order_date: formatDateOnly(o.createdAt),
+          order_placed: formatTimeOnly(o.createdAt),
+          approved_at: formatTimeOnly(o.approvedAt),
+          delivered_at: formatTimeOnly(o.deliveredAt || safeObject(o.payment).timeline?.deliveredAt),
+          prep_time_minutes: minutesBetween(
+            o.approvedAt,
+            o.deliveredAt || safeObject(o.payment).timeline?.deliveredAt
+          ) ?? "",
+          status: o.status,
+          subtotal: o.subtotal,
+          tax: o.tax,
+          total: o.total,
+          total_dish_qty: totalDishQty(o.items),
+          unique_dishes: uniqueDishCount(o.items),
+          items_summary: itemsSummary(o.items)
+        }));
+
+        const itemRows = [];
+        paid.forEach((o) => {
+          safeArray(o.items).forEach((it) => {
+            itemRows.push({
+              order_id: o.id,
+              restaurant: r.name,
+              order_date: formatDateOnly(o.createdAt),
+              placed_at: formatTimeOnly(o.createdAt),
+              approved_at: formatTimeOnly(o.approvedAt),
+              delivered_at: formatTimeOnly(o.deliveredAt || safeObject(o.payment).timeline?.deliveredAt),
+              dish: it.name,
+              qty: it.qty,
+              unit_price: it.price,
+              line_total: Number(it.qty || 0) * Number(it.price || 0)
+            });
           });
         });
-      });
 
-      try {
         if (typeof FC.downloadXLSX === "function") {
-          FC.downloadXLSX(`${String(r.name || "Restaurant").replace(/\s+/g, "_")}_Sales_Today.xlsx`, [
-            { name: "Orders", rows },
+          FC.downloadXLSX(`${String(r.name || "Restaurant").replace(/\s+/g, "_")}_Sales_Report.xlsx`, [
+            { name: "Orders", rows: orderRows },
             { name: "Items", rows: itemRows }
           ]);
-          logSafe(`Sales report exported for ${r.name} (XLSX download).`);
+          logSafe(`Fallback sales report exported for ${r.name}.`);
         }
       } catch (err) {
         console.error("restaurant.js: export failed", err);

@@ -213,13 +213,11 @@ FC.reset = async function () {
 FC.seed = async function () {
   let state = FC.readLocalState();
 
-  // Step 1: seed from local JSON if local state is empty
   if (!state.seededAt || !state.restaurants.length) {
     state = await FC.buildSeedState();
     FC.setState(state, { silent: true });
   }
 
-  // Step 2: only replace local catalog if Supabase actually has catalog data
   try {
     const db = FC._db();
 
@@ -240,7 +238,6 @@ FC.seed = async function () {
     console.warn("Supabase catalog check failed. Using local JSON seed.", err);
   }
 
-  // Step 3: orders can still come from Supabase if available
   await FC.fetchAllOrders().catch(() => {});
 
   FC.startRealtimeSync();
@@ -262,7 +259,9 @@ FC.uid = function (prefix = "ORD") {
 FC._normalizeOrder = function (order) {
   if (!order) return null;
 
-  // Supabase row shape
+  const payment = FC._safeObject(order.payment);
+  const timeline = FC._safeObject(payment.timeline);
+
   if ("restaurant_id" in order || "order_items" in order) {
     return {
       id: order.id,
@@ -273,10 +272,11 @@ FC._normalizeOrder = function (order) {
       total: Number(order.total || 0),
       currency: order.currency || "PKR",
       rejectReason: order.reject_reason || null,
-      createdAt: order.created_at || null,
-      approvedAt: order.approved_at || null,
-      paidAt: order.paid_at || null,
-      payment: FC._safeObject(order.payment),
+      createdAt: order.created_at || timeline.placedAt || null,
+      approvedAt: order.approved_at || timeline.approvedAt || null,
+      paidAt: order.paid_at || payment.paidAt || null,
+      deliveredAt: order.delivered_at || timeline.deliveredAt || payment.deliveredAt || null,
+      payment,
       items: FC._safeArray(order.order_items).map((it) => ({
         itemId: it.menu_item_id ?? null,
         name: it.name || "",
@@ -287,7 +287,6 @@ FC._normalizeOrder = function (order) {
     };
   }
 
-  // local/demo shape
   return {
     id: order.id,
     restaurantId: order.restaurantId,
@@ -297,10 +296,11 @@ FC._normalizeOrder = function (order) {
     total: Number(order.total || 0),
     currency: order.currency || "PKR",
     rejectReason: order.rejectReason || null,
-    createdAt: order.createdAt || null,
-    approvedAt: order.approvedAt || null,
-    paidAt: order.paidAt || null,
-    payment: FC._safeObject(order.payment),
+    createdAt: order.createdAt || timeline.placedAt || null,
+    approvedAt: order.approvedAt || timeline.approvedAt || null,
+    paidAt: order.paidAt || payment.paidAt || null,
+    deliveredAt: order.deliveredAt || timeline.deliveredAt || payment.deliveredAt || null,
+    payment,
     items: FC._safeArray(order.items).map((it) => ({
       itemId: it.itemId ?? null,
       name: it.name || "",
@@ -368,8 +368,7 @@ FC.fetchOrdersForRestaurant = async function (restaurantId) {
 
     if (error) throw error;
 
-    const orders = FC._safeArray(data).map(FC._normalizeOrder).filter(Boolean);
-    return orders;
+    return FC._safeArray(data).map(FC._normalizeOrder).filter(Boolean);
   }
 
   const s = FC.getState();
@@ -421,6 +420,8 @@ FC.getOrder = async function (orderId) {
 };
 
 FC.createOrder = async function ({ restaurantId, items, totals }) {
+  const placedAt = FC.nowISO();
+
   const order = {
     id: FC.uid("ORD"),
     restaurantId,
@@ -430,14 +431,20 @@ FC.createOrder = async function ({ restaurantId, items, totals }) {
     total: Number(totals?.total || 0),
     currency: "PKR",
     rejectReason: null,
-    createdAt: FC.nowISO(),
+    createdAt: placedAt,
     approvedAt: null,
     paidAt: null,
+    deliveredAt: null,
     payment: {
       attemptCount: 0,
       success: false,
       method: null,
-      qrPayload: null
+      qrPayload: null,
+      timeline: {
+        placedAt,
+        approvedAt: null,
+        deliveredAt: null
+      }
     },
     items: FC._safeArray(items).map((it) => ({
       itemId: it.itemId ?? null,
@@ -499,6 +506,24 @@ FC.createOrder = async function ({ restaurantId, items, totals }) {
 };
 
 FC.updateOrder = async function (orderId, patch) {
+  const current = await FC.getOrder(orderId);
+  if (!current) return null;
+
+  const currentPayment = FC._safeObject(current.payment);
+  const patchPayment = FC._safeObject(patch.payment);
+
+  const mergedPayment =
+    "payment" in patch
+      ? {
+          ...currentPayment,
+          ...patchPayment,
+          timeline: {
+            ...FC._safeObject(currentPayment.timeline),
+            ...FC._safeObject(patchPayment.timeline)
+          }
+        }
+      : currentPayment;
+
   const db = FC._db();
 
   if (db) {
@@ -508,7 +533,7 @@ FC.updateOrder = async function (orderId, patch) {
     if ("rejectReason" in patch) dbPatch.reject_reason = patch.rejectReason;
     if ("approvedAt" in patch) dbPatch.approved_at = patch.approvedAt;
     if ("paidAt" in patch) dbPatch.paid_at = patch.paidAt;
-    if ("payment" in patch) dbPatch.payment = patch.payment;
+    if ("payment" in patch) dbPatch.payment = mergedPayment;
 
     const { error } = await db
       .from("orders")
@@ -527,14 +552,16 @@ FC.updateOrder = async function (orderId, patch) {
   const idx = s.orders.findIndex((o) => o.id === orderId);
   if (idx === -1) return null;
 
-  const current = FC._normalizeOrder(s.orders[idx]);
   const next = {
     ...current,
     ...patch,
-    payment: {
-      ...FC._safeObject(current.payment),
-      ...FC._safeObject(patch.payment)
-    }
+    payment: mergedPayment,
+    deliveredAt:
+      patch.deliveredAt ??
+      current.deliveredAt ??
+      FC._safeObject(mergedPayment.timeline).deliveredAt ??
+      mergedPayment.deliveredAt ??
+      null
   };
 
   s.orders[idx] = next;
