@@ -34,7 +34,7 @@ window.FC = window.FC || {};
   function nowISO() {
     try {
       if (typeof FC.nowISO === "function") return FC.nowISO();
-    } catch {}
+    } catch { }
     return new Date().toISOString();
   }
 
@@ -792,5 +792,27 @@ window.FC = window.FC || {};
 
     XLSX.writeFile(wb, "FoodCourt_Monthly_Master_Report.xlsx");
     return true;
+  };
+  FC.printReceiptSilently = async function (order) {
+    const payload = safeObject(order);
+    if (!payload.id) {
+      throw new Error("Missing order id");
+    }
+
+    const res = await fetch("http://127.0.0.1:5001/api/print-receipt", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ order: payload })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    return data;
   };
 })();
