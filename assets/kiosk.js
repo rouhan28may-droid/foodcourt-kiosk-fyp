@@ -88,21 +88,21 @@
   function nowISO() {
     try {
       if (typeof FC.nowISO === "function") return FC.nowISO();
-    } catch {}
+    } catch { }
     return new Date().toISOString();
   }
 
   function money(value) {
     try {
       if (typeof FC.money === "function") return FC.money(value);
-    } catch {}
+    } catch { }
     return String(value ?? 0);
   }
 
   function computeTotals(items) {
     try {
       if (typeof FC.computeTotals === "function") return FC.computeTotals(items);
-    } catch {}
+    } catch { }
     const subtotal = safeArray(items).reduce((sum, it) => sum + (Number(it.price || 0) * Number(it.qty || 0)), 0);
     const tax = Math.round(subtotal * 0.13);
     return { subtotal, tax, total: subtotal + tax };
@@ -870,6 +870,14 @@
       setTimeout(async () => {
         await closePayment();
         await openReceipt(o.id);
+
+        const printed = await printReceiptOnly(o.id);
+
+        if (printed) {
+          setTimeout(async () => {
+            await closeReceipt();
+          }, 1200);
+        }
       }, 700);
     };
   }
@@ -1269,59 +1277,68 @@
   }
 
   async function printReceiptOnly(orderId) {
-    if (!ensureUnlockedOrBlock("Enter kiosk password before printing.")) return;
+    if (!ensureUnlockedOrBlock("Enter kiosk password before printing.")) return false;
+
     const order = await getOrderSafe(orderId);
-    if (!order) return;
+    if (!order) return false;
 
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.style.opacity = "0";
-    iframe.setAttribute("aria-hidden", "true");
+    const restaurant = getRestaurantById(order.restaurantId);
 
-    document.body.appendChild(iframe);
+    const payload = {
+      ...order,
+      restaurantName: restaurant?.name || "Restaurant"
+    };
 
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    doc.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Receipt ${escapeHtml(order.id)}</title>
-        <style>${getReceiptCss()}</style>
-      </head>
-      <body>
-        ${buildFullReceiptMarkup(order)}
-      </body>
-    </html>
-  `);
-    doc.close();
+    const oldPrintText = printBtn ? printBtn.textContent : "Print Receipt";
+    const oldDoneText = doneBtn ? doneBtn.textContent : "Done";
 
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } finally {
-        const cleanup = () => {
-          setTimeout(() => {
-            iframe.remove();
-          }, 500);
-        };
-
-        if ("onafterprint" in iframe.contentWindow) {
-          iframe.contentWindow.onafterprint = cleanup;
-        } else {
-          cleanup();
-        }
+    try {
+      if (printBtn) {
+        printBtn.disabled = true;
+        printBtn.classList.add("opacity-50");
+        printBtn.textContent = "Printing...";
       }
-    }, 350);
 
-    simulatePrinterPaperUseSafe();
+      if (doneBtn) {
+        doneBtn.disabled = true;
+        doneBtn.classList.add("opacity-50");
+        doneBtn.textContent = "Please wait...";
+      }
+
+      if (receiptHint) {
+        receiptHint.textContent = `Printing receipt for Order ID: ${order.id}...`;
+      }
+
+      await FC.printReceiptSilently(payload);
+      simulatePrinterPaperUseSafe();
+
+      if (receiptHint) {
+        receiptHint.textContent = `Receipt printed successfully. Order ID: ${order.id}`;
+      }
+
+      return true;
+    } catch (err) {
+      console.error("kiosk.js: silent print failed", err);
+
+      if (receiptHint) {
+        receiptHint.textContent = `Printing failed for Order ID: ${order.id}`;
+      }
+
+      alertSafe(`Printing failed: ${err.message || err}`);
+      return false;
+    } finally {
+      if (printBtn) {
+        printBtn.disabled = false;
+        printBtn.classList.remove("opacity-50");
+        printBtn.textContent = oldPrintText;
+      }
+
+      if (doneBtn) {
+        doneBtn.disabled = false;
+        doneBtn.classList.remove("opacity-50");
+        doneBtn.textContent = oldDoneText;
+      }
+    }
   }
 
   async function closeReceipt() {
