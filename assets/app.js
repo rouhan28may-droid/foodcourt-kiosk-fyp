@@ -801,6 +801,9 @@ window.FC = window.FC || {};
 
     const res = await fetch("http://127.0.0.1:5001/api/print-receipt", {
       method: "POST",
+      mode: "cors",
+      credentials: "omit",
+      targetAddressSpace: "local",
       headers: {
         "Content-Type": "application/json"
       },
