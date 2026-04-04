@@ -803,7 +803,7 @@ window.FC = window.FC || {};
       method: "POST",
       mode: "cors",
       credentials: "omit",
-      targetAddressSpace: "local",
+      targetAddressSpace: "loopback",
       headers: {
         "Content-Type": "application/json"
       },
