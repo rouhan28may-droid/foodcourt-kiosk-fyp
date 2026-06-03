@@ -636,61 +636,476 @@
     });
   }
 
-  async function exportAll() {
-    const data = await getDashboardData();
+  // ---------- Professional Admin Excel Report ----------
+  function validDate(value) {
+    const d = new Date(value || "");
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
 
-    if (typeof FC.downloadXLSX !== "function") {
-      console.error("admin.js: FC.downloadXLSX is missing.");
-      logSafe("XLSX export failed: download helper not loaded.");
-      return;
+  function dateOnly(value) {
+    const d = validDate(value);
+    if (!d) return "";
+    return d.toISOString().slice(0, 10);
+  }
+
+  function timeOnly(value) {
+    const d = validDate(value);
+    if (!d) return "";
+    return d.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+  }
+
+  function monthTitle(value) {
+    const d = validDate(value) || new Date();
+    return d.toLocaleString("en-US", {
+      month: "long",
+      year: "numeric"
+    });
+  }
+
+  function isSameMonth(value, baseDate) {
+    const d = validDate(value);
+    if (!d) return false;
+
+    return (
+      d.getFullYear() === baseDate.getFullYear() &&
+      d.getMonth() === baseDate.getMonth()
+    );
+  }
+
+  function reportNumber(value) {
+    return Number(value || 0);
+  }
+
+  function paidReportStatus(status) {
+    return ["paid", "preparing", "ready", "completed"].includes(status);
+  }
+
+  function prepMinutes(order) {
+    const start = validDate(order.approvedAt || order.createdAt);
+    const end = validDate(order.readyAt || order.completedAt || order.paidAt);
+
+    if (!start || !end) return "";
+
+    const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
+    return minutes >= 0 ? minutes : "";
+  }
+
+  function itemsSummary(order) {
+    return safeArr(order.items)
+      .map((it) => `${it.name || "Item"} x${Number(it.qty || 0)}`)
+      .join(" | ");
+  }
+
+  function totalDishQty(order) {
+    return safeArr(order.items).reduce((sum, it) => sum + Number(it.qty || 0), 0);
+  }
+
+  function uniqueDishCount(order) {
+    return new Set(safeArr(order.items).map((it) => it.name || it.itemId || "Item")).size;
+  }
+
+  function safeSheetName(name) {
+    return String(name || "Sheet")
+      .replace(/[\\/?*\[\]:]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 31) || "Sheet";
+  }
+
+  function createSheet(rows, widths, autoFilterRef) {
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = widths.map((wch) => ({ wch }));
+
+    if (autoFilterRef) {
+      ws["!autofilter"] = { ref: autoFilterRef };
     }
 
-    const ordersToday = data.orders.filter((o) => isToday(o.createdAt));
-    const sheets = [];
+    return ws;
+  }
 
-    sheets.push({
-      name: "All_Orders_Today",
-      rows: ordersToday.map((o) => ({
-        order_id: o.id,
-        restaurant: data.restaurants.find((r) => r.id === o.restaurantId)?.name || o.restaurantId,
-        status: o.status,
-        service_type: serviceTypeLabel(o),
-        table_number: tableNumberOf(o),
-        order_type_summary: serviceSummary(o),
-        subtotal: o.subtotal,
-        tax: o.tax,
-        total: o.total,
-        created_at: o.createdAt || "",
-        approved_at: o.approvedAt || "",
-        paid_at: o.paidAt || ""
-      }))
+  function addMerge(ws, startRow, startCol, endRow, endCol) {
+    ws["!merges"] = ws["!merges"] || [];
+    ws["!merges"].push({
+      s: { r: startRow, c: startCol },
+      e: { r: endRow, c: endCol }
+    });
+  }
+
+  function restaurantNameById(restaurants, restaurantId) {
+    return safeArr(restaurants).find((r) => r.id === restaurantId)?.name || restaurantId || "Unknown";
+  }
+
+  function buildRestaurantReportRows(restaurants, orders) {
+    const rows = [
+      [
+        "Restaurant",
+        "Online",
+        "Total Orders",
+        "Paid / Active Orders",
+        "Dine In",
+        "Takeaway",
+        "Not Marked",
+        "Subtotal",
+        "Tax",
+        "Revenue",
+        "Best Seller"
+      ]
+    ];
+
+    safeArr(restaurants).forEach((r) => {
+      const restOrders = safeArr(orders).filter((o) => o.restaurantId === r.id);
+      const paid = restOrders.filter((o) => paidReportStatus(o.status));
+
+      const itemCounts = {};
+      paid.forEach((o) => {
+        safeArr(o.items).forEach((it) => {
+          const name = it.name || "Unknown";
+          itemCounts[name] = (itemCounts[name] || 0) + Number(it.qty || 0);
+        });
+      });
+
+      const bestSeller =
+        Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
+
+      rows.push([
+        r.name || r.id,
+        r.online ? "Online" : "Offline",
+        restOrders.length,
+        paid.length,
+        paid.filter((o) => o.serviceType === "dine_in").length,
+        paid.filter((o) => o.serviceType === "takeaway").length,
+        paid.filter((o) => !o.serviceType).length,
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.subtotal || 0), 0)),
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.tax || 0), 0)),
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.total || 0), 0)),
+        bestSeller
+      ]);
     });
 
-    data.restaurants.forEach((r) => {
-      const rows = ordersToday
-        .filter((o) => o.restaurantId === r.id)
-        .map((o) => ({
-          order_id: o.id,
-          status: o.status,
-          service_type: serviceTypeLabel(o),
-          table_number: tableNumberOf(o),
-          order_type_summary: serviceSummary(o),
-          subtotal: o.subtotal,
-          tax: o.tax,
-          total: o.total,
-          created_at: o.createdAt || "",
-          approved_at: o.approvedAt || "",
-          paid_at: o.paidAt || ""
-        }));
+    return rows;
+  }
 
-      sheets.push({
-        name: String(r.name || r.id || "Restaurant").replace(/\s+/g, "_").slice(0, 31),
-        rows
+  function buildItemSummaryRows(restaurants, orders) {
+    const stats = {};
+
+    safeArr(orders).forEach((order) => {
+      safeArr(order.items).forEach((item) => {
+        const name = item.name || "Unknown";
+        const restaurantName = restaurantNameById(restaurants, order.restaurantId);
+        const key = `${restaurantName}__${name}`;
+        const qty = Number(item.qty || 0);
+        const unitPrice = Number(item.price || 0);
+        const lineTotal = qty * unitPrice;
+
+        if (!stats[key]) {
+          stats[key] = {
+            restaurant: restaurantName,
+            item: name,
+            total_qty: 0,
+            total_sales: 0,
+            order_lines: 0
+          };
+        }
+
+        stats[key].total_qty += qty;
+        stats[key].total_sales += lineTotal;
+        stats[key].order_lines += 1;
       });
     });
 
-    FC.downloadXLSX("FoodCourt_AllReports_Today.xlsx", sheets);
-    logSafe("All reports exported (XLSX download).");
+    const rows = [
+      ["Restaurant", "Item", "Total Qty Sold", "Total Sales", "Order Lines"]
+    ];
+
+    Object.values(stats)
+      .sort((a, b) => b.total_sales - a.total_sales)
+      .forEach((it) => {
+        rows.push([
+          it.restaurant,
+          it.item,
+          it.total_qty,
+          reportNumber(it.total_sales),
+          it.order_lines
+        ]);
+      });
+
+    return rows;
+  }
+
+  function buildOrderRows(restaurants, orders) {
+    const rows = [
+      [
+        "Order ID",
+        "Restaurant",
+        "Status",
+        "Service Type",
+        "Table Number",
+        "Order Type",
+        "Order Date",
+        "Order Placed",
+        "Approved At",
+        "Paid At",
+        "Prep Time (min)",
+        "Subtotal",
+        "Tax",
+        "Total",
+        "Items Summary",
+        "Total Dish Qty",
+        "Unique Dishes"
+      ]
+    ];
+
+    safeArr(orders).forEach((o) => {
+      rows.push([
+        o.id,
+        restaurantNameById(restaurants, o.restaurantId),
+        o.status || "",
+        serviceTypeLabel(o),
+        tableNumberOf(o),
+        serviceSummary(o),
+        dateOnly(o.createdAt),
+        timeOnly(o.createdAt),
+        timeOnly(o.approvedAt),
+        timeOnly(o.paidAt),
+        prepMinutes(o),
+        reportNumber(o.subtotal),
+        reportNumber(o.tax),
+        reportNumber(o.total),
+        itemsSummary(o),
+        totalDishQty(o),
+        uniqueDishCount(o)
+      ]);
+    });
+
+    return rows;
+  }
+
+  function buildOrderLineRows(restaurants, orders) {
+    const rows = [
+      [
+        "Order ID",
+        "Restaurant",
+        "Status",
+        "Service Type",
+        "Table Number",
+        "Order Type",
+        "Order Date",
+        "Placed At",
+        "Paid At",
+        "Dish",
+        "Qty",
+        "Unit Price",
+        "Line Total"
+      ]
+    ];
+
+    safeArr(orders).forEach((o) => {
+      safeArr(o.items).forEach((it) => {
+        const qty = Number(it.qty || 0);
+        const unitPrice = Number(it.price || 0);
+
+        rows.push([
+          o.id,
+          restaurantNameById(restaurants, o.restaurantId),
+          o.status || "",
+          serviceTypeLabel(o),
+          tableNumberOf(o),
+          serviceSummary(o),
+          dateOnly(o.createdAt),
+          timeOnly(o.createdAt),
+          timeOnly(o.paidAt),
+          it.name || "Item",
+          qty,
+          reportNumber(unitPrice),
+          reportNumber(qty * unitPrice)
+        ]);
+      });
+    });
+
+    return rows;
+  }
+
+  function buildAdRows(data) {
+    const rows = [
+      ["Ad ID", "Title", "Restaurant", "Enabled", "Impressions"]
+    ];
+
+    const impressions = safeObj(data.adMetrics?.impressions);
+
+    safeArr(data.ads).forEach((ad) => {
+      rows.push([
+        ad.id || "",
+        ad.title || "",
+        ad.restaurantId
+          ? restaurantNameById(data.restaurants, ad.restaurantId)
+          : "All Restaurants",
+        ad.enabled ? "Yes" : "No",
+        Number(impressions[ad.id] || 0)
+      ]);
+    });
+
+    return rows;
+  }
+
+  function buildLogRows(data) {
+    const rows = [
+      ["Time", "Message"]
+    ];
+
+    safeArr(data.logs).forEach((log) => {
+      rows.push([
+        log.at ? new Date(log.at).toLocaleString() : "",
+        log.message || ""
+      ]);
+    });
+
+    return rows;
+  }
+
+  function exportAdminReport(data) {
+    if (typeof XLSX === "undefined") {
+      alert("XLSX library is not loaded.");
+      return false;
+    }
+
+    const now = new Date();
+    const monthOrders = safeArr(data.orders).filter((o) => isSameMonth(o.createdAt, now));
+    const paidOrders = monthOrders.filter((o) => paidReportStatus(o.status));
+
+    const totalRevenue = paidOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+    const totalSubtotal = paidOrders.reduce((sum, o) => sum + Number(o.subtotal || 0), 0);
+    const totalTax = paidOrders.reduce((sum, o) => sum + Number(o.tax || 0), 0);
+
+    const dineInCount = paidOrders.filter((o) => o.serviceType === "dine_in").length;
+    const takeawayCount = paidOrders.filter((o) => o.serviceType === "takeaway").length;
+    const notMarkedCount = paidOrders.filter((o) => !o.serviceType).length;
+
+    const itemSummaryRows = buildItemSummaryRows(data.restaurants, paidOrders);
+    const bestSeller = itemSummaryRows[1]?.[1] || "—";
+
+    const summaryRows = [
+      ["Food Court Admin Monthly Report"],
+      [`Month: ${monthTitle(now)}`],
+      [`Generated: ${new Date().toLocaleString()}`],
+      [],
+      ["Executive Summary"],
+      ["Total Restaurants", safeArr(data.restaurants).length],
+      ["Total Orders This Month", monthOrders.length],
+      ["Paid / Active Orders", paidOrders.length],
+      ["Total Subtotal", reportNumber(totalSubtotal)],
+      ["Total Tax", reportNumber(totalTax)],
+      ["Total Revenue", reportNumber(totalRevenue)],
+      ["Dine In Orders", dineInCount],
+      ["Takeaway Orders", takeawayCount],
+      ["Not Marked Orders", notMarkedCount],
+      ["Best Seller", bestSeller],
+      [],
+      ["Restaurant Ranking"],
+      ["Restaurant", "Revenue", "Paid Orders", "Dine In", "Takeaway"]
+    ];
+
+    const ranking = safeArr(data.restaurants).map((r) => {
+      const restPaid = paidOrders.filter((o) => o.restaurantId === r.id);
+      return {
+        restaurant: r.name || r.id,
+        revenue: restPaid.reduce((sum, o) => sum + Number(o.total || 0), 0),
+        orders: restPaid.length,
+        dine_in: restPaid.filter((o) => o.serviceType === "dine_in").length,
+        takeaway: restPaid.filter((o) => o.serviceType === "takeaway").length
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    ranking.forEach((r) => {
+      summaryRows.push([
+        r.restaurant,
+        reportNumber(r.revenue),
+        r.orders,
+        r.dine_in,
+        r.takeaway
+      ]);
+    });
+
+    const restaurantRows = buildRestaurantReportRows(data.restaurants, monthOrders);
+    const orderRows = buildOrderRows(data.restaurants, monthOrders);
+    const orderLineRows = buildOrderLineRows(data.restaurants, monthOrders);
+    const adRows = buildAdRows(data);
+    const logRows = buildLogRows(data);
+
+    const wb = XLSX.utils.book_new();
+
+    const summarySheet = createSheet(
+      summaryRows,
+      [28, 18, 18, 16, 16, 16, 16, 16, 16, 16],
+      ranking.length ? `A18:E${17 + ranking.length}` : undefined
+    );
+    addMerge(summarySheet, 0, 0, 0, 9);
+    addMerge(summarySheet, 1, 0, 1, 9);
+    addMerge(summarySheet, 2, 0, 2, 9);
+
+    const restaurantSheet = createSheet(
+      restaurantRows,
+      [22, 12, 14, 18, 12, 12, 12, 14, 14, 14, 28],
+      `A1:K${restaurantRows.length}`
+    );
+
+    const ordersSheet = createSheet(
+      orderRows,
+      [22, 20, 16, 15, 14, 22, 14, 14, 14, 14, 16, 12, 12, 12, 50, 14, 14],
+      `A1:Q${orderRows.length}`
+    );
+
+    const orderLinesSheet = createSheet(
+      orderLineRows,
+      [22, 20, 16, 15, 14, 22, 14, 14, 14, 28, 8, 12, 12],
+      `A1:M${orderLineRows.length}`
+    );
+
+    const itemSheet = createSheet(
+      itemSummaryRows,
+      [20, 28, 14, 14, 14],
+      `A1:E${itemSummaryRows.length}`
+    );
+
+    const adSheet = createSheet(
+      adRows,
+      [16, 30, 22, 12, 14],
+      `A1:E${adRows.length}`
+    );
+
+    const logSheet = createSheet(
+      logRows,
+      [24, 80],
+      `A1:B${logRows.length}`
+    );
+
+    XLSX.utils.book_append_sheet(wb, summarySheet, "Executive Summary");
+    XLSX.utils.book_append_sheet(wb, restaurantSheet, "Restaurant Summary");
+    XLSX.utils.book_append_sheet(wb, ordersSheet, "All Orders");
+    XLSX.utils.book_append_sheet(wb, orderLinesSheet, "Order Lines");
+    XLSX.utils.book_append_sheet(wb, itemSheet, "Item Summary");
+    XLSX.utils.book_append_sheet(wb, adSheet, "Ad Metrics");
+    XLSX.utils.book_append_sheet(wb, logSheet, "System Logs");
+
+    XLSX.writeFile(wb, `FoodCourt_Admin_Monthly_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+    return true;
+  }
+
+  async function exportAll() {
+    const data = await getDashboardData();
+
+    try {
+      exportAdminReport(data);
+      logSafe("Admin monthly report exported (XLSX download).");
+    } catch (err) {
+      console.error("admin.js: export failed", err);
+      logSafe("Admin XLSX export failed. Check console.");
+      alert("Export failed. Check console for details.");
+    }
   }
 
   async function renderAll() {
