@@ -134,6 +134,73 @@ async function createCheckoutSession(request, env) {
   }
 }
 
+async function verifyCheckoutSession(request, env) {
+  try {
+    const stripeSecretKey = env.STRIPE_SECRET_KEY;
+
+    if (!stripeSecretKey) {
+      return jsonResponse({
+        ok: false,
+        error: "Stripe secret key is not configured."
+      }, 500);
+    }
+
+    const url = new URL(request.url);
+    const sessionId = url.searchParams.get("session_id");
+
+    if (!sessionId) {
+      return jsonResponse({
+        ok: false,
+        error: "Missing Stripe session_id."
+      }, 400);
+    }
+
+    if (!sessionId.startsWith("cs_")) {
+      return jsonResponse({
+        ok: false,
+        error: "Invalid Stripe session_id."
+      }, 400);
+    }
+
+    const stripeRes = await fetch(
+      `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`,
+      {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${stripeSecretKey}`
+        }
+      }
+    );
+
+    const stripeData = await stripeRes.json();
+
+    if (!stripeRes.ok) {
+      return jsonResponse({
+        ok: false,
+        error: stripeData?.error?.message || "Stripe session verification failed.",
+        stripeError: stripeData?.error || null
+      }, 500);
+    }
+
+    return jsonResponse({
+      ok: true,
+      sessionId: stripeData.id,
+      orderId: stripeData.client_reference_id || stripeData.metadata?.order_id || "",
+      paymentStatus: stripeData.payment_status,
+      status: stripeData.status,
+      amountTotal: stripeData.amount_total,
+      currency: stripeData.currency,
+      customerEmail: stripeData.customer_details?.email || "",
+      metadata: stripeData.metadata || {}
+    });
+  } catch (err) {
+    return jsonResponse({
+      ok: false,
+      error: err.message || "Unexpected Stripe verification error."
+    }, 500);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -142,7 +209,10 @@ export default {
       return createCheckoutSession(request, env);
     }
 
-    // Serve your existing static website files.
+    if (url.pathname === "/api/stripe/session" && request.method === "GET") {
+      return verifyCheckoutSession(request, env);
+    }
+
     return env.ASSETS.fetch(request);
   }
 };
