@@ -88,21 +88,21 @@
   function nowISO() {
     try {
       if (typeof FC.nowISO === "function") return FC.nowISO();
-    } catch { }
+    } catch {}
     return new Date().toISOString();
   }
 
   function money(value) {
     try {
       if (typeof FC.money === "function") return FC.money(value);
-    } catch { }
+    } catch {}
     return String(value ?? 0);
   }
 
   function computeTotals(items) {
     try {
       if (typeof FC.computeTotals === "function") return FC.computeTotals(items);
-    } catch { }
+    } catch {}
     const subtotal = safeArray(items).reduce((sum, it) => sum + (Number(it.price || 0) * Number(it.qty || 0)), 0);
     const tax = Math.round(subtotal * 0.13);
     return { subtotal, tax, total: subtotal + tax };
@@ -138,8 +138,6 @@
     }
   }
 
-  const APPROVAL_TIMEOUT_MS = 15000;
-
   const elTabs = $("restaurantTabs");
   const elMenu = $("menuGrid");
   const elCart = $("cartItems");
@@ -149,6 +147,16 @@
   const elCheckout = $("checkoutBtn");
   const elClearCart = $("clearCartBtn");
   const elReset = $("resetBtn");
+
+  const servicePanel = $("servicePanel");
+  const serviceModeDineIn = $("serviceModeDineIn");
+  const serviceModeTakeaway = $("serviceModeTakeaway");
+  const dineInOption = $("dineInOption");
+  const takeawayOption = $("takeawayOption");
+  const tableNumberWrap = $("tableNumberWrap");
+  const tableNumberInput = $("tableNumberInput");
+  const serviceSummary = $("serviceSummary");
+  const serviceError = $("serviceError");
 
   const elActiveName = $("activeRestaurantName");
   const elActiveTagline = $("activeRestaurantTagline");
@@ -179,19 +187,13 @@
   const adTitle = $("adTitle");
   const adSubtitle = $("adSubtitle");
 
-  const fullscreenBtn = $("fullscreenBtn");
-  const kioskLockOverlay = $("kioskLockOverlay");
-  const kioskUnlockTitle = $("kioskUnlockTitle");
-  const kioskUnlockMessage = $("kioskUnlockMessage");
-  const kioskPinInput = $("kioskPinInput");
-  const kioskPinError = $("kioskPinError");
-  const kioskUnlockBtn = $("kioskUnlockBtn");
-
   const sessionKey = "fc_session";
   const session = safeSessionRead(sessionKey, {});
   let activeRestaurantId = session.activeRestaurantId || "r1";
   let cart = safeArray(session.cart);
   let awaitingOrderId = session.awaitingOrderId || null;
+  let serviceType = session.serviceType || "";
+  let tableNumber = String(session.tableNumber || "");
 
   let payInterval = null;
   let paySecondsLeft = 0;
@@ -205,141 +207,128 @@
   let renderBusy = false;
   let rerenderRequested = false;
 
-  let kioskPassword = "2468";
-  let kioskLocallyLocked = true;
-  let fullscreenPreviouslyActive = false;
-
   function saveSession() {
     localStorage.setItem(
       sessionKey,
       JSON.stringify({
         activeRestaurantId,
         cart,
-        awaitingOrderId
+        awaitingOrderId,
+        serviceType,
+        tableNumber
       })
     );
   }
 
-  async function loadKioskCredentials() {
-    try {
-      const res = await fetch("data/users.json", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      kioskPassword = data?.kiosk?.password || "2468";
-    } catch (err) {
-      console.warn("kiosk.js: kiosk password load failed, using fallback", err);
-      kioskPassword = "2468";
-    }
+  function serviceLabel(type = serviceType) {
+    if (type === "dine_in") return "Dine In";
+    if (type === "takeaway") return "Takeaway";
+    return "Not selected";
   }
 
-  function isAdminLocked() {
-    return !!safeState().devices?.kioskDisplay?.locked;
+  function serviceText(order = {}) {
+    const type = order.serviceType || order.service_type || order.orderType || "";
+    const table = String(order.tableNumber || order.table_number || "").trim();
+
+    if (type === "dine_in") {
+      return table ? `Dine In • Table ${table}` : "Dine In";
+    }
+
+    if (type === "takeaway") return "Takeaway";
+
+    return "Order type not selected";
   }
 
-  function isKioskLocked() {
-    return kioskLocallyLocked || isAdminLocked();
+  function setServiceType(type) {
+    serviceType = type;
+    if (type !== "dine_in") {
+      tableNumber = "";
+      if (tableNumberInput) tableNumberInput.value = "";
+    }
+    saveSession();
+    renderServicePanel();
+    renderCart();
   }
 
-  function showKioskLock(title, message, allowPin = true) {
-    if (!kioskLockOverlay) return;
+  function getServiceSelection() {
+    const type = serviceType;
+    const table = String(tableNumberInput?.value ?? tableNumber ?? "").trim();
 
-    kioskLockOverlay.classList.remove("hidden");
-
-    if (kioskUnlockTitle) kioskUnlockTitle.textContent = title || "Kiosk Locked";
-    if (kioskUnlockMessage) kioskUnlockMessage.textContent = message || "Enter kiosk password to continue.";
-
-    if (kioskPinInput) {
-      kioskPinInput.value = "";
-      kioskPinInput.disabled = !allowPin;
+    if (!type) {
+      return {
+        ok: false,
+        message: "Please select Dine In or Takeaway before checkout."
+      };
     }
 
-    if (kioskUnlockBtn) {
-      kioskUnlockBtn.disabled = !allowPin;
-      kioskUnlockBtn.classList.toggle("opacity-50", !allowPin);
+    if (type === "dine_in" && !table) {
+      return {
+        ok: false,
+        message: "Please enter table number for Dine In order."
+      };
     }
 
-    if (kioskPinError) {
-      kioskPinError.classList.add("hidden");
-      kioskPinError.textContent = "Incorrect password.";
-    }
-
-    setTimeout(() => {
-      if (allowPin && kioskPinInput) kioskPinInput.focus();
-    }, 30);
+    return {
+      ok: true,
+      serviceType: type,
+      tableNumber: type === "dine_in" ? table : "",
+      label: type === "dine_in" ? `Dine In • Table ${table}` : "Takeaway"
+    };
   }
 
-  function hideKioskLock() {
-    if (!kioskLockOverlay) return;
-    if (isAdminLocked()) return;
-    kioskLockOverlay.classList.add("hidden");
-  }
+  function renderServicePanel() {
+    if (!servicePanel) return;
 
-  function syncKioskLockState() {
-    if (isAdminLocked()) {
-      kioskLocallyLocked = true;
-      showKioskLock(
-        "Kiosk Locked by Admin",
-        "This kiosk was locked from the control panel. Unlock it there first.",
-        false
-      );
-      return;
+    const tableValue = String(tableNumberInput?.value ?? tableNumber ?? "").trim();
+
+    if (serviceModeDineIn) serviceModeDineIn.checked = serviceType === "dine_in";
+    if (serviceModeTakeaway) serviceModeTakeaway.checked = serviceType === "takeaway";
+
+    if (tableNumberWrap) {
+      tableNumberWrap.classList.toggle("hidden", serviceType !== "dine_in");
     }
 
-    if (kioskLocallyLocked) {
-      showKioskLock(
-        "Kiosk Locked",
-        "Enter kiosk password to continue using this customer dashboard.",
-        true
-      );
-    } else {
-      hideKioskLock();
-    }
-  }
-
-  async function unlockKioskWithPassword() {
-    if (isAdminLocked()) {
-      showKioskLock(
-        "Kiosk Locked by Admin",
-        "This kiosk was locked from the control panel. Unlock it there first.",
-        false
-      );
-      return false;
+    if (tableNumberInput && tableNumberInput.value !== tableNumber) {
+      tableNumberInput.value = tableNumber;
     }
 
-    const entered = (kioskPinInput?.value || "").trim();
+    const selectedClasses = ["border-indigo-400/70", "bg-indigo-500/15", "ring-1", "ring-indigo-400/40"];
+    const normalClasses = ["border-white/10", "bg-white/5"];
 
-    if (!entered || entered !== kioskPassword) {
-      if (kioskPinError) {
-        kioskPinError.textContent = "Incorrect password.";
-        kioskPinError.classList.remove("hidden");
+    const applyOptionState = (el, selected) => {
+      if (!el) return;
+      el.classList.remove(...selectedClasses, ...normalClasses);
+      if (selected) {
+        el.classList.add(...selectedClasses);
+      } else {
+        el.classList.add(...normalClasses);
       }
-      if (kioskPinInput) kioskPinInput.focus();
-      return false;
+    };
+
+    applyOptionState(dineInOption, serviceType === "dine_in");
+    applyOptionState(takeawayOption, serviceType === "takeaway");
+
+    if (serviceSummary) {
+      serviceSummary.textContent =
+        serviceType === "dine_in"
+          ? (tableValue ? `Dine In • Table ${tableValue}` : "Dine In")
+          : serviceLabel();
     }
 
-    kioskLocallyLocked = false;
-    hideKioskLock();
-    return true;
-  }
-
-  function ensureUnlockedOrBlock(message) {
-    if (!isKioskLocked()) return true;
-
-    showKioskLock(
-      "Kiosk Locked",
-      message || "Enter kiosk password to continue using this customer dashboard.",
-      !isAdminLocked()
-    );
-    return false;
-  }
-
-  async function enterFullscreenSafe() {
-    try {
-      await document.documentElement.requestFullscreen();
-    } catch (err) {
-      console.error("Fullscreen request failed:", err);
-      alertSafe("Fullscreen failed. Browser may have blocked it.");
+    if (serviceError) {
+      const check = getServiceSelection();
+      serviceError.textContent = check.message || "";
+      serviceError.classList.toggle("hidden", check.ok || !cart.length);
     }
+  }
+
+  function resetServiceSelection() {
+    serviceType = "";
+    tableNumber = "";
+    if (tableNumberInput) tableNumberInput.value = "";
+    if (serviceModeDineIn) serviceModeDineIn.checked = false;
+    if (serviceModeTakeaway) serviceModeTakeaway.checked = false;
+    renderServicePanel();
   }
 
   function getRestaurants() {
@@ -419,7 +408,6 @@
   }, 1000);
 
   function addToCart(restaurantId, menuItem) {
-    if (!ensureUnlockedOrBlock("Enter kiosk password before adding items.")) return;
     if (!menuItem) return;
 
     if (cart.length && cart[0].restaurantId !== restaurantId) {
@@ -445,7 +433,6 @@
   }
 
   function updateQty(itemId, delta) {
-    if (!ensureUnlockedOrBlock("Enter kiosk password before editing the cart.")) return;
     const it = cart.find((x) => x.itemId === itemId);
     if (!it) return;
 
@@ -460,8 +447,8 @@
   }
 
   function clearCart() {
-    if (!ensureUnlockedOrBlock("Enter kiosk password before clearing the cart.")) return;
     cart = [];
+    resetServiceSelection();
     saveSession();
     renderCart();
   }
@@ -633,8 +620,12 @@
     elTax.textContent = money(totals.tax);
     elTotal.textContent = money(totals.total);
 
-    elCheckout.disabled = cart.length === 0;
-    elCheckout.classList.toggle("opacity-50", cart.length === 0);
+    renderServicePanel();
+
+    const serviceReady = getServiceSelection().ok;
+    const disabled = cart.length === 0 || !serviceReady;
+    elCheckout.disabled = disabled;
+    elCheckout.classList.toggle("opacity-50", disabled);
   }
 
   function hideFlow() {
@@ -649,6 +640,7 @@
 
     const r = getRestaurantById(order.restaurantId) || getRestaurant();
     const items = safeArray(order.items);
+    const svcText = serviceText(order);
 
     if (order.status === "pending_approval") {
       elFlowPanel.innerHTML = `
@@ -656,11 +648,11 @@
           <div>
             <div class="text-xs uppercase tracking-widest text-slate-400">Order Sent</div>
             <div class="text-xl font-semibold mt-1">Waiting for Approval</div>
-            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> sent to <span class="pill">${r?.name || "Restaurant"}</span></div>
+            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> sent to <span class="pill">${r?.name || "Restaurant"}</span> • <span class="pill">${svcText}</span></div>
           </div>
           <div class="pill badge-yellow">Pending</div>
         </div>
-        <div class="mt-4 text-sm text-slate-400">Restaurant must approve manually within 15 seconds, otherwise the request will be cancelled.</div>
+        <div class="mt-4 text-sm text-slate-400">Restaurant will approve/reject based on availability.</div>
       `;
       return;
     }
@@ -711,7 +703,7 @@
           <div>
             <div class="text-xs uppercase tracking-widest text-slate-400">Approved</div>
             <div class="text-xl font-semibold mt-1">Proceed to Payment</div>
-            <div class="text-sm text-slate-300 mt-2">Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span> • Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span></div>
+            <div class="text-sm text-slate-300 mt-2">Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span> • <span class="pill">${svcText}</span> • Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span></div>
           </div>
           <div class="pill badge-green">Approved</div>
         </div>
@@ -733,7 +725,7 @@
           <div>
             <div class="text-xs uppercase tracking-widest text-slate-400">In Queue</div>
             <div class="text-xl font-semibold mt-1">Order Confirmed</div>
-            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> is now in preparation queue.</div>
+            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> is now in preparation queue. <span class="pill">${svcText}</span></div>
           </div>
           <div class="pill badge-green">${String(order.status).toUpperCase()}</div>
         </div>
@@ -754,7 +746,6 @@
   }
 
   async function openPayment(orderId) {
-    if (!ensureUnlockedOrBlock("Enter kiosk password before opening payment.")) return;
     const s = safeState();
     const order = await getOrderSafe(orderId);
     if (!order) return;
@@ -870,14 +861,6 @@
       setTimeout(async () => {
         await closePayment();
         await openReceipt(o.id);
-
-        const printed = await printReceiptOnly(o.id);
-
-        if (printed) {
-          setTimeout(async () => {
-            await closeReceipt();
-          }, 1200);
-        }
       }, 700);
     };
   }
@@ -1147,6 +1130,10 @@
         <div class="label">Order ID</div>
         <div class="value"><b>${escapeHtml(order.id)}</b></div>
       </div>
+      <div class="row">
+        <div class="label">Order Type</div>
+        <div class="value"><b>${escapeHtml(serviceText(order))}</b></div>
+      </div>
 
       <table>
         <thead>
@@ -1206,6 +1193,7 @@
       <div class="copy-badge">RESTAURANT COPY</div>
       <div class="title">${escapeHtml(restaurant?.name || "Restaurant")}</div>
       <div class="meta">Order • ${escapeHtml(order.id)}</div>
+      <div class="meta">${escapeHtml(serviceText(order))}</div>
       <div class="meta">${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
 
       <hr class="divider" />
@@ -1277,68 +1265,118 @@
   }
 
   async function printReceiptOnly(orderId) {
-    if (!ensureUnlockedOrBlock("Enter kiosk password before printing.")) return false;
-
     const order = await getOrderSafe(orderId);
     if (!order) return false;
 
     const restaurant = getRestaurantById(order.restaurantId);
-
     const payload = {
       ...order,
-      restaurantName: restaurant?.name || "Restaurant"
+      restaurantName: restaurant?.name || "Restaurant",
+      serviceType: order.serviceType || order.service_type || "",
+      tableNumber: order.tableNumber || order.table_number || ""
     };
 
-    const oldPrintText = printBtn ? printBtn.textContent : "Print Receipt";
-    const oldDoneText = doneBtn ? doneBtn.textContent : "Done";
+    if (typeof FC.printReceiptSilently === "function") {
+      const oldPrintText = printBtn ? printBtn.textContent : "Print Receipt";
+      const oldDoneText = doneBtn ? doneBtn.textContent : "Done";
 
-    try {
-      if (printBtn) {
-        printBtn.disabled = true;
-        printBtn.classList.add("opacity-50");
-        printBtn.textContent = "Printing...";
-      }
+      try {
+        if (printBtn) {
+          printBtn.disabled = true;
+          printBtn.classList.add("opacity-50");
+          printBtn.textContent = "Printing...";
+        }
 
-      if (doneBtn) {
-        doneBtn.disabled = true;
-        doneBtn.classList.add("opacity-50");
-        doneBtn.textContent = "Please wait...";
-      }
+        if (doneBtn) {
+          doneBtn.disabled = true;
+          doneBtn.classList.add("opacity-50");
+          doneBtn.textContent = "Please wait...";
+        }
 
-      if (receiptHint) {
-        receiptHint.textContent = `Printing receipt for Order ID: ${order.id}...`;
-      }
+        if (receiptHint) {
+          receiptHint.textContent = `Printing receipt for Order ID: ${order.id}...`;
+        }
 
-      await FC.printReceiptSilently(payload);
-      simulatePrinterPaperUseSafe();
+        await FC.printReceiptSilently(payload);
+        simulatePrinterPaperUseSafe();
 
-      if (receiptHint) {
-        receiptHint.textContent = `Receipt printed successfully. Order ID: ${order.id}`;
-      }
+        if (receiptHint) {
+          receiptHint.textContent = `Receipt printed successfully. Order ID: ${order.id}`;
+        }
 
-      return true;
-    } catch (err) {
-      console.error("kiosk.js: silent print failed", err);
+        return true;
+      } catch (err) {
+        console.error("kiosk.js: silent print failed", err);
+        if (receiptHint) {
+          receiptHint.textContent = `Printing failed for Order ID: ${order.id}`;
+        }
+        alertSafe(`Printing failed: ${err.message || err}`);
+        return false;
+      } finally {
+        if (printBtn) {
+          printBtn.disabled = false;
+          printBtn.classList.remove("opacity-50");
+          printBtn.textContent = oldPrintText;
+        }
 
-      if (receiptHint) {
-        receiptHint.textContent = `Printing failed for Order ID: ${order.id}`;
-      }
-
-      alertSafe(`Printing failed: ${err.message || err}`);
-      return false;
-    } finally {
-      if (printBtn) {
-        printBtn.disabled = false;
-        printBtn.classList.remove("opacity-50");
-        printBtn.textContent = oldPrintText;
-      }
-
-      if (doneBtn) {
-        doneBtn.disabled = false;
-        doneBtn.classList.remove("opacity-50");
-        doneBtn.textContent = oldDoneText;
+        if (doneBtn) {
+          doneBtn.disabled = false;
+          doneBtn.classList.remove("opacity-50");
+          doneBtn.textContent = oldDoneText;
+        }
       }
     }
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0";
+    iframe.setAttribute("aria-hidden", "true");
+
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Receipt ${escapeHtml(order.id)}</title>
+        <style>${getReceiptCss()}</style>
+      </head>
+      <body>
+        ${buildFullReceiptMarkup(order)}
+      </body>
+    </html>
+  `);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } finally {
+        const cleanup = () => {
+          setTimeout(() => {
+            iframe.remove();
+          }, 500);
+        };
+
+        if ("onafterprint" in iframe.contentWindow) {
+          iframe.contentWindow.onafterprint = cleanup;
+        } else {
+          cleanup();
+        }
+      }
+    }, 350);
+
+    simulatePrinterPaperUseSafe();
+    return true;
   }
 
   async function closeReceipt() {
@@ -1363,6 +1401,7 @@
     awaitingOrderId = null;
     currentReceiptOrderId = null;
     cart = [];
+    resetServiceSelection();
     saveSession();
     renderCart();
     hideFlow();
@@ -1388,10 +1427,64 @@
     };
   }
 
+  if (serviceModeDineIn) {
+    serviceModeDineIn.addEventListener("change", () => {
+      setServiceType("dine_in");
+      if (tableNumberInput) {
+        setTimeout(() => tableNumberInput.focus(), 30);
+      }
+    });
+  }
+
+  if (serviceModeTakeaway) {
+    serviceModeTakeaway.addEventListener("change", () => {
+      setServiceType("takeaway");
+    });
+  }
+
+  if (dineInOption) {
+    dineInOption.addEventListener("click", () => {
+      if (serviceModeDineIn) serviceModeDineIn.checked = true;
+      setServiceType("dine_in");
+      if (tableNumberInput) {
+        setTimeout(() => tableNumberInput.focus(), 30);
+      }
+    });
+  }
+
+  if (takeawayOption) {
+    takeawayOption.addEventListener("click", () => {
+      if (serviceModeTakeaway) serviceModeTakeaway.checked = true;
+      setServiceType("takeaway");
+    });
+  }
+
+  if (tableNumberInput) {
+    tableNumberInput.addEventListener("input", () => {
+      tableNumber = String(tableNumberInput.value || "").trim();
+      saveSession();
+      renderServicePanel();
+      renderCart();
+    });
+  }
+
   if (elCheckout) {
     elCheckout.onclick = async () => {
-      if (!ensureUnlockedOrBlock("Enter kiosk password before checkout.")) return;
       if (!cart.length) return;
+
+      const serviceSelection = getServiceSelection();
+      if (!serviceSelection.ok) {
+        if (serviceError) {
+          serviceError.textContent = serviceSelection.message;
+          serviceError.classList.remove("hidden");
+        }
+        return;
+      }
+
+      serviceType = serviceSelection.serviceType;
+      tableNumber = serviceSelection.tableNumber;
+      saveSession();
+      renderServicePanel();
 
       const r = getRestaurant();
       if (!r) {
@@ -1404,11 +1497,18 @@
         return;
       }
 
+      const allAvailable = cart.every((ci) => {
+        const mi = safeArray(r.menu).find((x) => x.id === ci.itemId);
+        return mi && mi.available;
+      });
+
       const totals = computeTotals(cart);
 
       try {
         const order = await createOrderSafe({
           restaurantId: r.id,
+          serviceType: serviceSelection.serviceType,
+          tableNumber: serviceSelection.tableNumber,
           items: cart.map((x) => ({
             ...x,
             fast: !!safeArray(r.menu).find((m) => m.id === x.itemId)?.fast
@@ -1421,16 +1521,18 @@
         renderFlow(order);
         await refreshQueueCount();
 
-        setTimeout(async () => {
-          const o = await getOrderSafe(order.id);
-          if (o && o.status === "pending_approval") {
-            await updateOrderSafe(order.id, {
-              status: "rejected",
-              rejectReason: "Food not available or restaurant did not respond in time"
-            });
-            logSafe(`Order ${order.id} auto-rejected after approval timeout.`);
-          }
-        }, APPROVAL_TIMEOUT_MS);
+        if (allAvailable && r.online) {
+          setTimeout(async () => {
+            const o = await getOrderSafe(order.id);
+            if (o && o.status === "pending_approval") {
+              await updateOrderSafe(order.id, {
+                status: "approved",
+                approvedAt: nowISO()
+              });
+              logSafe(`Order ${order.id} auto-approved (restaurant online + items available).`);
+            }
+          }, 900);
+        }
       } catch (err) {
         console.error("Checkout failed:", err);
         alertSafe(`Checkout failed: ${err.message || err}`);
@@ -1456,45 +1558,6 @@
       }
     };
   }
-
-  if (fullscreenBtn) {
-    fullscreenBtn.onclick = async () => {
-      if (!ensureUnlockedOrBlock("Enter kiosk password before entering fullscreen.")) return;
-      await enterFullscreenSafe();
-    };
-  }
-
-  if (kioskUnlockBtn) {
-    kioskUnlockBtn.onclick = async () => {
-      await unlockKioskWithPassword();
-    };
-  }
-
-  if (kioskPinInput) {
-    kioskPinInput.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        await unlockKioskWithPassword();
-      }
-    });
-  }
-
-  document.addEventListener("fullscreenchange", () => {
-    if (document.fullscreenElement) {
-      fullscreenPreviouslyActive = true;
-      return;
-    }
-
-    if (fullscreenPreviouslyActive) {
-      fullscreenPreviouslyActive = false;
-      kioskLocallyLocked = true;
-      showKioskLock(
-        "Fullscreen Exited",
-        "Enter kiosk password to continue after exiting fullscreen.",
-        true
-      );
-    }
-  });
 
   if (elSearch) {
     elSearch.addEventListener("input", () => {
@@ -1542,13 +1605,9 @@
   }
 
   await seedSafe();
-  await loadKioskCredentials();
-  kioskLocallyLocked = true;
-  syncKioskLockState();
   await renderAll();
 
   window.addEventListener("fc:state-changed", async () => {
-    syncKioskLockState();
     await renderAll();
     if (awaitingOrderId) {
       const o = await getOrderSafe(awaitingOrderId);
@@ -1557,7 +1616,6 @@
   });
 
   window.addEventListener("focus", () => {
-    syncKioskLockState();
     renderAll();
   });
 })();

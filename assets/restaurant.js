@@ -83,64 +83,6 @@
     return new Date().toISOString();
   }
 
-  function parseISO(iso) {
-    if (!iso) return null;
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  function pad2(v) {
-    return String(v).padStart(2, "0");
-  }
-
-  function formatDateOnly(iso) {
-    const d = parseISO(iso);
-    if (!d) return "—";
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-  }
-
-  function formatTimeOnly(iso) {
-    const d = parseISO(iso);
-    if (!d) return "—";
-    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-  }
-
-  function minutesBetween(startIso, endIso) {
-    const start = parseISO(startIso);
-    const end = parseISO(endIso);
-    if (!start || !end) return null;
-    const mins = Math.round((end.getTime() - start.getTime()) / 60000);
-    return mins >= 0 ? mins : null;
-  }
-
-  function itemsSummary(items) {
-    return safeArray(items)
-      .map((it) => `${it.name || "Item"} x${Number(it.qty || 0)}`)
-      .join(" | ");
-  }
-
-  function totalDishQty(items) {
-    return safeArray(items).reduce((sum, it) => sum + Number(it.qty || 0), 0);
-  }
-
-  function uniqueDishCount(items) {
-    return safeArray(items).length;
-  }
-
-  function buildPatchedPayment(order, timelinePatch = {}, paymentPatch = {}) {
-    const currentPayment = safeObject(order?.payment);
-    const currentTimeline = safeObject(currentPayment.timeline);
-
-    return {
-      ...currentPayment,
-      ...paymentPatch,
-      timeline: {
-        ...currentTimeline,
-        ...timelinePatch
-      }
-    };
-  }
-
   async function seedSafe() {
     try {
       if (typeof FC.seed === "function") {
@@ -248,6 +190,49 @@
     return `<span class="pill">${String(status || "").toUpperCase()}</span>`;
   }
 
+  function serviceTypeOf(order) {
+    return order?.serviceType || order?.service_type || order?.orderType || order?.order_type || "";
+  }
+
+  function tableNumberOf(order) {
+    return String(order?.tableNumber || order?.table_number || order?.tableNo || order?.table_no || "").trim();
+  }
+
+  function serviceLabel(order) {
+    const type = serviceTypeOf(order);
+    const table = tableNumberOf(order);
+
+    if (type === "dine_in") {
+      return table ? `Dine In • Table ${table}` : "Dine In";
+    }
+
+    if (type === "takeaway") return "Takeaway";
+
+    return "Not selected";
+  }
+
+  function serviceTypeLabel(order) {
+    const type = serviceTypeOf(order);
+    if (type === "dine_in") return "Dine In";
+    if (type === "takeaway") return "Takeaway";
+    return "Not selected";
+  }
+
+  function serviceBadge(order) {
+    const type = serviceTypeOf(order);
+    const label = serviceLabel(order);
+
+    if (type === "dine_in") {
+      return `<span class="pill badge-yellow">${label}</span>`;
+    }
+
+    if (type === "takeaway") {
+      return `<span class="pill badge-green">${label}</span>`;
+    }
+
+    return `<span class="pill">${label}</span>`;
+  }
+
   function computeRestaurantSummary(orders) {
     const todayOrders = safeArray(orders).filter((o) => isToday(o.createdAt));
     const paid = todayOrders.filter((o) => paidLikeStatus(o.status));
@@ -273,88 +258,6 @@
     };
   }
 
-  let audioCtx = null;
-  let lastPendingIds = new Set();
-  let pendingSnapshotReady = false;
-
-  async function ensureAudioReady() {
-    try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClass) return null;
-
-      if (!audioCtx) {
-        audioCtx = new AudioContextClass();
-      }
-
-      if (audioCtx.state === "suspended") {
-        await audioCtx.resume();
-      }
-
-      return audioCtx;
-    } catch (err) {
-      console.warn("Audio init failed:", err);
-      return null;
-    }
-  }
-
-  async function beepNewOrder() {
-    const ctx = await ensureAudioReady();
-    if (!ctx) return;
-
-    const makeBeep = (startOffset, duration, freq) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + startOffset);
-
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime + startOffset);
-      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + startOffset + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + startOffset + duration);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(ctx.currentTime + startOffset);
-      osc.stop(ctx.currentTime + startOffset + duration);
-    };
-
-    try {
-      makeBeep(0, 0.16, 880);
-      makeBeep(0.22, 0.16, 988);
-    } catch (err) {
-      console.warn("Beep failed:", err);
-    }
-  }
-
-  function detectNewPendingOrders(orders) {
-    const pendingIds = new Set(
-      safeArray(orders)
-        .filter((o) => o.status === "pending_approval")
-        .map((o) => o.id)
-    );
-
-    if (!pendingSnapshotReady) {
-      lastPendingIds = pendingIds;
-      pendingSnapshotReady = true;
-      return;
-    }
-
-    let hasNewPending = false;
-    for (const id of pendingIds) {
-      if (!lastPendingIds.has(id)) {
-        hasNewPending = true;
-        break;
-      }
-    }
-
-    lastPendingIds = pendingIds;
-
-    if (hasNewPending) {
-      beepNewOrder();
-    }
-  }
-
   async function renderPending(orders) {
     if (!pendingList) return;
 
@@ -374,11 +277,19 @@
       div.innerHTML = `
         <div class="flex items-start justify-between gap-3 flex-wrap">
           <div class="min-w-0">
-            <div class="font-semibold">${o.id}</div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="font-semibold">${o.id}</div>
+              ${serviceBadge(o)}
+            </div>
             <div class="text-xs text-slate-400 mt-1">
               ${o.createdAt ? new Date(o.createdAt).toLocaleTimeString() : ""} • ${items}
             </div>
-            <div class="text-sm text-slate-200 mt-2">Total: <span class="pill">${money(o.total)}</span></div>
+            <div class="text-sm text-slate-200 mt-2">
+              Total: <span class="pill">${money(o.total)}</span>
+            </div>
+            <div class="text-xs text-slate-400 mt-2">
+              Order Type: <span class="text-slate-200">${serviceLabel(o)}</span>
+            </div>
           </div>
           <div class="flex gap-2 flex-wrap">
             <button class="btn-primary text-sm" data-act="approve">Approve</button>
@@ -402,14 +313,10 @@
       const confirmReject = div.querySelector('[data-act="confirm-reject"]');
 
       approveBtn.onclick = async () => {
-        const approvedAt = nowISO();
-
         await updateOrderSafe(o.id, {
           status: "approved",
-          approvedAt,
-          payment: buildPatchedPayment(o, { approvedAt })
+          approvedAt: nowISO()
         });
-
         logSafe(`Order ${o.id} approved by restaurant.`);
         await renderAll();
       };
@@ -453,9 +360,15 @@
             <div class="flex items-center gap-2 flex-wrap">
               <div class="font-semibold">${o.id}</div>
               ${statusBadge(o.status)}
+              ${serviceBadge(o)}
             </div>
             <div class="text-xs text-slate-400 mt-1">${items}</div>
-            <div class="text-sm text-slate-200 mt-2">Total: <span class="pill">${money(o.total)}</span></div>
+            <div class="text-sm text-slate-200 mt-2">
+              Total: <span class="pill">${money(o.total)}</span>
+            </div>
+            <div class="text-xs text-slate-400 mt-2">
+              Order Type: <span class="text-slate-200">${serviceLabel(o)}</span>
+            </div>
           </div>
           <div class="flex gap-2 flex-wrap">
             <button class="btn-ghost text-sm" data-act="prep" ${o.status === "paid" ? "" : "disabled"}>Preparing</button>
@@ -482,14 +395,7 @@
       };
 
       done.onclick = async () => {
-        const deliveredAt = nowISO();
-
-        await updateOrderSafe(o.id, {
-          status: "completed",
-          deliveredAt,
-          payment: buildPatchedPayment(o, { deliveredAt })
-        });
-
+        await updateOrderSafe(o.id, { status: "completed" });
         logSafe(`Order ${o.id} → completed.`);
         await renderAll();
       };
@@ -562,63 +468,47 @@
       const r = getRestaurant();
       if (!r) return;
 
-      try {
-        if (typeof FC.exportRestaurantSalesReport === "function") {
-          const ok = await FC.exportRestaurantSalesReport(r.id);
-          if (ok !== false) {
-            logSafe(`Professional sales report exported for ${r.name}.`);
-            return;
-          }
-        }
+      const orders = await getOrdersForRestaurantSafe();
+      const todayOrders = safeArray(orders).filter((o) => isToday(o.createdAt));
+      const paid = todayOrders.filter((o) => paidLikeStatus(o.status));
 
-        const orders = await getOrdersForRestaurantSafe();
-        const todayOrders = safeArray(orders).filter((o) => isToday(o.createdAt));
-        const paid = todayOrders.filter((o) => paidLikeStatus(o.status));
+      const rows = paid.map((o) => ({
+        order_id: o.id,
+        status: o.status,
+        service_type: serviceTypeLabel(o),
+        table_number: tableNumberOf(o),
+        order_type_summary: serviceLabel(o),
+        subtotal: o.subtotal,
+        tax: o.tax,
+        total: o.total,
+        created_at: o.createdAt,
+        paid_at: o.paidAt || ""
+      }));
 
-        const orderRows = paid.map((o) => ({
-          order_id: o.id,
-          restaurant: r.name,
-          order_date: formatDateOnly(o.createdAt),
-          order_placed: formatTimeOnly(o.createdAt),
-          approved_at: formatTimeOnly(o.approvedAt),
-          delivered_at: formatTimeOnly(o.deliveredAt || safeObject(o.payment).timeline?.deliveredAt),
-          prep_time_minutes: minutesBetween(
-            o.approvedAt,
-            o.deliveredAt || safeObject(o.payment).timeline?.deliveredAt
-          ) ?? "",
-          status: o.status,
-          subtotal: o.subtotal,
-          tax: o.tax,
-          total: o.total,
-          total_dish_qty: totalDishQty(o.items),
-          unique_dishes: uniqueDishCount(o.items),
-          items_summary: itemsSummary(o.items)
-        }));
-
-        const itemRows = [];
-        paid.forEach((o) => {
-          safeArray(o.items).forEach((it) => {
-            itemRows.push({
-              order_id: o.id,
-              restaurant: r.name,
-              order_date: formatDateOnly(o.createdAt),
-              placed_at: formatTimeOnly(o.createdAt),
-              approved_at: formatTimeOnly(o.approvedAt),
-              delivered_at: formatTimeOnly(o.deliveredAt || safeObject(o.payment).timeline?.deliveredAt),
-              dish: it.name,
-              qty: it.qty,
-              unit_price: it.price,
-              line_total: Number(it.qty || 0) * Number(it.price || 0)
-            });
+      const itemRows = [];
+      paid.forEach((o) => {
+        safeArray(o.items).forEach((it) => {
+          itemRows.push({
+            order_id: o.id,
+            restaurant: r.name,
+            service_type: serviceTypeLabel(o),
+            table_number: tableNumberOf(o),
+            order_type_summary: serviceLabel(o),
+            item: it.name,
+            qty: it.qty,
+            unit_price: it.price,
+            line_total: Number(it.qty || 0) * Number(it.price || 0)
           });
         });
+      });
 
+      try {
         if (typeof FC.downloadXLSX === "function") {
-          FC.downloadXLSX(`${String(r.name || "Restaurant").replace(/\s+/g, "_")}_Sales_Report.xlsx`, [
-            { name: "Orders", rows: orderRows },
+          FC.downloadXLSX(`${String(r.name || "Restaurant").replace(/\s+/g, "_")}_Sales_Today.xlsx`, [
+            { name: "Orders", rows },
             { name: "Items", rows: itemRows }
           ]);
-          logSafe(`Fallback sales report exported for ${r.name}.`);
+          logSafe(`Sales report exported for ${r.name} (XLSX download).`);
         }
       } catch (err) {
         console.error("restaurant.js: export failed", err);
@@ -647,9 +537,6 @@
       }
 
       const orders = await getOrdersForRestaurantSafe();
-
-      detectNewPendingOrders(orders);
-
       renderSummary(orders);
       await renderPending(orders);
       await renderActive(orders);
@@ -669,8 +556,6 @@
     logoutBtn.onclick = () => {
       localStorage.removeItem(sessKey);
       restaurantId = null;
-      lastPendingIds = new Set();
-      pendingSnapshotReady = false;
       showLogin();
     };
   }
@@ -689,8 +574,8 @@
 
       const users = await loadUsers();
       const match = safeArray(users.restaurants).find(
-        (x) => x.username === u && x.password === p
-      );
+        (x) => x.username === u && x.password === p)
+      ;
 
       if (!match) {
         if (loginErr) loginErr.textContent = "Invalid credentials.";
@@ -699,7 +584,6 @@
 
       restaurantId = match.restaurantId;
       saveSess();
-      await ensureAudioReady();
       showApp();
       await renderAll();
     };
@@ -718,7 +602,6 @@
 
   if (restaurantId) {
     showApp();
-    await ensureAudioReady();
     await renderAll();
   } else {
     showLogin();

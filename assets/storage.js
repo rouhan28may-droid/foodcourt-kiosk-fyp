@@ -36,6 +36,20 @@ FC._emitStateChanged = function () {
   window.dispatchEvent(new CustomEvent("fc:state-changed"));
 };
 
+FC._normalizeServiceType = function (value) {
+  const v = String(value || "").trim().toLowerCase();
+
+  if (v === "dine_in" || v === "dine-in" || v === "dine in") return "dine_in";
+  if (v === "takeaway" || v === "take_away" || v === "take-away" || v === "take away") return "takeaway";
+
+  return "";
+};
+
+FC._normalizeTableNumber = function (serviceType, value) {
+  const table = String(value || "").trim();
+  return serviceType === "dine_in" ? table : "";
+};
+
 // ---------- Default State ----------
 FC.defaultState = function () {
   return {
@@ -107,7 +121,7 @@ FC._normalizeState = function (raw) {
     },
     restaurants: FC._safeArray(s.restaurants),
     ads: FC._safeArray(s.ads),
-    orders: FC._safeArray(s.orders),
+    orders: FC._safeArray(s.orders).map(FC._normalizeOrder).filter(Boolean),
     deviceLogs: FC._safeArray(s.deviceLogs),
     logs: FC._safeArray(s.logs)
   };
@@ -213,11 +227,13 @@ FC.reset = async function () {
 FC.seed = async function () {
   let state = FC.readLocalState();
 
+  // Step 1: seed from local JSON if local state is empty
   if (!state.seededAt || !state.restaurants.length) {
     state = await FC.buildSeedState();
     FC.setState(state, { silent: true });
   }
 
+  // Step 2: only replace local catalog if Supabase actually has catalog data
   try {
     const db = FC._db();
 
@@ -238,6 +254,7 @@ FC.seed = async function () {
     console.warn("Supabase catalog check failed. Using local JSON seed.", err);
   }
 
+  // Step 3: orders can still come from Supabase if available
   await FC.fetchAllOrders().catch(() => {});
 
   FC.startRealtimeSync();
@@ -259,24 +276,26 @@ FC.uid = function (prefix = "ORD") {
 FC._normalizeOrder = function (order) {
   if (!order) return null;
 
-  const payment = FC._safeObject(order.payment);
-  const timeline = FC._safeObject(payment.timeline);
-
+  // Supabase row shape
   if ("restaurant_id" in order || "order_items" in order) {
+    const serviceType = FC._normalizeServiceType(order.service_type || order.serviceType || "");
+    const tableNumber = FC._normalizeTableNumber(serviceType, order.table_number || order.tableNumber || "");
+
     return {
       id: order.id,
       restaurantId: order.restaurant_id,
       status: order.status || "pending_approval",
+      serviceType,
+      tableNumber,
       subtotal: Number(order.subtotal || 0),
       tax: Number(order.tax || 0),
       total: Number(order.total || 0),
       currency: order.currency || "PKR",
       rejectReason: order.reject_reason || null,
-      createdAt: order.created_at || timeline.placedAt || null,
-      approvedAt: order.approved_at || timeline.approvedAt || null,
-      paidAt: order.paid_at || payment.paidAt || null,
-      deliveredAt: order.delivered_at || timeline.deliveredAt || payment.deliveredAt || null,
-      payment,
+      createdAt: order.created_at || null,
+      approvedAt: order.approved_at || null,
+      paidAt: order.paid_at || null,
+      payment: FC._safeObject(order.payment),
       items: FC._safeArray(order.order_items).map((it) => ({
         itemId: it.menu_item_id ?? null,
         name: it.name || "",
@@ -287,20 +306,25 @@ FC._normalizeOrder = function (order) {
     };
   }
 
+  // local/demo shape
+  const serviceType = FC._normalizeServiceType(order.serviceType || order.service_type || order.orderType || "");
+  const tableNumber = FC._normalizeTableNumber(serviceType, order.tableNumber || order.table_number || order.tableNo || "");
+
   return {
     id: order.id,
     restaurantId: order.restaurantId,
     status: order.status || "pending_approval",
+    serviceType,
+    tableNumber,
     subtotal: Number(order.subtotal || 0),
     tax: Number(order.tax || 0),
     total: Number(order.total || 0),
     currency: order.currency || "PKR",
     rejectReason: order.rejectReason || null,
-    createdAt: order.createdAt || timeline.placedAt || null,
-    approvedAt: order.approvedAt || timeline.approvedAt || null,
-    paidAt: order.paidAt || payment.paidAt || null,
-    deliveredAt: order.deliveredAt || timeline.deliveredAt || payment.deliveredAt || null,
-    payment,
+    createdAt: order.createdAt || null,
+    approvedAt: order.approvedAt || null,
+    paidAt: order.paidAt || null,
+    payment: FC._safeObject(order.payment),
     items: FC._safeArray(order.items).map((it) => ({
       itemId: it.itemId ?? null,
       name: it.name || "",
@@ -368,7 +392,8 @@ FC.fetchOrdersForRestaurant = async function (restaurantId) {
 
     if (error) throw error;
 
-    return FC._safeArray(data).map(FC._normalizeOrder).filter(Boolean);
+    const orders = FC._safeArray(data).map(FC._normalizeOrder).filter(Boolean);
+    return orders;
   }
 
   const s = FC.getState();
@@ -419,32 +444,29 @@ FC.getOrder = async function (orderId) {
   return found ? FC._normalizeOrder(found) : null;
 };
 
-FC.createOrder = async function ({ restaurantId, items, totals }) {
-  const placedAt = FC.nowISO();
+FC.createOrder = async function ({ restaurantId, items, totals, serviceType, tableNumber }) {
+  const normalizedServiceType = FC._normalizeServiceType(serviceType);
+  const normalizedTableNumber = FC._normalizeTableNumber(normalizedServiceType, tableNumber);
 
   const order = {
     id: FC.uid("ORD"),
     restaurantId,
     status: "pending_approval",
+    serviceType: normalizedServiceType,
+    tableNumber: normalizedTableNumber,
     subtotal: Number(totals?.subtotal || 0),
     tax: Number(totals?.tax || 0),
     total: Number(totals?.total || 0),
     currency: "PKR",
     rejectReason: null,
-    createdAt: placedAt,
+    createdAt: FC.nowISO(),
     approvedAt: null,
     paidAt: null,
-    deliveredAt: null,
     payment: {
       attemptCount: 0,
       success: false,
       method: null,
-      qrPayload: null,
-      timeline: {
-        placedAt,
-        approvedAt: null,
-        deliveredAt: null
-      }
+      qrPayload: null
     },
     items: FC._safeArray(items).map((it) => ({
       itemId: it.itemId ?? null,
@@ -462,6 +484,8 @@ FC.createOrder = async function ({ restaurantId, items, totals }) {
       id: order.id,
       restaurant_id: order.restaurantId,
       status: order.status,
+      service_type: order.serviceType,
+      table_number: order.tableNumber,
       subtotal: order.subtotal,
       tax: order.tax,
       total: order.total,
@@ -506,24 +530,6 @@ FC.createOrder = async function ({ restaurantId, items, totals }) {
 };
 
 FC.updateOrder = async function (orderId, patch) {
-  const current = await FC.getOrder(orderId);
-  if (!current) return null;
-
-  const currentPayment = FC._safeObject(current.payment);
-  const patchPayment = FC._safeObject(patch.payment);
-
-  const mergedPayment =
-    "payment" in patch
-      ? {
-          ...currentPayment,
-          ...patchPayment,
-          timeline: {
-            ...FC._safeObject(currentPayment.timeline),
-            ...FC._safeObject(patchPayment.timeline)
-          }
-        }
-      : currentPayment;
-
   const db = FC._db();
 
   if (db) {
@@ -533,7 +539,16 @@ FC.updateOrder = async function (orderId, patch) {
     if ("rejectReason" in patch) dbPatch.reject_reason = patch.rejectReason;
     if ("approvedAt" in patch) dbPatch.approved_at = patch.approvedAt;
     if ("paidAt" in patch) dbPatch.paid_at = patch.paidAt;
-    if ("payment" in patch) dbPatch.payment = mergedPayment;
+    if ("payment" in patch) dbPatch.payment = patch.payment;
+
+    if ("serviceType" in patch) {
+      dbPatch.service_type = FC._normalizeServiceType(patch.serviceType);
+    }
+
+    if ("tableNumber" in patch) {
+      const serviceForTable = FC._normalizeServiceType(patch.serviceType || patch.service_type || "");
+      dbPatch.table_number = FC._normalizeTableNumber(serviceForTable || "dine_in", patch.tableNumber);
+    }
 
     const { error } = await db
       .from("orders")
@@ -552,16 +567,24 @@ FC.updateOrder = async function (orderId, patch) {
   const idx = s.orders.findIndex((o) => o.id === orderId);
   if (idx === -1) return null;
 
+  const current = FC._normalizeOrder(s.orders[idx]);
+  const nextServiceType = FC._normalizeServiceType(
+    patch.serviceType ?? patch.service_type ?? current.serviceType
+  );
+  const nextTableNumber = FC._normalizeTableNumber(
+    nextServiceType,
+    patch.tableNumber ?? patch.table_number ?? current.tableNumber
+  );
+
   const next = {
     ...current,
     ...patch,
-    payment: mergedPayment,
-    deliveredAt:
-      patch.deliveredAt ??
-      current.deliveredAt ??
-      FC._safeObject(mergedPayment.timeline).deliveredAt ??
-      mergedPayment.deliveredAt ??
-      null
+    serviceType: nextServiceType,
+    tableNumber: nextTableNumber,
+    payment: {
+      ...FC._safeObject(current.payment),
+      ...FC._safeObject(patch.payment)
+    }
   };
 
   s.orders[idx] = next;

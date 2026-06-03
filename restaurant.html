@@ -44,7 +44,9 @@
               <div>
                 <div class="text-xs uppercase tracking-widest text-slate-400">Restaurant</div>
                 <div id="restName" class="text-2xl font-semibold mt-1"></div>
-                <div class="text-sm text-slate-400 mt-1">Approve/reject orders & manage status.</div>
+                <div class="text-sm text-slate-400 mt-1">
+                  Approve/reject orders, check Dine In / Takeaway type, and manage preparation status.
+                </div>
               </div>
               <div class="flex items-center gap-2">
                 <span class="pill">Online: <span id="onlineLabel">Yes</span></span>
@@ -56,7 +58,9 @@
           <div class="glass p-5 rounded-3xl">
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div class="text-lg font-semibold">Pending Approval</div>
-              <div class="text-sm text-slate-400">Kiosk sends order → you approve/reject</div>
+              <div class="text-sm text-slate-400">
+                Kiosk sends order → verify order type/table → approve or reject
+              </div>
             </div>
             <div id="pendingList" class="mt-4 space-y-3"></div>
           </div>
@@ -64,7 +68,9 @@
           <div class="glass p-5 rounded-3xl">
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div class="text-lg font-semibold">Active Orders</div>
-              <div class="text-sm text-slate-400">Update status (Preparing → Ready → Completed)</div>
+              <div class="text-sm text-slate-400">
+                Update status: Preparing → Ready → Completed
+              </div>
             </div>
             <div id="activeList" class="mt-4 space-y-3"></div>
           </div>
@@ -84,12 +90,21 @@
               <button id="exportBtn" class="btn-ghost text-sm">Export XLSX</button>
             </div>
             <div class="mt-4 space-y-2 text-sm">
-              <div class="flex justify-between text-slate-300"><span>Paid Orders</span><span id="paidCount">0</span></div>
-              <div class="flex justify-between text-slate-300"><span>Revenue</span><span id="revenue">0</span></div>
-              <div class="flex justify-between text-slate-300"><span>Best Seller</span><span id="bestSeller">—</span></div>
+              <div class="flex justify-between text-slate-300">
+                <span>Paid Orders</span>
+                <span id="paidCount">0</span>
+              </div>
+              <div class="flex justify-between text-slate-300">
+                <span>Revenue</span>
+                <span id="revenue">0</span>
+              </div>
+              <div class="flex justify-between text-slate-300">
+                <span>Best Seller</span>
+                <span id="bestSeller">—</span>
+              </div>
             </div>
             <div class="mt-4 text-xs text-slate-400">
-              “Email report” is simulated by XLSX download.
+              XLSX report will include service type and table number where available.
             </div>
           </div>
         </aside>
