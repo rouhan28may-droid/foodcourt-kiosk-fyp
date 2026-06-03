@@ -463,55 +463,378 @@
     };
   }
 
+  // ---------- Professional Excel Report Helpers ----------
+  function validDate(value) {
+    const d = new Date(value || "");
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function dateOnly(value) {
+    const d = validDate(value);
+    if (!d) return "";
+    return d.toISOString().slice(0, 10);
+  }
+
+  function timeOnly(value) {
+    const d = validDate(value);
+    if (!d) return "";
+    return d.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+  }
+
+  function monthTitle(value) {
+    const d = validDate(value) || new Date();
+    return d.toLocaleString("en-US", {
+      month: "long",
+      year: "numeric"
+    });
+  }
+
+  function isSameMonth(value, baseDate) {
+    const d = validDate(value);
+    if (!d) return false;
+
+    return (
+      d.getFullYear() === baseDate.getFullYear() &&
+      d.getMonth() === baseDate.getMonth()
+    );
+  }
+
+  function reportCurrency(value) {
+    return Number(value || 0);
+  }
+
+  function prepMinutes(order) {
+    const start = validDate(order.approvedAt || order.createdAt);
+    const end = validDate(order.readyAt || order.completedAt || order.paidAt);
+
+    if (!start || !end) return "";
+
+    const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
+    return minutes >= 0 ? minutes : "";
+  }
+
+  function itemsSummary(order) {
+    return safeArray(order.items)
+      .map((it) => `${it.name || "Item"} x${Number(it.qty || 0)}`)
+      .join(" | ");
+  }
+
+  function totalDishQty(order) {
+    return safeArray(order.items).reduce((sum, it) => sum + Number(it.qty || 0), 0);
+  }
+
+  function uniqueDishCount(order) {
+    return new Set(safeArray(order.items).map((it) => it.name || it.itemId || "Item")).size;
+  }
+
+  function safeSheetName(name) {
+    return String(name || "Sheet")
+      .replace(/[\\/?*[\]:]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 31) || "Sheet";
+  }
+
+  function createSheet(rows, widths, autoFilterRef) {
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = widths.map((wch) => ({ wch }));
+
+    if (autoFilterRef) {
+      ws["!autofilter"] = { ref: autoFilterRef };
+    }
+
+    return ws;
+  }
+
+  function addMerge(ws, startRow, startCol, endRow, endCol) {
+    ws["!merges"] = ws["!merges"] || [];
+    ws["!merges"].push({
+      s: { r: startRow, c: startCol },
+      e: { r: endRow, c: endCol }
+    });
+  }
+
+  function buildItemStats(orders) {
+    const stats = {};
+
+    safeArray(orders).forEach((order) => {
+      safeArray(order.items).forEach((item) => {
+        const name = item.name || "Unknown";
+        const qty = Number(item.qty || 0);
+        const unitPrice = Number(item.price || 0);
+        const lineTotal = qty * unitPrice;
+
+        if (!stats[name]) {
+          stats[name] = {
+            item: name,
+            total_qty: 0,
+            total_sales: 0,
+            order_count: 0
+          };
+        }
+
+        stats[name].total_qty += qty;
+        stats[name].total_sales += lineTotal;
+        stats[name].order_count += 1;
+      });
+    });
+
+    return Object.values(stats).sort((a, b) => b.total_qty - a.total_qty);
+  }
+
+  function buildDailyStats(orders) {
+    const stats = {};
+
+    safeArray(orders).forEach((order) => {
+      const day = dateOnly(order.createdAt);
+      if (!day) return;
+
+      if (!stats[day]) {
+        stats[day] = {
+          date: day,
+          orders: 0,
+          dine_in: 0,
+          takeaway: 0,
+          revenue: 0
+        };
+      }
+
+      stats[day].orders += 1;
+      stats[day].revenue += Number(order.total || 0);
+
+      if (serviceTypeOf(order) === "dine_in") stats[day].dine_in += 1;
+      if (serviceTypeOf(order) === "takeaway") stats[day].takeaway += 1;
+    });
+
+    return Object.values(stats).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+
+  function exportMonthlyRestaurantReport(restaurant, orders) {
+    if (typeof XLSX === "undefined") {
+      alert("XLSX library is not loaded.");
+      return false;
+    }
+
+    const now = new Date();
+    const restaurantName = restaurant?.name || "Restaurant";
+
+    const normalizedOrders = safeArray(orders)
+      .map((o) => safeObject(o))
+      .filter((o) => o && o.id);
+
+    const monthOrders = normalizedOrders.filter((o) => isSameMonth(o.createdAt, now));
+    const paidStatuses = new Set(["paid", "preparing", "ready", "completed"]);
+    const paidOrActive = monthOrders.filter((o) => paidStatuses.has(o.status));
+
+    const totalRevenue = paidOrActive.reduce((sum, o) => sum + Number(o.total || 0), 0);
+    const totalTax = paidOrActive.reduce((sum, o) => sum + Number(o.tax || 0), 0);
+    const dineInCount = paidOrActive.filter((o) => serviceTypeOf(o) === "dine_in").length;
+    const takeawayCount = paidOrActive.filter((o) => serviceTypeOf(o) === "takeaway").length;
+
+    const prepValues = paidOrActive
+      .map(prepMinutes)
+      .filter((v) => typeof v === "number" && Number.isFinite(v));
+
+    const avgPrep =
+      prepValues.length > 0
+        ? Math.round(prepValues.reduce((sum, v) => sum + v, 0) / prepValues.length)
+        : "";
+
+    const itemStats = buildItemStats(paidOrActive);
+    const dailyStats = buildDailyStats(paidOrActive);
+    const bestSeller = itemStats[0]?.item || "—";
+
+    const summaryRows = [
+      [`${restaurantName} - Monthly Sales Report`],
+      [`Month: ${monthTitle(now)}`],
+      [`Generated: ${new Date().toLocaleString()}`],
+      [],
+      ["Summary"],
+      ["Restaurant Name", restaurantName],
+      ["Total Revenue Up Till Now Of The Month", reportCurrency(totalRevenue)],
+      ["Total Tax Collected", reportCurrency(totalTax)],
+      ["Total Orders This Month", monthOrders.length],
+      ["Paid / Active Orders", paidOrActive.length],
+      ["Dine In Orders", dineInCount],
+      ["Takeaway Orders", takeawayCount],
+      ["Average Preparation Time (minutes)", avgPrep],
+      ["Best Seller", bestSeller],
+      [],
+      ["Daily Summary"],
+      ["Date", "Orders", "Dine In", "Takeaway", "Revenue"]
+    ];
+
+    dailyStats.forEach((d) => {
+      summaryRows.push([
+        d.date,
+        d.orders,
+        d.dine_in,
+        d.takeaway,
+        reportCurrency(d.revenue)
+      ]);
+    });
+
+    summaryRows.push([]);
+    summaryRows.push(["Item Summary"]);
+    summaryRows.push(["Item", "Total Qty Sold", "Total Sales", "Order Lines"]);
+
+    itemStats.forEach((it) => {
+      summaryRows.push([
+        it.item,
+        it.total_qty,
+        reportCurrency(it.total_sales),
+        it.order_count
+      ]);
+    });
+
+    const orderRows = [
+      [`${restaurantName} - Orders Overview`],
+      [`Month: ${monthTitle(now)}`],
+      [],
+      [
+        "Order ID",
+        "Restaurant",
+        "Service Type",
+        "Table Number",
+        "Order Type",
+        "Order Date",
+        "Order Placed",
+        "Approved At",
+        "Paid At",
+        "Prep Time (min)",
+        "Status",
+        "Subtotal",
+        "Tax",
+        "Total",
+        "Items Summary",
+        "Total Dish Qty",
+        "Unique Dishes"
+      ]
+    ];
+
+    monthOrders.forEach((o) => {
+      orderRows.push([
+        o.id,
+        restaurantName,
+        serviceTypeLabel(o),
+        tableNumberOf(o),
+        serviceLabel(o),
+        dateOnly(o.createdAt),
+        timeOnly(o.createdAt),
+        timeOnly(o.approvedAt),
+        timeOnly(o.paidAt),
+        prepMinutes(o),
+        o.status || "",
+        reportCurrency(o.subtotal),
+        reportCurrency(o.tax),
+        reportCurrency(o.total),
+        itemsSummary(o),
+        totalDishQty(o),
+        uniqueDishCount(o)
+      ]);
+    });
+
+    const lineRows = [
+      [`${restaurantName} - Order Lines`],
+      [`Month: ${monthTitle(now)}`],
+      [],
+      [
+        "Order ID",
+        "Restaurant",
+        "Service Type",
+        "Table Number",
+        "Order Type",
+        "Order Date",
+        "Placed At",
+        "Approved At",
+        "Paid At",
+        "Prep Time (min)",
+        "Status",
+        "Dish",
+        "Qty",
+        "Unit Price",
+        "Line Total"
+      ]
+    ];
+
+    monthOrders.forEach((o) => {
+      safeArray(o.items).forEach((it) => {
+        const qty = Number(it.qty || 0);
+        const unitPrice = Number(it.price || 0);
+
+        lineRows.push([
+          o.id,
+          restaurantName,
+          serviceTypeLabel(o),
+          tableNumberOf(o),
+          serviceLabel(o),
+          dateOnly(o.createdAt),
+          timeOnly(o.createdAt),
+          timeOnly(o.approvedAt),
+          timeOnly(o.paidAt),
+          prepMinutes(o),
+          o.status || "",
+          it.name || "Item",
+          qty,
+          reportCurrency(unitPrice),
+          reportCurrency(qty * unitPrice)
+        ]);
+      });
+    });
+
+    const wb = XLSX.utils.book_new();
+
+    const summarySheet = createSheet(
+      summaryRows,
+      [18, 18, 14, 14, 14, 18, 18, 18, 18, 18],
+      dailyStats.length ? `A17:E${16 + dailyStats.length + 1}` : undefined
+    );
+    addMerge(summarySheet, 0, 0, 0, 9);
+    addMerge(summarySheet, 1, 0, 1, 9);
+    addMerge(summarySheet, 2, 0, 2, 9);
+
+    const ordersSheet = createSheet(
+      orderRows,
+      [22, 18, 15, 14, 22, 14, 14, 14, 14, 16, 16, 12, 12, 12, 48, 14, 14],
+      `A4:Q${orderRows.length}`
+    );
+    addMerge(ordersSheet, 0, 0, 0, 16);
+    addMerge(ordersSheet, 1, 0, 1, 16);
+
+    const lineSheet = createSheet(
+      lineRows,
+      [22, 18, 15, 14, 22, 14, 14, 14, 14, 16, 16, 28, 8, 12, 12],
+      `A4:O${lineRows.length}`
+    );
+    addMerge(lineSheet, 0, 0, 0, 14);
+    addMerge(lineSheet, 1, 0, 1, 14);
+
+    XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
+    XLSX.utils.book_append_sheet(wb, ordersSheet, "Orders Overview");
+    XLSX.utils.book_append_sheet(wb, lineSheet, "Order Lines");
+
+    const safeRestaurantName = String(restaurantName).replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "");
+    XLSX.writeFile(wb, `${safeRestaurantName || "Restaurant"}_Monthly_Sales_Report.xlsx`);
+
+    return true;
+  }
+
   if (exportBtn) {
     exportBtn.onclick = async () => {
       const r = getRestaurant();
       if (!r) return;
 
-      const orders = await getOrdersForRestaurantSafe();
-      const todayOrders = safeArray(orders).filter((o) => isToday(o.createdAt));
-      const paid = todayOrders.filter((o) => paidLikeStatus(o.status));
-
-      const rows = paid.map((o) => ({
-        order_id: o.id,
-        status: o.status,
-        service_type: serviceTypeLabel(o),
-        table_number: tableNumberOf(o),
-        order_type_summary: serviceLabel(o),
-        subtotal: o.subtotal,
-        tax: o.tax,
-        total: o.total,
-        created_at: o.createdAt,
-        paid_at: o.paidAt || ""
-      }));
-
-      const itemRows = [];
-      paid.forEach((o) => {
-        safeArray(o.items).forEach((it) => {
-          itemRows.push({
-            order_id: o.id,
-            restaurant: r.name,
-            service_type: serviceTypeLabel(o),
-            table_number: tableNumberOf(o),
-            order_type_summary: serviceLabel(o),
-            item: it.name,
-            qty: it.qty,
-            unit_price: it.price,
-            line_total: Number(it.qty || 0) * Number(it.price || 0)
-          });
-        });
-      });
-
       try {
-        if (typeof FC.downloadXLSX === "function") {
-          FC.downloadXLSX(`${String(r.name || "Restaurant").replace(/\s+/g, "_")}_Sales_Today.xlsx`, [
-            { name: "Orders", rows },
-            { name: "Items", rows: itemRows }
-          ]);
-          logSafe(`Sales report exported for ${r.name} (XLSX download).`);
-        }
+        const orders = await getOrdersForRestaurantSafe();
+        exportMonthlyRestaurantReport(r, orders);
+        logSafe(`Monthly sales report exported for ${r.name}.`);
       } catch (err) {
         console.error("restaurant.js: export failed", err);
+        alert("Export failed. Check console for details.");
       }
     };
   }
@@ -574,8 +897,8 @@
 
       const users = await loadUsers();
       const match = safeArray(users.restaurants).find(
-        (x) => x.username === u && x.password === p)
-      ;
+        (x) => x.username === u && x.password === p
+      );
 
       if (!match) {
         if (loginErr) loginErr.textContent = "Invalid credentials.";
