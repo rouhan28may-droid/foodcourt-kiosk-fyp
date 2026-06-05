@@ -3,12 +3,15 @@ const ZERO_DECIMAL_CURRENCIES = new Set([
   "pyg", "rwf", "ugx", "vnd", "vuv", "xaf", "xof", "xpf"
 ]);
 
+const JSON_HEADERS = {
+  "Content-Type": "application/json",
+  "Cache-Control": "no-store"
+};
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      "Content-Type": "application/json"
-    }
+    headers: JSON_HEADERS
   });
 }
 
@@ -41,6 +44,18 @@ function serviceSummary(order) {
   return "Not selected";
 }
 
+function cleanOrderForStripe(order) {
+  return {
+    id: String(order?.id || "").trim(),
+    restaurantId: String(order?.restaurantId || order?.restaurant_id || "").trim(),
+    restaurantName: String(order?.restaurantName || order?.restaurant_name || "Food Court").trim(),
+    serviceType: String(order?.serviceType || order?.service_type || "").trim(),
+    tableNumber: String(order?.tableNumber || order?.table_number || "").trim(),
+    total: safeNumber(order?.total, 0),
+    currency: String(order?.currency || "PKR").trim()
+  };
+}
+
 async function createCheckoutSession(request, env) {
   try {
     const stripeSecretKey = env.STRIPE_SECRET_KEY;
@@ -53,7 +68,7 @@ async function createCheckoutSession(request, env) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const order = body.order || {};
+    const order = cleanOrderForStripe(body.order || {});
 
     if (!order.id) {
       return jsonResponse({
@@ -62,18 +77,17 @@ async function createCheckoutSession(request, env) {
       }, 400);
     }
 
-    const total = safeNumber(order.total, 0);
-    if (total <= 0) {
+    if (order.total <= 0) {
       return jsonResponse({
         ok: false,
         error: "Invalid order total."
       }, 400);
     }
 
-    const url = new URL(request.url);
-    const siteUrl = env.SITE_URL || `${url.protocol}//${url.host}`;
+    const requestUrl = new URL(request.url);
+    const siteUrl = String(env.SITE_URL || `${requestUrl.protocol}//${requestUrl.host}`).replace(/\/$/, "");
     const currency = String(env.STRIPE_CURRENCY || order.currency || "pkr").toLowerCase();
-    const stripeAmount = toStripeAmount(total, currency);
+    const stripeAmount = toStripeAmount(order.total, currency);
 
     const params = new URLSearchParams();
 
@@ -82,15 +96,16 @@ async function createCheckoutSession(request, env) {
     params.append("client_reference_id", order.id);
 
     params.append("metadata[order_id]", order.id);
-    params.append("metadata[restaurant_id]", order.restaurantId || "");
-    params.append("metadata[service_type]", order.serviceType || "");
-    params.append("metadata[table_number]", order.tableNumber || "");
+    params.append("metadata[restaurant_id]", order.restaurantId);
+    params.append("metadata[restaurant_name]", order.restaurantName);
+    params.append("metadata[service_type]", order.serviceType);
+    params.append("metadata[table_number]", order.tableNumber);
 
     params.append("line_items[0][quantity]", "1");
     params.append("line_items[0][price_data][currency]", currency);
     params.append("line_items[0][price_data][unit_amount]", String(stripeAmount));
     params.append("line_items[0][price_data][product_data][name]", `Food Court Order ${order.id}`);
-    params.append("line_items[0][price_data][product_data][description]", serviceSummary(order));
+    params.append("line_items[0][price_data][product_data][description]", `${order.restaurantName} • ${serviceSummary(order)}`);
 
     params.append(
       "success_url",
@@ -111,7 +126,7 @@ async function createCheckoutSession(request, env) {
       body: params
     });
 
-    const stripeData = await stripeRes.json();
+    const stripeData = await stripeRes.json().catch(() => ({}));
 
     if (!stripeRes.ok) {
       return jsonResponse({
@@ -124,7 +139,10 @@ async function createCheckoutSession(request, env) {
     return jsonResponse({
       ok: true,
       sessionId: stripeData.id,
-      url: stripeData.url
+      url: stripeData.url,
+      orderId: order.id,
+      amount: order.total,
+      currency
     });
   } catch (err) {
     return jsonResponse({
@@ -172,7 +190,7 @@ async function verifyCheckoutSession(request, env) {
       }
     );
 
-    const stripeData = await stripeRes.json();
+    const stripeData = await stripeRes.json().catch(() => ({}));
 
     if (!stripeRes.ok) {
       return jsonResponse({
