@@ -157,7 +157,7 @@
     if (alreadyPaid) {
       if (confirmPanel) confirmPanel.classList.add("hidden");
       showMessage("success", "This order is already paid. No further cash confirmation is required.");
-    } else if (order.status !== "awaiting_cash_payment" && order.status !== "approved") {
+    } else if (!["awaiting_cash_payment", "awaiting_payment", "approved"].includes(order.status)) {
       showMessage("warn", `Current order status is "${order.status}". Confirm only after collecting cash.`);
     } else {
       if (pageMessage) pageMessage.classList.add("hidden");

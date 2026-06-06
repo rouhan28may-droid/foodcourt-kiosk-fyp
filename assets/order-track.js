@@ -95,7 +95,10 @@
     }
 
     if (status === "awaiting_cash_payment") return "Cash payment pending";
-    if (status === "awaiting_payment") return "Online payment pending";
+   if (status === "awaiting_payment") {
+  const method = String(payment.paymentMethod || payment.method || "").toLowerCase();
+  return method === "cash" ? "Cash payment pending" : "Online payment pending";
+}
     if (status === "approved") return "Waiting for payment";
 
     return "Pending";
@@ -122,7 +125,7 @@
 
     if (s === "pending_approval") return "Your order has been sent to the restaurant for approval.";
     if (s === "approved") return "Your order is approved. Complete payment to start preparation.";
-    if (s === "awaiting_payment") return "Scan the Stripe QR shown on kiosk and complete online payment.";
+    if (s === "awaiting_payment") return "If cash was selected, please pay cash to staff. If online was selected, complete payment from the kiosk QR.";
     if (s === "awaiting_cash_payment") return "Please pay cash to staff. Staff will confirm payment from the cash counter page.";
     if (s === "paid") return "Payment is confirmed. The restaurant will start preparing your meal.";
     if (s === "preparing") return "Your meal is being prepared.";

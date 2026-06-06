@@ -218,7 +218,8 @@
     const payment = {
       ...safeObject(order.payment),
       success: true,
-      method: "Stripe Checkout",
+      method: "online",
+      paymentMethod: "online",
       provider: "Stripe",
       stripeSessionId: stripeSessionData.sessionId || "",
       stripePaymentStatus: stripeSessionData.paymentStatus || "",
@@ -359,6 +360,15 @@
   const tableNumberInput = $("tableNumberInput");
   const serviceSummary = $("serviceSummary");
   const serviceError = $("serviceError");
+
+  const paymentMethodPanel = $("paymentMethodPanel");
+  const paymentMethodOnline = $("paymentMethodOnline");
+  const paymentMethodCash = $("paymentMethodCash");
+  const onlinePaymentOption = $("onlinePaymentOption");
+  const cashPaymentOption = $("cashPaymentOption");
+  const paymentMethodSummary = $("paymentMethodSummary");
+  const paymentMethodNote = $("paymentMethodNote");
+  const paymentMethodError = $("paymentMethodError");
 
   const elActiveName = $("activeRestaurantName");
   const elActiveTagline = $("activeRestaurantTagline");
@@ -613,6 +623,7 @@
   let awaitingOrderId = session.awaitingOrderId || null;
   let serviceType = session.serviceType || "";
   let tableNumber = String(session.tableNumber || "");
+  let paymentMethod = session.paymentMethod || "";
 
   let payInterval = null;
   let paySecondsLeft = 0;
@@ -620,6 +631,8 @@
   let currentReceiptOrderId = null;
   let currentStripeCheckoutUrl = "";
   let autoStripeStartedForOrderId = null;
+  let autoCashSlipStartedForOrderId = null;
+  let autoCashPaidReceiptOpenedForOrderId = null;
   let stripeReturnHandled = false;
 
   let idleSeconds = 0;
@@ -637,7 +650,8 @@
         cart,
         awaitingOrderId,
         serviceType,
-        tableNumber
+        tableNumber,
+        paymentMethod
       })
     );
   }
@@ -659,6 +673,150 @@
     if (type === "takeaway") return "Takeaway";
 
     return "Order type not selected";
+  }
+
+
+  function normalizePaymentMethod(value) {
+    const v = String(value || "").trim().toLowerCase();
+
+    if (v === "cash" || v === "cod" || v === "counter") return "cash";
+    if (v === "online" || v === "stripe" || v === "card" || v === "qr") return "online";
+
+    return "";
+  }
+
+  function paymentMethodOf(order = {}) {
+    return normalizePaymentMethod(
+      order.paymentMethod ||
+      order.payment?.paymentMethod ||
+      order.payment?.method ||
+      order.payment_method ||
+      ""
+    );
+  }
+
+  function paymentMethodLabel(method = paymentMethod) {
+    const normalized = normalizePaymentMethod(method);
+
+    if (normalized === "cash") return "Cash";
+    if (normalized === "online") return "Online";
+
+    return "Not selected";
+  }
+
+  function paymentStatusText(order = {}) {
+    const method = paymentMethodOf(order);
+    const status = String(order.status || "").toLowerCase();
+    const success = !!order.payment?.success;
+
+    if (method === "cash") {
+      if (success || ["paid", "preparing", "ready", "completed"].includes(status)) return "Cash Paid";
+      return "Cash Pending";
+    }
+
+    if (success || ["paid", "preparing", "ready", "completed"].includes(status)) return "Online Paid";
+    if (status === "awaiting_payment") return "Online Payment Pending";
+
+    return "Payment Pending";
+  }
+
+  function trackingUrlForOrder(order = {}) {
+    try {
+      if (typeof FC.orderTrackingUrl === "function") return FC.orderTrackingUrl(order.id);
+    } catch {}
+
+    const url = new URL("/order-track.html", window.location.origin);
+    url.searchParams.set("order_id", String(order.id || ""));
+    return url.toString();
+  }
+
+  function cashConfirmUrlForOrder(order = {}) {
+    try {
+      if (typeof FC.cashConfirmUrl === "function") {
+        return FC.cashConfirmUrl(order.id, order.payment?.cashToken || "");
+      }
+    } catch {}
+
+    const url = new URL("/cash-confirm.html", window.location.origin);
+    url.searchParams.set("order_id", String(order.id || ""));
+    if (order.payment?.cashToken) url.searchParams.set("cash_token", String(order.payment.cashToken));
+    return url.toString();
+  }
+
+  function setPaymentMethod(method) {
+    paymentMethod = normalizePaymentMethod(method);
+
+    saveSession();
+    renderPaymentMethodPanel();
+    renderCart();
+  }
+
+  function getPaymentMethodSelection() {
+    const method = normalizePaymentMethod(paymentMethod);
+
+    if (!method) {
+      return {
+        ok: false,
+        message: "Please select Online or Cash payment before checkout."
+      };
+    }
+
+    return {
+      ok: true,
+      paymentMethod: method,
+      label: paymentMethodLabel(method)
+    };
+  }
+
+  function renderPaymentMethodPanel() {
+    if (!paymentMethodPanel) return;
+
+    const selectedClasses = ["border-indigo-400/70", "bg-indigo-500/15", "ring-1", "ring-indigo-400/40"];
+    const normalClasses = ["border-white/10", "bg-white/5"];
+
+    const applyOptionState = (el, selected) => {
+      if (!el) return;
+      el.classList.remove(...selectedClasses, ...normalClasses);
+      if (selected) {
+        el.classList.add(...selectedClasses);
+      } else {
+        el.classList.add(...normalClasses);
+      }
+    };
+
+    const method = normalizePaymentMethod(paymentMethod);
+
+    if (paymentMethodOnline) paymentMethodOnline.checked = method === "online";
+    if (paymentMethodCash) paymentMethodCash.checked = method === "cash";
+
+    applyOptionState(onlinePaymentOption, method === "online");
+    applyOptionState(cashPaymentOption, method === "cash");
+
+    if (paymentMethodSummary) {
+      paymentMethodSummary.textContent = paymentMethodLabel(method);
+    }
+
+    if (paymentMethodNote) {
+      paymentMethodNote.textContent =
+        method === "cash"
+          ? "Cash order will print a staff confirmation QR and a customer tracking QR."
+          : method === "online"
+            ? "Online order will show Stripe QR and print a customer tracking QR after payment."
+            : "Cash orders print staff confirmation QR. Online orders show Stripe QR.";
+    }
+
+    if (paymentMethodError) {
+      const check = getPaymentMethodSelection();
+      paymentMethodError.textContent = check.message || "";
+      paymentMethodError.classList.toggle("hidden", check.ok || !cart.length);
+    }
+  }
+
+  function resetPaymentMethodSelection() {
+    paymentMethod = "";
+    if (paymentMethodOnline) paymentMethodOnline.checked = false;
+    if (paymentMethodCash) paymentMethodCash.checked = false;
+    renderPaymentMethodPanel();
   }
 
   function setServiceType(type) {
@@ -871,6 +1029,7 @@
   function clearCart() {
     cart = [];
     resetServiceSelection();
+    resetPaymentMethodSelection();
     saveSession();
     renderCart();
   }
@@ -1043,9 +1202,11 @@
     elTotal.textContent = money(totals.total);
 
     renderServicePanel();
+    renderPaymentMethodPanel();
 
     const serviceReady = getServiceSelection().ok;
-    const disabled = cart.length === 0 || !serviceReady;
+    const paymentReady = getPaymentMethodSelection().ok;
+    const disabled = cart.length === 0 || !serviceReady || !paymentReady;
     elCheckout.disabled = disabled;
     elCheckout.classList.toggle("opacity-50", disabled);
   }
@@ -1119,7 +1280,58 @@
       return;
     }
 
-    if (order.status === "approved" || order.status === "awaiting_payment") {
+    if (order.status === "approved" || order.status === "awaiting_payment" || order.status === "awaiting_cash_payment") {
+      const method = paymentMethodOf(order);
+
+      if (method === "cash") {
+        const pendingCash = order.status === "awaiting_cash_payment";
+        elFlowPanel.innerHTML = `
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">${pendingCash ? "Cash Payment" : "Approved"}</div>
+            <div class="text-xl font-semibold mt-1">${pendingCash ? "Waiting for Cash Confirmation" : "Cash Slip Starting"}</div>
+            <div class="text-sm text-slate-300 mt-2">
+              Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span>
+              • <span class="pill">${svcText}</span>
+              • <span class="pill">Cash Payment</span>
+            </div>
+            <div class="text-sm text-slate-400 mt-3">
+              Print the cash slip and take payment at counter. Staff must scan the cash confirmation QR and confirm payment before preparation starts.
+            </div>
+          </div>
+          <div class="pill badge-yellow">${pendingCash ? "Cash Pending" : "Approved"}</div>
+        </div>
+        <div class="mt-5 flex gap-2 flex-wrap">
+          <button id="cashSlipBtn" class="btn-primary">${pendingCash ? "Reprint Cash Slip" : "Print Cash Slip"}</button>
+          <button id="trackBtn" class="btn-ghost">Open Tracking Page</button>
+        </div>
+      `;
+
+        const cashSlipBtn = elFlowPanel.querySelector("#cashSlipBtn");
+        const trackBtn = elFlowPanel.querySelector("#trackBtn");
+
+        if (cashSlipBtn) {
+          cashSlipBtn.onclick = async () => {
+            await openCashSlip(order.id);
+          };
+        }
+
+        if (trackBtn) {
+          trackBtn.onclick = () => {
+            window.open(trackingUrlForOrder(order), "_blank", "noopener,noreferrer");
+          };
+        }
+
+        if (!pendingCash && autoCashSlipStartedForOrderId !== order.id) {
+          autoCashSlipStartedForOrderId = order.id;
+          setTimeout(async () => {
+            await openCashSlip(order.id);
+          }, 500);
+        }
+
+        return;
+      }
+
       elFlowPanel.innerHTML = `
         <div class="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -1127,8 +1339,8 @@
             <div class="text-xl font-semibold mt-1">Stripe Payment Starting</div>
             <div class="text-sm text-slate-300 mt-2">
               Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span>
-              â€¢ <span class="pill">${svcText}</span>
-              â€¢ Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span>
+              • <span class="pill">${svcText}</span>
+              • Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span>
             </div>
             <div class="text-sm text-slate-400 mt-3">
               Payment QR will open automatically. Scan it to pay through Stripe sandbox.
@@ -1172,6 +1384,120 @@
     const o = await getOrderSafe(awaitingOrderId);
     if (o) renderFlow(o);
     else hideFlow();
+  }
+async function browserPrintSlipOnly(orderId) {
+  const order = await getOrderSafe(orderId);
+  if (!order) return false;
+
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  iframe.setAttribute("aria-hidden", "true");
+
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Cash Slip ${escapeHtml(order.id)}</title>
+        <style>${getReceiptCss()}</style>
+      </head>
+      <body>
+        ${buildFullReceiptMarkup(order)}
+      </body>
+    </html>
+  `);
+  doc.close();
+
+  setTimeout(() => {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } finally {
+      setTimeout(() => {
+        iframe.remove();
+      }, 1200);
+    }
+  }, 900);
+
+  simulatePrinterPaperUseSafe();
+  return true;
+}
+  async function openCashSlip(orderId) {
+  const order = await getOrderSafe(orderId);
+
+  if (!order) {
+    alertSafe("Order not found. Cannot print cash slip.");
+    return;
+  }
+
+  const payment = {
+    ...safeObject(order.payment),
+    attemptCount: Number(order.payment?.attemptCount || 0) + 1,
+    success: false,
+    method: "cash",
+    paymentMethod: "cash",
+    provider: "Cash Counter",
+    cashSlipPrintedAt: nowISO(),
+    trackingUrl: trackingUrlForOrder(order),
+    cashConfirmUrl: cashConfirmUrlForOrder(order)
+  };
+
+  try {
+    await updateOrderSafe(orderId, {
+      status: "awaiting_payment",
+      payment
+    });
+
+    awaitingOrderId = orderId;
+    saveSession();
+
+    logSafe(`Cash slip generated for ${orderId}.`);
+
+    await openReceipt(orderId);
+
+    setTimeout(async () => {
+      await browserPrintSlipOnly(orderId);
+    }, 700);
+
+    await refreshFlowPanel();
+  } catch (err) {
+    console.error("kiosk.js: cash slip failed", err);
+    alertSafe(`Cash slip failed: ${err.message || err}`);
+  }
+}
+    const payment = {
+      ...safeObject(order.payment),
+      attemptCount: Number(order.payment?.attemptCount || 0) + 1,
+      success: false,
+      method: "cash",
+      paymentMethod: "cash",
+      provider: "Cash Counter",
+      cashSlipPrintedAt: nowISO(),
+      trackingUrl: trackingUrlForOrder(order),
+      cashConfirmUrl: cashConfirmUrlForOrder(order)
+    };
+
+    await updateOrderSafe(orderId, {
+      status: "awaiting_cash_payment",
+      payment
+    });
+
+    awaitingOrderId = orderId;
+    saveSession();
+
+    logSafe(`Cash slip generated for ${orderId}.`);
+    await openReceipt(orderId);
+    await refreshFlowPanel();
   }
 
   async function openPayment(orderId) {
@@ -1221,7 +1547,8 @@
       ...safeObject(order.payment),
       attemptCount: Number(order.payment?.attemptCount || 0) + 1,
       success: false,
-      method: "Stripe Checkout",
+      method: "online",
+      paymentMethod: "online",
       provider: "Stripe",
       createdAt: nowISO()
     };
@@ -1539,6 +1866,48 @@
       font-size: 11px;
     }
 
+    .qr-section {
+      margin-top: 8px;
+      text-align: center;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .qr-title {
+      font-size: 10px;
+      font-weight: 700;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .qr-img {
+      width: 30mm;
+      height: 30mm;
+      display: block;
+      margin: 0 auto;
+      border: 1px solid #000;
+      padding: 1mm;
+      box-sizing: border-box;
+    }
+
+    .qr-url {
+      margin-top: 3px;
+      font-size: 8px;
+      word-break: break-all;
+      line-height: 1.15;
+    }
+
+    .payment-warning {
+      margin-top: 7px;
+      border: 1px dashed #000;
+      padding: 6px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+
     @media screen {
       html, body {
         width: auto;
@@ -1561,9 +1930,50 @@
   `;
   }
 
+
+  function qrServiceUrl(value, size = 180) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+
+    return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
+  }
+
+  function qrBlock(title, value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+
+    return `
+      <div class="qr-section">
+        <div class="qr-title">${escapeHtml(title)}</div>
+        <img class="qr-img" src="${escapeHtml(qrServiceUrl(text, 180))}" alt="${escapeHtml(title)} QR">
+        <div class="qr-url">${escapeHtml(text)}</div>
+      </div>
+    `;
+  }
+
+  function orderPaymentMethodText(order = {}) {
+    const method = paymentMethodOf(order);
+    return method === "cash" ? "Cash" : "Online / Stripe";
+  }
+
+  function orderIsCashPending(order = {}) {
+  const status = String(order.status || "").toLowerCase();
+  const payment = safeObject(order.payment);
+
+  return (
+    paymentMethodOf(order) === "cash" &&
+    !payment.success &&
+    ["approved", "awaiting_payment", "awaiting_cash_payment"].includes(status)
+  );
+}
+  }
+
   function buildCustomerSlip(order) {
     const restaurant = getRestaurantById(order.restaurantId);
     const receiptDate = order.paidAt || order.createdAt || nowISO();
+    const trackingUrl = trackingUrlForOrder(order);
+    const cashConfirmUrl = cashConfirmUrlForOrder(order);
+    const cashPending = orderIsCashPending(order);
 
     const itemRows = safeArray(order.items).map((item) => {
       const qty = Number(item.qty || 0);
@@ -1581,10 +1991,10 @@
 
     return `
     <section class="slip">
-      <div class="copy-badge">CUSTOMER COPY</div>
+      <div class="copy-badge">${cashPending ? "CASH PAYMENT SLIP" : "CUSTOMER COPY"}</div>
       <div class="title">Food Court Kiosk</div>
       <div class="sub-title">${escapeHtml(restaurant?.name || "")}</div>
-      <div class="meta">Receipt â€¢ ${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
+      <div class="meta">${cashPending ? "Cash Slip" : "Receipt"} • ${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
 
       <hr class="divider" />
 
@@ -1595,6 +2005,14 @@
       <div class="row">
         <div class="label">Order Type</div>
         <div class="value"><b>${escapeHtml(serviceText(order))}</b></div>
+      </div>
+      <div class="row">
+        <div class="label">Payment Method</div>
+        <div class="value"><b>${escapeHtml(orderPaymentMethodText(order))}</b></div>
+      </div>
+      <div class="row">
+        <div class="label">Payment Status</div>
+        <div class="value"><b>${escapeHtml(paymentStatusText(order))}</b></div>
       </div>
 
       <table>
@@ -1627,9 +2045,19 @@
         </div>
       </div>
 
+      ${cashPending ? `
+        <div class="payment-warning">
+          CASH NOT PAID YET<br>
+          Staff must confirm payment before preparation starts.
+        </div>
+        ${qrBlock("Staff Cash Confirmation", cashConfirmUrl)}
+      ` : ""}
+
+      ${qrBlock("Customer Order Tracking", trackingUrl)}
+
       <div class="footer">
-        Thank you<br>
-        Please wait for your order
+        ${cashPending ? "Take this slip to cash counter" : "Thank you"}<br>
+        ${cashPending ? "Meal starts after cash confirmation" : "Please wait for your order"}
       </div>
     </section>
   `;
@@ -1638,6 +2066,7 @@
   function buildRestaurantSlip(order) {
     const restaurant = getRestaurantById(order.restaurantId);
     const receiptDate = order.paidAt || order.createdAt || nowISO();
+    const cashPending = orderIsCashPending(order);
 
     const itemRows = safeArray(order.items).map((item) => {
       const qty = Number(item.qty || 0);
@@ -1654,9 +2083,10 @@
     <section class="slip">
       <div class="copy-badge">RESTAURANT COPY</div>
       <div class="title">${escapeHtml(restaurant?.name || "Restaurant")}</div>
-      <div class="meta">Order â€¢ ${escapeHtml(order.id)}</div>
+      <div class="meta">Order • ${escapeHtml(order.id)}</div>
       <div class="meta">${escapeHtml(serviceText(order))}</div>
       <div class="meta">${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
+      <div class="meta">Payment • ${escapeHtml(paymentStatusText(order))}</div>
 
       <hr class="divider" />
 
@@ -1672,8 +2102,12 @@
         </tbody>
       </table>
 
-      <div class="kitchen-note">PAID ORDER â€¢ START PREPARATION</div>
-      <div class="prep-note">Give this slip to the waiter / restaurant</div>
+      <div class="kitchen-note">
+        ${cashPending ? "CASH PENDING • DO NOT START PREPARATION" : "PAID ORDER • START PREPARATION"}
+      </div>
+      <div class="prep-note">
+        ${cashPending ? "Wait until cashier confirms cash payment" : "Give this slip to the waiter / restaurant"}
+      </div>
     </section>
   `;
   }
@@ -1706,7 +2140,12 @@
 
     currentReceiptOrderId = orderId;
     receiptModal.classList.remove("hidden");
-    receiptHint.textContent = `Show/print this receipt. Order ID: ${order.id}`;
+
+    if (receiptHint) {
+      receiptHint.textContent = orderIsCashPending(order)
+        ? `Print this cash slip. Staff must confirm cash payment. Order ID: ${order.id}`
+        : `Show/print this receipt. Order ID: ${order.id}`;
+    }
 
     printArea.style.maxHeight = "calc(100vh - 250px)";
     printArea.style.overflowY = "auto";
@@ -1735,7 +2174,11 @@
       ...order,
       restaurantName: restaurant?.name || "Restaurant",
       serviceType: order.serviceType || order.service_type || "",
-      tableNumber: order.tableNumber || order.table_number || ""
+      tableNumber: order.tableNumber || order.table_number || "",
+      paymentMethod: paymentMethodOf(order),
+      paymentStatus: paymentStatusText(order),
+      trackingUrl: trackingUrlForOrder(order),
+      cashConfirmUrl: cashConfirmUrlForOrder(order)
     };
 
     if (typeof FC.printReceiptSilently === "function") {
@@ -1855,8 +2298,16 @@
 
     if (awaitingOrderId) {
       const o = await getOrderSafe(awaitingOrderId);
+
       if (o && o.status === "paid") {
         await updateOrderSafe(o.id, { status: "preparing" });
+      }
+
+      if (o && o.status === "awaiting_cash_payment") {
+        currentReceiptOrderId = null;
+        renderFlow(o);
+        await refreshQueueCount();
+        return;
       }
     }
 
@@ -1864,6 +2315,7 @@
     currentReceiptOrderId = null;
     cart = [];
     resetServiceSelection();
+    resetPaymentMethodSelection();
     saveSession();
     renderCart();
     hideFlow();
@@ -1887,6 +2339,32 @@
       if (!currentReceiptOrderId) return;
       await printReceiptOnly(currentReceiptOrderId);
     };
+  }
+
+  if (paymentMethodOnline) {
+    paymentMethodOnline.addEventListener("change", () => {
+      setPaymentMethod("online");
+    });
+  }
+
+  if (paymentMethodCash) {
+    paymentMethodCash.addEventListener("change", () => {
+      setPaymentMethod("cash");
+    });
+  }
+
+  if (onlinePaymentOption) {
+    onlinePaymentOption.addEventListener("click", () => {
+      if (paymentMethodOnline) paymentMethodOnline.checked = true;
+      setPaymentMethod("online");
+    });
+  }
+
+  if (cashPaymentOption) {
+    cashPaymentOption.addEventListener("click", () => {
+      if (paymentMethodCash) paymentMethodCash.checked = true;
+      setPaymentMethod("cash");
+    });
   }
 
   if (serviceModeDineIn) {
@@ -1943,10 +2421,21 @@
         return;
       }
 
+      const paymentSelection = getPaymentMethodSelection();
+      if (!paymentSelection.ok) {
+        if (paymentMethodError) {
+          paymentMethodError.textContent = paymentSelection.message;
+          paymentMethodError.classList.remove("hidden");
+        }
+        return;
+      }
+
       serviceType = serviceSelection.serviceType;
       tableNumber = serviceSelection.tableNumber;
+      paymentMethod = paymentSelection.paymentMethod;
       saveSession();
       renderServicePanel();
+      renderPaymentMethodPanel();
 
       const r = getRestaurant();
       if (!r) {
@@ -1971,6 +2460,7 @@
           restaurantId: r.id,
           serviceType: serviceSelection.serviceType,
           tableNumber: serviceSelection.tableNumber,
+          paymentMethod: paymentSelection.paymentMethod,
           items: cart.map((x) => ({
             ...x,
             fast: !!safeArray(r.menu).find((m) => m.id === x.itemId)?.fast
@@ -2037,6 +2527,17 @@
     if (!awaitingOrderId) return;
     const o = await getOrderSafe(awaitingOrderId);
     if (!o) return;
+
+    if (
+      o.status === "paid" &&
+      paymentMethodOf(o) === "cash" &&
+      autoCashPaidReceiptOpenedForOrderId !== o.id &&
+      (!receiptModal || receiptModal.classList.contains("hidden"))
+    ) {
+      autoCashPaidReceiptOpenedForOrderId = o.id;
+      await openReceipt(o.id);
+    }
+
     renderFlow(o);
     await refreshQueueCount();
   }, 900);
