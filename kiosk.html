@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="assets/styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
+
 <body class="min-h-screen bg-slate-950 text-slate-100 overflow-x-hidden">
   <div id="adsOverlay" class="hidden fixed inset-0 z-50 bg-slate-950/95 backdrop-blur">
     <div class="h-full w-full flex items-center justify-center px-8">
@@ -23,28 +24,29 @@
     </div>
   </div>
 
-  <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
+  <header id="kioskTopBar" class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
     <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
       <div>
         <div class="text-sm text-slate-400">Food Court</div>
         <div class="text-xl font-semibold">Customer Touch Kiosk</div>
       </div>
+
       <div class="flex items-center gap-2">
-  <button id="fullscreenBtn" class="btn-primary text-sm">Full Screen</button>
-  <button id="resetBtn" class="btn-ghost text-sm">Reset Demo</button>
-  <a href="hardware.html" class="btn-ghost text-sm">Hardware</a>
-  <a href="index.html" class="btn-ghost text-sm">Home</a>
-</div>
+        <button id="fullscreenBtn" class="btn-primary text-sm">Full Screen</button>
+        <button id="resetBtn" class="btn-ghost text-sm">Reset Demo</button>
+        <a href="hardware.html" class="btn-ghost text-sm">Hardware</a>
+        <a href="index.html" class="btn-ghost text-sm">Home</a>
+      </div>
     </div>
   </header>
 
   <main class="max-w-7xl mx-auto px-6 py-6">
     <div class="grid lg:grid-cols-12 gap-6">
-      <!-- left -->
       <section class="lg:col-span-8">
         <div class="glass p-4 rounded-3xl">
           <div class="flex items-center justify-between flex-wrap gap-3">
             <div class="flex gap-2 flex-wrap" id="restaurantTabs"></div>
+
             <div class="text-sm text-slate-300 flex items-center gap-2">
               <span class="pill">GST: <span id="taxRateLabel">13%</span></span>
               <span class="pill">Queue: <span id="queueCount">0</span></span>
@@ -57,6 +59,7 @@
                 <div class="text-lg font-semibold" id="activeRestaurantName">Restaurant</div>
                 <div class="text-sm text-slate-400" id="activeRestaurantTagline">Tagline</div>
               </div>
+
               <div class="flex items-center gap-2">
                 <input id="searchInput" class="tws-input w-60" placeholder="Search items..." />
                 <select id="categorySelect" class="tws-select w-44"></select>
@@ -67,11 +70,9 @@
           </div>
         </div>
 
-        <!-- order flow -->
         <div id="flowPanel" class="mt-6 hidden"></div>
       </section>
 
-      <!-- right cart -->
       <aside class="lg:col-span-4">
         <div class="glass p-5 rounded-3xl sticky top-24">
           <div class="flex items-center justify-between">
@@ -86,23 +87,25 @@
               <span>Subtotal</span>
               <span id="subtotal">0</span>
             </div>
+
             <div class="flex justify-between text-slate-300">
               <span>Tax</span>
               <span id="tax">0</span>
             </div>
+
             <div class="flex justify-between text-slate-100 text-base font-semibold">
               <span>Total</span>
               <span id="total">0</span>
             </div>
           </div>
 
-          <!-- order type selection -->
           <div id="servicePanel" class="mt-5 border-t border-white/10 pt-4">
             <div class="flex items-center justify-between gap-3">
               <div>
                 <div class="text-sm font-semibold text-slate-100">Order Type</div>
                 <div class="text-xs text-slate-400 mt-1">Select before checkout</div>
               </div>
+
               <div id="serviceSummary" class="pill text-xs">Not selected</div>
             </div>
 
@@ -142,6 +145,7 @@
               <label for="tableNumberInput" class="block text-xs font-semibold text-slate-300 mb-2">
                 Table Number
               </label>
+
               <input
                 id="tableNumberInput"
                 class="tws-input w-full"
@@ -158,46 +162,56 @@
           </div>
 
           <button id="checkoutBtn" class="btn-primary w-full mt-5">Checkout</button>
-          </div>
         </div>
       </aside>
     </div>
   </main>
 
-  <!-- payment modal -->
   <div id="paymentModal" class="hidden fixed inset-0 z-50 bg-black/70">
     <div class="h-full w-full flex items-center justify-center px-6">
       <div class="max-w-xl w-full rounded-3xl bg-slate-950 border border-white/10 shadow-2xl p-6">
         <div class="flex items-start justify-between gap-4">
           <div>
-            <div class="text-xs uppercase tracking-widest text-slate-400">Payment</div>
-            <div class="text-xl font-semibold mt-1">Scan QR to Pay</div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">Stripe Sandbox Payment</div>
+            <div class="text-xl font-semibold mt-1">Scan QR to Pay Securely</div>
             <div id="payAmount" class="text-slate-300 mt-1"></div>
           </div>
+
           <button id="closePaymentBtn" class="btn-ghost text-sm">Close</button>
         </div>
 
         <div class="grid sm:grid-cols-2 gap-6 mt-6 items-center">
-          <div class="rounded-2xl border border-white/10 bg-white p-4">
+          <div class="rounded-2xl border border-white/10 bg-white p-4 flex items-center justify-center min-h-[252px]">
             <div id="qrBox"></div>
           </div>
+
           <div class="space-y-3">
             <div class="text-sm text-slate-300">
-              Payment must be verified before order is placed.
+              This QR opens the exact Stripe sandbox checkout for this order amount.
             </div>
-            <div class="pill w-fit">Timeout: <span id="payCountdown">--</span>s</div>
+
+            <div class="text-xs text-slate-400">
+              Use Stripe test card: <span class="pill">4242 4242 4242 4242</span>
+            </div>
+
+            <div class="pill w-fit">
+              Status: <span id="payCountdown">Stripe</span>
+            </div>
+
             <div class="flex gap-2 flex-wrap">
-              <button id="simulatePayBtn" class="btn-primary">Simulate Payment Success</button>
-              <button id="simulateFailBtn" class="btn-ghost">Simulate Failure</button>
+              <button id="simulatePayBtn" class="btn-primary">Open Stripe Checkout</button>
+              <button id="simulateFailBtn" class="hidden btn-ghost">Payment Failed</button>
             </div>
-            <div id="payStatus" class="text-sm text-slate-300"></div>
+
+            <div id="payStatus" class="text-sm text-slate-300">
+              Waiting for Stripe checkout...
+            </div>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- receipt modal -->
   <div id="receiptModal" class="hidden fixed inset-0 z-50 bg-black/70">
     <div class="h-full w-full flex items-center justify-center px-6">
       <div class="max-w-xl w-full rounded-3xl bg-slate-950 border border-white/10 shadow-2xl p-6">
@@ -207,12 +221,11 @@
             <div class="text-xl font-semibold mt-1">Order Confirmed</div>
             <div id="receiptHint" class="text-slate-300 mt-1 text-sm"></div>
           </div>
+
           <button id="closeReceiptBtn" class="btn-ghost text-sm">Close</button>
         </div>
 
-        <div id="printArea" class="mt-6 rounded-2xl border border-white/10 bg-white text-slate-950 p-5">
-          <!-- injected -->
-        </div>
+        <div id="printArea" class="mt-6 rounded-2xl border border-white/10 bg-white text-slate-950 p-5"></div>
 
         <div class="mt-5 flex items-center justify-between gap-3">
           <button id="printBtn" class="btn-primary">Reprint Receipt</button>
@@ -221,36 +234,40 @@
       </div>
     </div>
   </div>
-<div id="kioskLockOverlay" class="hidden fixed inset-0 z-[80] bg-slate-950/95 backdrop-blur">
-  <div class="h-full w-full flex items-center justify-center px-6">
-    <div class="max-w-md w-full rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
-      <div class="text-xs uppercase tracking-widest text-slate-400">Kiosk Security</div>
-      <div id="kioskUnlockTitle" class="text-2xl font-semibold mt-2">Kiosk Locked</div>
-      <div id="kioskUnlockMessage" class="text-slate-300 mt-2">
-        Enter kiosk password to continue.
-      </div>
 
-      <div id="kioskLockActions" class="mt-5 space-y-3">
-        <input
-          id="kioskPinInput"
-          type="password"
-          inputmode="numeric"
-          maxlength="12"
-          class="tws-input w-full"
-          placeholder="Enter kiosk password"
-        />
-        <div id="kioskPinError" class="hidden text-sm text-rose-300">
-          Incorrect password.
+  <div id="kioskLockOverlay" class="hidden fixed inset-0 z-[80] bg-slate-950/95 backdrop-blur">
+    <div class="h-full w-full flex items-center justify-center px-6">
+      <div class="max-w-md w-full rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
+        <div class="text-xs uppercase tracking-widest text-slate-400">Kiosk Security</div>
+        <div id="kioskUnlockTitle" class="text-2xl font-semibold mt-2">Kiosk Locked</div>
+        <div id="kioskUnlockMessage" class="text-slate-300 mt-2">
+          Enter kiosk password to continue.
         </div>
-        <button id="kioskUnlockBtn" class="btn-primary w-full">Unlock Kiosk</button>
+
+        <div id="kioskLockActions" class="mt-5 space-y-3">
+          <input
+            id="kioskPinInput"
+            type="password"
+            inputmode="numeric"
+            maxlength="12"
+            class="tws-input w-full"
+            placeholder="Enter kiosk password"
+          />
+
+          <div id="kioskPinError" class="hidden text-sm text-rose-300">
+            Incorrect password.
+          </div>
+
+          <button id="kioskUnlockBtn" class="btn-primary w-full">Unlock Kiosk</button>
+        </div>
       </div>
     </div>
   </div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/supabaseclient.js"></script>
-<script src="assets/storage.js"></script>
-<script src="assets/app.js"></script>
-<script src="assets/kiosk.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/supabaseclient.js"></script>
+  <script src="assets/storage.js"></script>
+  <script src="assets/app.js"></script>
+  <script src="assets/kiosk.js"></script>
 </body>
 </html>

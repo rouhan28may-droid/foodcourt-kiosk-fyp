@@ -1,4 +1,4 @@
-(async function () {
+﻿(async function () {
   window.FC = window.FC || {};
 
   const $ = (id) => document.getElementById(id);
@@ -138,6 +138,208 @@
     }
   }
 
+  async function createStripeCheckoutSession(order) {
+    const res = await fetch("/api/stripe/create-checkout-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ order })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.ok || !data.url || !data.sessionId) {
+      throw new Error(data.error || `Stripe session creation failed. HTTP ${res.status}`);
+    }
+
+    return data;
+  }
+
+  async function verifyStripeSession(sessionId) {
+    const res = await fetch(`/api/stripe/session?session_id=${encodeURIComponent(sessionId)}`, {
+      method: "GET"
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `Stripe verification failed. HTTP ${res.status}`);
+    }
+
+    return data;
+  }
+
+  function showStripeQr(checkoutUrl) {
+    if (!qrBox) return;
+
+    qrBox.innerHTML = "";
+    qrBox.style.cursor = "pointer";
+
+    try {
+      new QRCode(qrBox, {
+        text: checkoutUrl,
+        width: 220,
+        height: 220
+      });
+    } catch (err) {
+      console.error("kiosk.js: Stripe QR render failed", err);
+      qrBox.innerHTML = `
+        <div class="text-xs text-slate-900 break-all p-3">
+          ${escapeHtml(checkoutUrl)}
+        </div>
+      `;
+    }
+
+    qrBox.onclick = () => {
+      window.location.href = checkoutUrl;
+    };
+  }
+
+  async function finalizeStripePaidOrder(orderId, stripeSessionData) {
+    const order = await getOrderSafe(orderId);
+
+    if (!order) {
+      throw new Error("Order not found after Stripe payment.");
+    }
+
+    if (["paid", "preparing", "ready", "completed"].includes(order.status)) {
+      if (payInterval) clearInterval(payInterval);
+      payInterval = null;
+      if (paymentModal) paymentModal.classList.add("hidden");
+      currentPayOrderId = null;
+      currentStripeCheckoutUrl = "";
+      awaitingOrderId = order.id;
+      saveSession();
+      await openReceipt(order.id);
+      return;
+    }
+
+    const payment = {
+      ...safeObject(order.payment),
+      success: true,
+      method: "Stripe Checkout",
+      provider: "Stripe",
+      stripeSessionId: stripeSessionData.sessionId || "",
+      stripePaymentStatus: stripeSessionData.paymentStatus || "",
+      stripeStatus: stripeSessionData.status || "",
+      stripeCustomerEmail: stripeSessionData.customerEmail || "",
+      verifiedAt: nowISO()
+    };
+
+    await updateOrderSafe(order.id, {
+      status: "paid",
+      paidAt: nowISO(),
+      payment
+    });
+
+    simulateGatewayVerifySafe(true);
+    logSafe(`Stripe payment verified for ${order.id}.`);
+
+    awaitingOrderId = order.id;
+    saveSession();
+
+    if (payInterval) clearInterval(payInterval);
+    payInterval = null;
+
+    if (paymentModal) paymentModal.classList.add("hidden");
+    currentPayOrderId = null;
+    currentStripeCheckoutUrl = "";
+
+    await openReceipt(order.id);
+  }
+
+  function startStripePolling(orderId, sessionId) {
+    if (payInterval) clearInterval(payInterval);
+
+    let pollCount = 0;
+
+    payInterval = setInterval(async () => {
+      pollCount += 1;
+
+      try {
+        const stripeSession = await verifyStripeSession(sessionId);
+
+        if (payStatus) {
+          payStatus.textContent = `Stripe status: ${stripeSession.paymentStatus || "checking"}...`;
+        }
+
+        if (stripeSession.paymentStatus === "paid" && stripeSession.status === "complete") {
+          clearInterval(payInterval);
+          payInterval = null;
+          await finalizeStripePaidOrder(orderId, stripeSession);
+          return;
+        }
+
+        if (pollCount >= 120) {
+          clearInterval(payInterval);
+          payInterval = null;
+
+          if (payStatus) {
+            payStatus.textContent = "Payment is not completed yet. Scan the QR again or open Stripe Checkout.";
+          }
+        }
+      } catch (err) {
+        console.warn("kiosk.js: Stripe polling failed", err);
+      }
+    }, 3000);
+  }
+
+  async function handleStripeReturn() {
+    if (stripeReturnHandled) return false;
+    stripeReturnHandled = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const stripeSuccess = params.get("stripe_success");
+    const stripeCancel = params.get("stripe_cancel");
+    const orderId = params.get("order_id");
+    const sessionId = params.get("session_id");
+
+    if (!stripeSuccess && !stripeCancel) return false;
+
+    window.history.replaceState({}, document.title, window.location.pathname);
+
+    if (stripeCancel) {
+      if (orderId) {
+        awaitingOrderId = orderId;
+        autoStripeStartedForOrderId = null;
+        saveSession();
+
+        const order = await getOrderSafe(orderId);
+        if (order) {
+          await updateOrderSafe(orderId, { status: "awaiting_payment" });
+          renderFlow({ ...order, status: "awaiting_payment" });
+        }
+      }
+
+      alertSafe("Stripe payment was cancelled. Please try again.");
+      return true;
+    }
+
+    if (!orderId || !sessionId) {
+      alertSafe("Stripe return is missing order/session information.");
+      return true;
+    }
+
+    try {
+      const stripeSession = await verifyStripeSession(sessionId);
+
+      if (stripeSession.paymentStatus === "paid" && stripeSession.status === "complete") {
+        await finalizeStripePaidOrder(orderId, stripeSession);
+      } else {
+        awaitingOrderId = orderId;
+        autoStripeStartedForOrderId = null;
+        saveSession();
+        alertSafe("Stripe payment is not completed yet.");
+      }
+    } catch (err) {
+      console.error("kiosk.js: Stripe return verification failed", err);
+      alertSafe(`Stripe verification failed: ${err.message || err}`);
+    }
+
+    return true;
+  }
+
   const elTabs = $("restaurantTabs");
   const elMenu = $("menuGrid");
   const elCart = $("cartItems");
@@ -186,7 +388,224 @@
   const adsOverlay = $("adsOverlay");
   const adTitle = $("adTitle");
   const adSubtitle = $("adSubtitle");
+  const fullscreenBtn = $("fullscreenBtn");
+  const kioskTopBar = $("kioskTopBar");
+  const kioskLockOverlay = $("kioskLockOverlay");
+  const kioskUnlockTitle = $("kioskUnlockTitle");
+  const kioskUnlockMessage = $("kioskUnlockMessage");
+  const kioskLockActions = $("kioskLockActions");
+  const kioskPinInput = $("kioskPinInput");
+  const kioskPinError = $("kioskPinError");
+  const kioskUnlockBtn = $("kioskUnlockBtn");
 
+  let kioskFullscreenStarted = false;
+  let kioskExitLocked = false;
+
+  function injectKioskFullscreenStyles() {
+    if (document.getElementById("kioskFullscreenStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "kioskFullscreenStyles";
+    style.textContent = `
+      body.kiosk-fullscreen-mode #kioskTopBar {
+        display: none !important;
+      }
+
+      body.kiosk-fullscreen-mode main {
+        padding-top: 1.5rem !important;
+      }
+
+      body.kiosk-exit-locked {
+        overflow: hidden !important;
+      }
+
+      body.kiosk-exit-locked #kioskLockOverlay {
+        display: block !important;
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+
+  function getFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
+  }
+
+  async function requestKioskFullscreen() {
+    const el = document.documentElement;
+
+    if (el.requestFullscreen) return await el.requestFullscreen();
+    if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+    if (el.msRequestFullscreen) return el.msRequestFullscreen();
+
+    throw new Error("Fullscreen API is not supported in this browser.");
+  }
+
+  function getKioskPassword() {
+    const s = safeState();
+
+    const candidates = [
+      s.settings?.kioskPin,
+      s.settings?.kioskPassword,
+      s.settings?.adminPin,
+      s.kioskPin,
+      s.kioskPassword,
+      localStorage.getItem("fc_kiosk_pin"),
+      localStorage.getItem("kioskPin"),
+      localStorage.getItem("kiosk_password")
+    ];
+
+    const found = candidates.find((x) => String(x || "").trim());
+
+    return String(found || "1234").trim();
+  }
+
+  function setKioskDeviceLockState(locked) {
+    try {
+      if (typeof FC.setDevice === "function") {
+        FC.setDevice("kioskDisplay", { locked: !!locked });
+      }
+    } catch (err) {
+      console.warn("kiosk.js: kiosk display lock state update failed", err);
+    }
+  }
+
+  function applyKioskFullscreenUi(active) {
+    document.body.classList.toggle("kiosk-fullscreen-mode", !!active);
+
+    if (kioskTopBar) {
+      kioskTopBar.classList.toggle("hidden", !!active);
+    }
+
+    if (fullscreenBtn) {
+      fullscreenBtn.textContent = active ? "Full Screen Active" : "Full Screen";
+      fullscreenBtn.disabled = !!active;
+      fullscreenBtn.classList.toggle("opacity-60", !!active);
+      fullscreenBtn.classList.toggle("cursor-not-allowed", !!active);
+    }
+  }
+
+  function showKioskExitLock() {
+    kioskExitLocked = true;
+    document.body.classList.add("kiosk-exit-locked");
+    setKioskDeviceLockState(true);
+
+    if (kioskLockOverlay) {
+      kioskLockOverlay.classList.remove("hidden");
+    }
+
+    if (kioskUnlockTitle) {
+      kioskUnlockTitle.textContent = "Admin Password Required";
+    }
+
+    if (kioskUnlockMessage) {
+      kioskUnlockMessage.textContent = "Fullscreen was exited. Enter kiosk password to continue.";
+    }
+
+    if (kioskLockActions) {
+      kioskLockActions.classList.remove("hidden");
+    }
+
+    if (kioskPinError) {
+      kioskPinError.textContent = "Incorrect password.";
+      kioskPinError.classList.add("hidden");
+    }
+
+    if (kioskPinInput) {
+      kioskPinInput.value = "";
+      setTimeout(() => kioskPinInput.focus(), 80);
+    }
+  }
+
+  function hideKioskExitLock() {
+    kioskExitLocked = false;
+    document.body.classList.remove("kiosk-exit-locked");
+    setKioskDeviceLockState(false);
+
+    if (kioskLockOverlay) {
+      kioskLockOverlay.classList.add("hidden");
+    }
+
+    if (kioskPinInput) {
+      kioskPinInput.value = "";
+    }
+
+    if (kioskPinError) {
+      kioskPinError.classList.add("hidden");
+    }
+  }
+
+  async function enterCustomerFullscreen() {
+    try {
+      kioskFullscreenStarted = true;
+      await requestKioskFullscreen();
+      applyKioskFullscreenUi(true);
+      hideKioskExitLock();
+    } catch (err) {
+      console.error("kiosk.js: fullscreen failed", err);
+      alertSafe("Fullscreen could not start. Please allow fullscreen in browser settings.");
+    }
+  }
+
+  function handleFullscreenChange() {
+    const active = !!getFullscreenElement();
+
+    applyKioskFullscreenUi(active);
+
+    if (!active && kioskFullscreenStarted) {
+      showKioskExitLock();
+    }
+  }
+
+  injectKioskFullscreenStyles();
+
+  if (fullscreenBtn) {
+    fullscreenBtn.onclick = async () => {
+      await enterCustomerFullscreen();
+    };
+  }
+
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+  document.addEventListener("msfullscreenchange", handleFullscreenChange);
+
+  if (kioskUnlockBtn) {
+    kioskUnlockBtn.onclick = () => {
+      const entered = String(kioskPinInput?.value || "").trim();
+      const expected = getKioskPassword();
+
+      if (entered === expected) {
+        hideKioskExitLock();
+        return;
+      }
+
+      if (kioskPinError) {
+        kioskPinError.classList.remove("hidden");
+      }
+
+      if (kioskPinInput) {
+        kioskPinInput.value = "";
+        kioskPinInput.focus();
+      }
+    };
+  }
+
+  if (kioskPinInput) {
+    kioskPinInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && kioskUnlockBtn) {
+        kioskUnlockBtn.click();
+      }
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (!kioskExitLocked) return;
+
+    if (e.key === "Escape" || e.key === "Tab" || e.key === "Backspace") {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
   const sessionKey = "fc_session";
   const session = safeSessionRead(sessionKey, {});
   let activeRestaurantId = session.activeRestaurantId || "r1";
@@ -199,6 +618,9 @@
   let paySecondsLeft = 0;
   let currentPayOrderId = null;
   let currentReceiptOrderId = null;
+  let currentStripeCheckoutUrl = "";
+  let autoStripeStartedForOrderId = null;
+  let stripeReturnHandled = false;
 
   let idleSeconds = 0;
   let adsIdx = 0;
@@ -231,7 +653,7 @@
     const table = String(order.tableNumber || order.table_number || "").trim();
 
     if (type === "dine_in") {
-      return table ? `Dine In • Table ${table}` : "Dine In";
+      return table ? `Dine In â€¢ Table ${table}` : "Dine In";
     }
 
     if (type === "takeaway") return "Takeaway";
@@ -272,7 +694,7 @@
       ok: true,
       serviceType: type,
       tableNumber: type === "dine_in" ? table : "",
-      label: type === "dine_in" ? `Dine In • Table ${table}` : "Takeaway"
+      label: type === "dine_in" ? `Dine In â€¢ Table ${table}` : "Takeaway"
     };
   }
 
@@ -311,7 +733,7 @@
     if (serviceSummary) {
       serviceSummary.textContent =
         serviceType === "dine_in"
-          ? (tableValue ? `Dine In • Table ${tableValue}` : "Dine In")
+          ? (tableValue ? `Dine In â€¢ Table ${tableValue}` : "Dine In")
           : serviceLabel();
     }
 
@@ -560,7 +982,7 @@
         <div class="flex items-start justify-between gap-3">
           <div>
             <div class="font-semibold">${m.name || ""}</div>
-            <div class="text-xs text-slate-400 mt-1">${m.category || "General"} • ${m.fast ? "Fast item" : "Standard"}</div>
+            <div class="text-xs text-slate-400 mt-1">${m.category || "General"} â€¢ ${m.fast ? "Fast item" : "Standard"}</div>
           </div>
           <div class="text-sm font-semibold">${money(Number(m.price || 0))}</div>
         </div>
@@ -599,7 +1021,7 @@
         row.innerHTML = `
           <div class="min-w-0">
             <div class="font-semibold truncate">${it.name || ""}</div>
-            <div class="text-xs text-slate-400 mt-1">${money(Number(it.price || 0))} • Qty ${Number(it.qty || 0)}</div>
+            <div class="text-xs text-slate-400 mt-1">${money(Number(it.price || 0))} â€¢ Qty ${Number(it.qty || 0)}</div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <button class="btn-ghost text-sm px-3 py-2">-</button>
@@ -648,7 +1070,7 @@
           <div>
             <div class="text-xs uppercase tracking-widest text-slate-400">Order Sent</div>
             <div class="text-xl font-semibold mt-1">Waiting for Approval</div>
-            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> sent to <span class="pill">${r?.name || "Restaurant"}</span> • <span class="pill">${svcText}</span></div>
+            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> sent to <span class="pill">${r?.name || "Restaurant"}</span> â€¢ <span class="pill">${svcText}</span></div>
           </div>
           <div class="pill badge-yellow">Pending</div>
         </div>
@@ -702,20 +1124,27 @@
         <div class="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div class="text-xs uppercase tracking-widest text-slate-400">Approved</div>
-            <div class="text-xl font-semibold mt-1">Proceed to Payment</div>
-            <div class="text-sm text-slate-300 mt-2">Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span> • <span class="pill">${svcText}</span> • Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span></div>
+            <div class="text-xl font-semibold mt-1">Stripe Payment Starting</div>
+            <div class="text-sm text-slate-300 mt-2">
+              Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span>
+              â€¢ <span class="pill">${svcText}</span>
+              â€¢ Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span>
+            </div>
+            <div class="text-sm text-slate-400 mt-3">
+              Payment QR will open automatically. Scan it to pay through Stripe sandbox.
+            </div>
           </div>
           <div class="pill badge-green">Approved</div>
         </div>
-        <button id="payBtn" class="btn-primary mt-5">Pay Now (QR)</button>
       `;
 
-      const payBtn = elFlowPanel.querySelector("#payBtn");
-      if (payBtn) {
-        payBtn.onclick = async () => {
+      if (autoStripeStartedForOrderId !== order.id) {
+        autoStripeStartedForOrderId = order.id;
+        setTimeout(async () => {
           await openPayment(order.id);
-        };
+        }, 500);
       }
+
       return;
     }
 
@@ -746,18 +1175,55 @@
   }
 
   async function openPayment(orderId) {
-    const s = safeState();
     const order = await getOrderSafe(orderId);
     if (!order) return;
 
     currentPayOrderId = orderId;
+    currentStripeCheckoutUrl = "";
+
+    if (paymentModal) paymentModal.classList.remove("hidden");
+
+    if (qrBox) {
+      qrBox.innerHTML = `
+        <div class="text-slate-900 text-sm p-4 text-center">
+          Creating Stripe checkout...
+        </div>
+      `;
+      qrBox.onclick = null;
+    }
+
+    if (payAmount) {
+      payAmount.textContent = `Amount: ${money(order.total)} (${order.currency || "PKR"})`;
+    }
+
+    if (payCountdown) {
+      payCountdown.textContent = "Stripe";
+    }
+
+    if (payStatus) {
+      payStatus.textContent = "Creating secure Stripe payment session...";
+    }
+
+    if (simulateFailBtn) {
+      simulateFailBtn.classList.add("hidden");
+    }
+
+    if (simulatePayBtn) {
+      simulatePayBtn.classList.remove("hidden");
+      simulatePayBtn.disabled = true;
+      simulatePayBtn.textContent = "Preparing Stripe...";
+    }
+
+    if (payInterval) clearInterval(payInterval);
+    payInterval = null;
 
     const payment = {
       ...safeObject(order.payment),
       attemptCount: Number(order.payment?.attemptCount || 0) + 1,
       success: false,
-      method: "QR",
-      qrPayload: `PAY|${order.id}|${order.total}|${order.currency}|${Date.now()}`
+      method: "Stripe Checkout",
+      provider: "Stripe",
+      createdAt: nowISO()
     };
 
     await updateOrderSafe(orderId, {
@@ -765,49 +1231,62 @@
       payment
     });
 
-    if (paymentModal) paymentModal.classList.remove("hidden");
+    try {
+      const restaurant = getRestaurantById(order.restaurantId);
 
-    if (qrBox) {
-      qrBox.innerHTML = "";
-      try {
-        new QRCode(qrBox, {
-          text: payment.qrPayload,
-          width: 180,
-          height: 180
-        });
-      } catch (err) {
-        console.error("kiosk.js: QRCode render failed", err);
-        qrBox.textContent = payment.qrPayload;
+      const payload = {
+        ...order,
+        restaurantName: restaurant?.name || "Restaurant",
+        serviceType: order.serviceType || order.service_type || "",
+        tableNumber: order.tableNumber || order.table_number || "",
+        currency: order.currency || "PKR"
+      };
+
+      const stripeSession = await createStripeCheckoutSession(payload);
+      currentStripeCheckoutUrl = stripeSession.url;
+
+      const updatedPayment = {
+        ...payment,
+        stripeSessionId: stripeSession.sessionId,
+        stripeCheckoutUrl: stripeSession.url
+      };
+
+      await updateOrderSafe(orderId, {
+        status: "awaiting_payment",
+        payment: updatedPayment
+      });
+
+      showStripeQr(stripeSession.url);
+
+      if (payStatus) {
+        payStatus.textContent = "Scan this QR code to pay with Stripe sandbox, or tap Open Stripe Checkout.";
+      }
+
+      if (simulatePayBtn) {
+        simulatePayBtn.disabled = false;
+        simulatePayBtn.textContent = "Open Stripe Checkout";
+        simulatePayBtn.onclick = () => {
+          window.location.href = stripeSession.url;
+        };
+      }
+
+      startStripePolling(orderId, stripeSession.sessionId);
+    } catch (err) {
+      console.error("kiosk.js: Stripe checkout failed", err);
+
+      if (payStatus) {
+        payStatus.textContent = `Stripe checkout failed: ${err.message || err}`;
+      }
+
+      if (simulatePayBtn) {
+        simulatePayBtn.disabled = false;
+        simulatePayBtn.textContent = "Retry Stripe Payment";
+        simulatePayBtn.onclick = async () => {
+          currentStripeCheckoutUrl = "";
+          await openPayment(orderId);
+        };
       }
     }
-
-    if (payAmount) payAmount.textContent = `Amount: ${money(order.total)} (${order.currency || "PKR"})`;
-    if (payStatus) payStatus.textContent = "Waiting for payment verification...";
-
-    paySecondsLeft = Number(s.settings?.paymentTimeoutSeconds || 180);
-    if (payCountdown) payCountdown.textContent = String(paySecondsLeft);
-
-    if (payInterval) clearInterval(payInterval);
-
-    payInterval = setInterval(async () => {
-      paySecondsLeft -= 1;
-      if (payCountdown) payCountdown.textContent = String(Math.max(paySecondsLeft, 0));
-
-      if (paySecondsLeft <= 0) {
-        clearInterval(payInterval);
-        payInterval = null;
-
-        if (payStatus) payStatus.textContent = "Payment timeout. Order cancelled.";
-        await updateOrderSafe(orderId, {
-          status: "rejected",
-          rejectReason: "Payment timeout"
-        });
-
-        setTimeout(() => {
-          closePayment();
-        }, 1200);
-      }
-    }, 1000);
 
     await refreshFlowPanel();
   }
@@ -816,8 +1295,13 @@
     if (paymentModal) paymentModal.classList.add("hidden");
     if (payInterval) clearInterval(payInterval);
     payInterval = null;
-    if (qrBox) qrBox.innerHTML = "";
+    if (qrBox) {
+      qrBox.innerHTML = "";
+      qrBox.onclick = null;
+      qrBox.style.cursor = "";
+    }
     currentPayOrderId = null;
+    currentStripeCheckoutUrl = "";
     await refreshFlowPanel();
   }
 
@@ -828,40 +1312,18 @@
   }
 
   if (simulateFailBtn) {
-    simulateFailBtn.onclick = () => {
-      if (!currentPayOrderId) return;
-      if (payStatus) payStatus.textContent = "Payment failed (simulated). Please retry.";
-    };
+    simulateFailBtn.classList.add("hidden");
   }
 
   if (simulatePayBtn) {
-    simulatePayBtn.onclick = async () => {
-      if (!currentPayOrderId) return;
+    simulatePayBtn.textContent = "Open Stripe Checkout";
+    simulatePayBtn.onclick = () => {
+      if (!currentStripeCheckoutUrl) {
+        if (payStatus) payStatus.textContent = "Stripe Checkout is still loading...";
+        return;
+      }
 
-      const o = await getOrderSafe(currentPayOrderId);
-      if (!o) return;
-
-      const payment = {
-        ...safeObject(o.payment),
-        success: true
-      };
-
-      simulateGatewayVerifySafe(true);
-
-      await updateOrderSafe(currentPayOrderId, {
-        status: "paid",
-        paidAt: nowISO(),
-        payment
-      });
-
-      logSafe(`Payment verified for ${o.id}. Order placed.`);
-
-      if (payStatus) payStatus.textContent = "Payment verified ✅";
-
-      setTimeout(async () => {
-        await closePayment();
-        await openReceipt(o.id);
-      }, 700);
+      window.location.href = currentStripeCheckoutUrl;
     };
   }
 
@@ -1122,7 +1584,7 @@
       <div class="copy-badge">CUSTOMER COPY</div>
       <div class="title">Food Court Kiosk</div>
       <div class="sub-title">${escapeHtml(restaurant?.name || "")}</div>
-      <div class="meta">Receipt • ${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
+      <div class="meta">Receipt â€¢ ${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
 
       <hr class="divider" />
 
@@ -1192,7 +1654,7 @@
     <section class="slip">
       <div class="copy-badge">RESTAURANT COPY</div>
       <div class="title">${escapeHtml(restaurant?.name || "Restaurant")}</div>
-      <div class="meta">Order • ${escapeHtml(order.id)}</div>
+      <div class="meta">Order â€¢ ${escapeHtml(order.id)}</div>
       <div class="meta">${escapeHtml(serviceText(order))}</div>
       <div class="meta">${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
 
@@ -1210,7 +1672,7 @@
         </tbody>
       </table>
 
-      <div class="kitchen-note">PAID ORDER • START PREPARATION</div>
+      <div class="kitchen-note">PAID ORDER â€¢ START PREPARATION</div>
       <div class="prep-note">Give this slip to the waiter / restaurant</div>
     </section>
   `;
@@ -1605,6 +2067,7 @@
   }
 
   await seedSafe();
+  await handleStripeReturn();
   await renderAll();
 
   window.addEventListener("fc:state-changed", async () => {
