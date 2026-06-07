@@ -686,13 +686,21 @@
   }
 
   function paymentMethodOf(order = {}) {
-    return normalizePaymentMethod(
+    const explicit = normalizePaymentMethod(
       order.paymentMethod ||
       order.payment?.paymentMethod ||
       order.payment?.method ||
       order.payment_method ||
       ""
     );
+
+    if (explicit) return explicit;
+
+    if (order?.id && awaitingOrderId && String(order.id) === String(awaitingOrderId)) {
+      return normalizePaymentMethod(paymentMethod);
+    }
+
+    return "";
   }
 
   function paymentMethodLabel(method = paymentMethod) {
@@ -1284,7 +1292,7 @@
       const method = paymentMethodOf(order);
 
       if (method === "cash") {
-        const pendingCash = orderIsCashPending(order);
+        const pendingCash = order.status === "awaiting_cash_payment";
         elFlowPanel.innerHTML = `
         <div class="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -1322,7 +1330,7 @@
           };
         }
 
-        if (!pendingCash && autoCashSlipStartedForOrderId !== order.id) {
+        if (order.status === "approved" && autoCashSlipStartedForOrderId !== order.id) {
           autoCashSlipStartedForOrderId = order.id;
           setTimeout(async () => {
             await openCashSlip(order.id);
@@ -1385,105 +1393,105 @@
     if (o) renderFlow(o);
     else hideFlow();
   }
+async function browserPrintSlipOnly(orderId) {
+  const order = await getOrderSafe(orderId);
+  if (!order) return false;
 
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  iframe.setAttribute("aria-hidden", "true");
 
-  async function browserPrintSlipOnly(orderId) {
-    const order = await getOrderSafe(orderId);
-    if (!order) return false;
+  document.body.appendChild(iframe);
 
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.style.opacity = "0";
-    iframe.setAttribute("aria-hidden", "true");
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Cash Slip ${escapeHtml(order.id)}</title>
+        <style>${getReceiptCss()}</style>
+      </head>
+      <body>
+        ${buildFullReceiptMarkup(order)}
+      </body>
+    </html>
+  `);
+  doc.close();
 
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    doc.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>Cash Slip ${escapeHtml(order.id)}</title>
-          <style>${getReceiptCss()}</style>
-        </head>
-        <body>
-          ${buildFullReceiptMarkup(order)}
-        </body>
-      </html>
-    `);
-    doc.close();
-
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } finally {
-        setTimeout(() => {
-          iframe.remove();
-        }, 1200);
-      }
-    }, 900);
-
-    simulatePrinterPaperUseSafe();
-    return true;
-  }
-
-
-  async function openCashSlip(orderId) {
-    const order = await getOrderSafe(orderId);
-
-    if (!order) {
-      alertSafe("Order not found. Cannot print cash slip.");
-      return;
-    }
-
-    const payment = {
-      ...safeObject(order.payment),
-      attemptCount: Number(order.payment?.attemptCount || 0) + 1,
-      success: false,
-      method: "cash",
-      paymentMethod: "cash",
-      provider: "Cash Counter",
-      cashSlipPrintedAt: nowISO(),
-      trackingUrl: trackingUrlForOrder(order),
-      cashConfirmUrl: cashConfirmUrlForOrder(order)
-    };
-
+  setTimeout(() => {
     try {
-      await updateOrderSafe(orderId, {
-        status: "awaiting_payment",
-        payment
-      });
-
-      awaitingOrderId = orderId;
-      saveSession();
-
-      logSafe(`Cash slip generated for ${orderId}.`);
-
-      await openReceipt(orderId);
-
-      setTimeout(async () => {
-        await browserPrintSlipOnly(orderId);
-      }, 700);
-
-      await refreshFlowPanel();
-    } catch (err) {
-      console.error("kiosk.js: cash slip failed", err);
-      alertSafe(`Cash slip failed: ${err.message || err}`);
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } finally {
+      setTimeout(() => {
+        iframe.remove();
+      }, 1200);
     }
+  }, 900);
+
+  simulatePrinterPaperUseSafe();
+  return true;
+}
+  async function openCashSlip(orderId) {
+  const order = await getOrderSafe(orderId);
+
+  if (!order) {
+    alertSafe("Order not found. Cannot print cash slip.");
+    return;
   }
 
+  const payment = {
+    ...safeObject(order.payment),
+    attemptCount: Number(order.payment?.attemptCount || 0) + 1,
+    success: false,
+    method: "cash",
+    paymentMethod: "cash",
+    provider: "Cash Counter",
+    cashSlipPrintedAt: nowISO(),
+    trackingUrl: trackingUrlForOrder(order),
+    cashConfirmUrl: cashConfirmUrlForOrder(order)
+  };
+
+  try {
+    await updateOrderSafe(orderId, {
+      status: "awaiting_payment",
+      payment
+    });
+
+    awaitingOrderId = orderId;
+    saveSession();
+
+    logSafe(`Cash slip generated for ${orderId}.`);
+
+    await openReceipt(orderId);
+
+    setTimeout(async () => {
+      await browserPrintSlipOnly(orderId);
+    }, 700);
+
+    await refreshFlowPanel();
+  } catch (err) {
+    console.error("kiosk.js: cash slip failed", err);
+    alertSafe(`Cash slip failed: ${err.message || err}`);
+  }
+  }
 
   async function openPayment(orderId) {
     const order = await getOrderSafe(orderId);
     if (!order) return;
+
+    if (paymentMethodOf(order) === "cash" || normalizePaymentMethod(paymentMethod) === "cash") {
+      await openCashSlip(orderId);
+      return;
+    }
 
     currentPayOrderId = orderId;
     currentStripeCheckoutUrl = "";
@@ -1938,7 +1946,14 @@
   }
 
   function orderIsCashPending(order = {}) {
-    return paymentMethodOf(order) === "cash" && !order.payment?.success && order.status === "awaiting_cash_payment";
+    const status = String(order.status || "").toLowerCase();
+    const payment = safeObject(order.payment);
+
+    return (
+      paymentMethodOf(order) === "cash" &&
+      !payment.success &&
+      ["approved", "awaiting_payment", "awaiting_cash_payment"].includes(status)
+    );
   }
 
   function buildCustomerSlip(order) {
@@ -2276,7 +2291,7 @@
         await updateOrderSafe(o.id, { status: "preparing" });
       }
 
-      if (o && orderIsCashPending(o)) {
+      if (o && o.status === "awaiting_cash_payment") {
         currentReceiptOrderId = null;
         renderFlow(o);
         await refreshQueueCount();
