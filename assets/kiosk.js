@@ -642,6 +642,13 @@
   let renderBusy = false;
   let rerenderRequested = false;
 
+
+  let itemDetailModal = null;
+  let itemDetailCurrentRestaurantId = null;
+  let itemDetailCurrentItem = null;
+  let itemDetailQty = 1;
+  let itemDetailSelectedAddons = new Set();
+
   function saveSession() {
     localStorage.setItem(
       sessionKey,
@@ -995,6 +1002,279 @@
     }
   }, 1000);
 
+  function ensureItemDetailModal() {
+    if (itemDetailModal && document.body.contains(itemDetailModal)) return itemDetailModal;
+
+    document.querySelectorAll("#itemDetailModal").forEach((oldModal) => oldModal.remove());
+
+    const wrap = document.createElement("div");
+    wrap.id = "itemDetailModal";
+    wrap.className = "hidden fixed inset-0 z-[90] bg-black/75 backdrop-blur-sm";
+    wrap.innerHTML = `
+      <div class="h-full w-full flex items-center justify-center px-4 py-5">
+        <div class="max-w-5xl w-full max-h-[92vh] overflow-hidden rounded-3xl bg-slate-950 border border-white/10 shadow-2xl">
+          <div class="grid md:grid-cols-2 min-h-[520px]">
+            <div id="itemDetailImageWrap" class="bg-white/5 min-h-[260px] md:min-h-full"></div>
+
+            <div class="flex flex-col min-h-[520px]">
+              <div class="p-6 border-b border-white/10">
+                <div class="flex items-start justify-between gap-4">
+                  <div class="min-w-0">
+                    <div id="itemDetailCategory" class="text-xs uppercase tracking-widest text-slate-400"></div>
+                    <div id="itemDetailName" class="text-2xl font-semibold mt-1 text-slate-100 break-words"></div>
+                    <div id="itemDetailPrice" class="text-xl font-semibold mt-3 text-slate-100"></div>
+                  </div>
+                  <button id="itemDetailCloseBtn" type="button" class="btn-ghost text-sm shrink-0">Close</button>
+                </div>
+
+                <div id="itemDetailDescription" class="text-sm text-slate-300 mt-4 leading-relaxed"></div>
+              </div>
+
+              <div class="p-6 flex-1 overflow-y-auto">
+                <div id="itemDetailAddonsPanel" class="hidden">
+                  <div class="text-sm font-semibold text-slate-100">Add-ons</div>
+                  <div id="itemDetailAddons" class="mt-3 space-y-2"></div>
+                </div>
+
+                <div id="itemDetailNoAddons" class="hidden rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
+                  No add-ons are available for this item.
+                </div>
+              </div>
+
+              <div class="p-5 border-t border-white/10 bg-slate-950/95">
+                <div class="flex items-center justify-between gap-4 flex-wrap">
+                  <div class="flex items-center gap-3">
+                    <button id="itemDetailMinusBtn" type="button" class="btn-ghost text-xl px-4">-</button>
+                    <div id="itemDetailQtyLabel" class="text-xl font-semibold min-w-8 text-center">1</div>
+                    <button id="itemDetailPlusBtn" type="button" class="btn-ghost text-xl px-4">+</button>
+                  </div>
+
+                  <button id="itemDetailAddBtn" type="button" class="btn-primary min-w-[220px]">
+                    Add to Cart
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(wrap);
+    itemDetailModal = wrap;
+
+    const detailEl = (id) => itemDetailModal.querySelector(`#${id}`);
+    const closeBtn = detailEl("itemDetailCloseBtn");
+    const minusBtn = detailEl("itemDetailMinusBtn");
+    const plusBtn = detailEl("itemDetailPlusBtn");
+    const addBtn = detailEl("itemDetailAddBtn");
+
+    wrap.addEventListener("click", (e) => {
+      if (e.target === wrap) closeItemDetailModal();
+    });
+
+    if (closeBtn) {
+      closeBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeItemDetailModal();
+      });
+    }
+
+    if (minusBtn) {
+      minusBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        itemDetailQty = Math.max(1, itemDetailQty - 1);
+        renderItemDetailPricing();
+      });
+    }
+
+    if (plusBtn) {
+      plusBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        itemDetailQty += 1;
+        renderItemDetailPricing();
+      });
+    }
+
+    if (addBtn) {
+      addBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+
+        if (!itemDetailCurrentItem || !itemDetailCurrentRestaurantId) return;
+
+        const item = itemDetailCurrentItem;
+        const selectedAddons = safeArray(item.addons).filter((a) =>
+          itemDetailSelectedAddons.has(String(a.id || a.name))
+        );
+        const addonTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price || 0), 0);
+        const finalPrice = Number(item.price || 0) + addonTotal;
+        const addonNames = selectedAddons.map((a) => a.name).filter(Boolean);
+        const addonKey = selectedAddons.map((a) => String(a.id || a.name)).sort().join("_");
+        const cartKey = addonKey ? `${item.id}__${addonKey}` : String(item.id);
+
+        addToCart(itemDetailCurrentRestaurantId, {
+          ...item,
+          itemId: item.id,
+          cartKey,
+          name: addonNames.length ? `${item.name} (${addonNames.join(", ")})` : item.name,
+          price: finalPrice,
+          qty: itemDetailQty,
+          basePrice: Number(item.price || 0),
+          addons: selectedAddons
+        });
+
+        closeItemDetailModal();
+      });
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && itemDetailModal && !itemDetailModal.classList.contains("hidden")) {
+        closeItemDetailModal();
+      }
+    });
+
+    return wrap;
+  }
+
+  function closeItemDetailModal() {
+    if (itemDetailModal) itemDetailModal.classList.add("hidden");
+
+    document.body.classList.remove("overflow-hidden");
+
+    itemDetailCurrentRestaurantId = null;
+    itemDetailCurrentItem = null;
+    itemDetailQty = 1;
+    itemDetailSelectedAddons = new Set();
+  }
+
+  function renderItemDetailPricing() {
+    const item = itemDetailCurrentItem;
+    if (!item || !itemDetailModal) return;
+
+    const selectedAddons = safeArray(item.addons).filter((a) =>
+      itemDetailSelectedAddons.has(String(a.id || a.name))
+    );
+    const addonTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price || 0), 0);
+    const unitTotal = Number(item.price || 0) + addonTotal;
+    const total = unitTotal * itemDetailQty;
+
+    const qtyLabel = itemDetailModal.querySelector("#itemDetailQtyLabel");
+    const addBtn = itemDetailModal.querySelector("#itemDetailAddBtn");
+    const priceLabel = itemDetailModal.querySelector("#itemDetailPrice");
+
+    if (qtyLabel) qtyLabel.textContent = String(itemDetailQty);
+    if (priceLabel) priceLabel.textContent = money(unitTotal);
+    if (addBtn) addBtn.textContent = `Add ${itemDetailQty} - ${money(total)}`;
+  }
+
+  function itemFallbackDescription(item = {}) {
+    const name = item.name || "This item";
+    const category = item.category || "menu item";
+
+    if (String(category).toLowerCase().includes("drink")) {
+      return `${name} is a refreshing drink served chilled with your order.`;
+    }
+
+    if (String(category).toLowerCase().includes("side")) {
+      return `${name} is a side item that pairs well with main meals.`;
+    }
+
+    if (String(category).toLowerCase().includes("burger")) {
+      return `${name} is prepared with a fresh bun, seasoned filling, and restaurant sauce.`;
+    }
+
+    if (String(category).toLowerCase().includes("rice")) {
+      return `${name} is prepared fresh with spices and served as a filling rice meal.`;
+    }
+
+    return `${name} is prepared fresh by the selected restaurant and served according to the current order.`;
+  }
+
+  function openItemDetailModal(restaurantId, item) {
+    if (!item) return;
+
+    ensureItemDetailModal();
+
+    itemDetailCurrentRestaurantId = restaurantId;
+    itemDetailCurrentItem = item;
+    itemDetailQty = 1;
+    itemDetailSelectedAddons = new Set();
+
+    const detailEl = (id) => itemDetailModal.querySelector(`#${id}`);
+
+    const imageWrap = detailEl("itemDetailImageWrap");
+    const category = detailEl("itemDetailCategory");
+    const name = detailEl("itemDetailName");
+    const description = detailEl("itemDetailDescription");
+    const addonsPanel = detailEl("itemDetailAddonsPanel");
+    const addonsWrap = detailEl("itemDetailAddons");
+    const noAddons = detailEl("itemDetailNoAddons");
+
+    const img = String(item.image || item.img || item.photo || "").trim();
+    const desc = String(item.description || item.desc || item.details || itemFallbackDescription(item)).trim();
+
+    if (imageWrap) {
+      imageWrap.innerHTML = img
+        ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(item.name || "Food item")}" class="w-full h-full min-h-[260px] object-cover" onerror="this.parentElement.innerHTML='<div class=&quot;h-full min-h-[260px] flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5 text-center p-8&quot;><div><div class=&quot;text-5xl&quot;>🍽️</div><div class=&quot;mt-3 text-slate-300 font-semibold&quot;>Image Not Available</div></div></div>';">`
+        : `<div class="h-full min-h-[260px] flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5 text-center p-8">
+             <div>
+               <div class="text-5xl">🍽️</div>
+               <div class="mt-3 text-slate-300 font-semibold">Image Not Available</div>
+               <div class="mt-1 text-xs text-slate-500">Add image in assets/images/menu</div>
+             </div>
+           </div>`;
+    }
+
+    if (category) category.textContent = item.category || "Menu Item";
+    if (name) name.textContent = item.name || "Food Item";
+    if (description) description.textContent = desc;
+
+    const addons = safeArray(item.addons);
+
+    if (addons.length && addonsWrap && addonsPanel && noAddons) {
+      addonsPanel.classList.remove("hidden");
+      noAddons.classList.add("hidden");
+      addonsWrap.innerHTML = "";
+
+      addons.forEach((addon) => {
+        const addonId = String(addon.id || addon.name || "");
+        const row = document.createElement("label");
+        row.className = "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 cursor-pointer hover:bg-white/10 transition";
+        row.innerHTML = `
+          <div class="flex items-center gap-3">
+            <input type="checkbox" class="accent-indigo-500" data-addon-id="${escapeHtml(addonId)}">
+            <div>
+              <div class="text-sm font-semibold text-slate-100">${escapeHtml(addon.name || "Add-on")}</div>
+              <div class="text-xs text-slate-400">Optional add-on</div>
+            </div>
+          </div>
+          <div class="text-sm font-semibold text-slate-100">+ ${escapeHtml(money(Number(addon.price || 0)))}</div>
+        `;
+
+        const checkbox = row.querySelector("input");
+        if (checkbox) {
+          checkbox.addEventListener("change", () => {
+            if (checkbox.checked) itemDetailSelectedAddons.add(addonId);
+            else itemDetailSelectedAddons.delete(addonId);
+            renderItemDetailPricing();
+          });
+        }
+
+        addonsWrap.appendChild(row);
+      });
+    } else {
+      if (addonsPanel) addonsPanel.classList.add("hidden");
+      if (noAddons) noAddons.classList.remove("hidden");
+      if (addonsWrap) addonsWrap.innerHTML = "";
+    }
+
+    itemDetailModal.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+
+    renderItemDetailPricing();
+  }
+
   function addToCart(restaurantId, menuItem) {
     if (!menuItem) return;
 
@@ -1003,16 +1283,23 @@
       return;
     }
 
-    const found = cart.find((x) => x.itemId === menuItem.id);
+    const baseItemId = menuItem.itemId ?? menuItem.id;
+    const cartKey = String(menuItem.cartKey || baseItemId || "");
+    const qtyToAdd = Math.max(1, Number(menuItem.qty || 1));
+    const found = cart.find((x) => String(x.cartKey || x.itemId) === cartKey);
+
     if (found) {
-      found.qty += 1;
+      found.qty += qtyToAdd;
     } else {
       cart.push({
         restaurantId,
-        itemId: menuItem.id,
+        itemId: baseItemId,
+        cartKey,
         name: menuItem.name,
         price: Number(menuItem.price || 0),
-        qty: 1
+        qty: qtyToAdd,
+        basePrice: Number(menuItem.basePrice || menuItem.price || 0),
+        addons: safeArray(menuItem.addons)
       });
     }
 
@@ -1020,14 +1307,15 @@
     renderCart();
   }
 
-  function updateQty(itemId, delta) {
-    const it = cart.find((x) => x.itemId === itemId);
+  function updateQty(cartKeyOrItemId, delta) {
+    const key = String(cartKeyOrItemId || "");
+    const it = cart.find((x) => String(x.cartKey || x.itemId) === key);
     if (!it) return;
 
     it.qty += delta;
 
     if (it.qty <= 0) {
-      cart = cart.filter((x) => x.itemId !== itemId);
+      cart = cart.filter((x) => String(x.cartKey || x.itemId) !== key);
     }
 
     saveSession();
@@ -1141,30 +1429,44 @@
 
     filtered.forEach((m) => {
       const card = document.createElement("div");
-      card.className = "card p-4";
+      card.className = "card p-4 cursor-pointer hover:bg-white/10 transition";
 
       const available = !!(r.online && m.available);
+      const img = String(m.image || m.img || m.photo || "").trim();
+      const desc = String(m.description || m.desc || m.details || "").trim();
 
       card.innerHTML = `
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="font-semibold">${m.name || ""}</div>
-            <div class="text-xs text-slate-400 mt-1">${m.category || "General"} â€¢ ${m.fast ? "Fast item" : "Standard"}</div>
+        ${img ? `
+          <div class="-m-4 mb-4 overflow-hidden rounded-t-2xl bg-white/5">
+            <img src="${escapeHtml(img)}" alt="${escapeHtml(m.name || "Food item")}" class="w-full h-36 object-cover">
           </div>
-          <div class="text-sm font-semibold">${money(Number(m.price || 0))}</div>
+        ` : ""}
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="font-semibold truncate">${escapeHtml(m.name || "")}</div>
+            <div class="text-xs text-slate-400 mt-1">${escapeHtml(m.category || "General")} • ${m.fast ? "Fast item" : "Standard"}</div>
+            ${desc ? `<div class="text-xs text-slate-500 mt-2 line-clamp-2">${escapeHtml(desc)}</div>` : ""}
+          </div>
+          <div class="text-sm font-semibold shrink-0">${money(Number(m.price || 0))}</div>
         </div>
         <div class="mt-4 flex items-center justify-between">
           <div class="text-xs ${available ? "text-emerald-300" : "text-rose-300"}">
             ${available ? "Available" : (r.online ? "Out of stock" : "Restaurant offline")}
           </div>
-          <button class="${available ? "btn-primary" : "btn-ghost opacity-40 cursor-not-allowed"} text-sm" ${available ? "" : "disabled"}>
-            Add
+          <button class="${available ? "btn-primary" : "btn-ghost opacity-40 cursor-not-allowed"} text-sm rounded-full px-4" ${available ? "" : "disabled"}>
+            +
           </button>
         </div>
       `;
 
+      card.onclick = () => {
+        if (!available) return;
+        openItemDetailModal(r.id, m);
+      };
+
       const btn = card.querySelector("button");
-      btn.onclick = () => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
         if (!available) return;
         addToCart(r.id, m);
       };
@@ -1188,7 +1490,8 @@
         row.innerHTML = `
           <div class="min-w-0">
             <div class="font-semibold truncate">${it.name || ""}</div>
-            <div class="text-xs text-slate-400 mt-1">${money(Number(it.price || 0))} â€¢ Qty ${Number(it.qty || 0)}</div>
+            <div class="text-xs text-slate-400 mt-1">${money(Number(it.price || 0))} • Qty ${Number(it.qty || 0)}</div>
+            ${safeArray(it.addons).length ? `<div class="text-xs text-slate-500 mt-1">${escapeHtml(safeArray(it.addons).map((a) => a.name).join(", "))}</div>` : ""}
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <button class="btn-ghost text-sm px-3 py-2">-</button>
@@ -1197,8 +1500,9 @@
         `;
 
         const [minus, plus] = row.querySelectorAll("button");
-        minus.onclick = () => updateQty(it.itemId, -1);
-        plus.onclick = () => updateQty(it.itemId, +1);
+        const rowKey = it.cartKey || it.itemId;
+        minus.onclick = () => updateQty(rowKey, -1);
+        plus.onclick = () => updateQty(rowKey, +1);
 
         elCart.appendChild(row);
       });
