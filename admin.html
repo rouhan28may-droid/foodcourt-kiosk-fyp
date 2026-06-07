@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="assets/styles.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
+
 <body class="min-h-screen bg-slate-950 text-slate-100">
   <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
     <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
@@ -15,6 +16,7 @@
         <div class="text-sm text-slate-400">System Monitoring</div>
         <div class="text-xl font-semibold">Owner/Admin Dashboard</div>
       </div>
+
       <div class="flex items-center gap-2">
         <button id="logoutBtn" class="btn-ghost text-sm hidden">Logout</button>
         <a href="index.html" class="btn-ghost text-sm">Home</a>
@@ -23,36 +25,41 @@
   </header>
 
   <main class="max-w-7xl mx-auto px-6 py-6">
-    <!-- login -->
+    <!-- Login -->
     <section id="loginBox" class="max-w-xl mx-auto glass p-6 rounded-3xl">
       <div class="text-lg font-semibold">Login</div>
+
       <div class="mt-5 grid sm:grid-cols-2 gap-3">
         <input id="userInput" class="tws-input" placeholder="Username" />
         <input id="passInput" class="tws-input" placeholder="Password" type="password" />
       </div>
+
       <button id="loginBtn" class="btn-primary w-full mt-4">Sign In</button>
       <div id="loginErr" class="text-sm text-red-300 mt-3"></div>
     </section>
 
-    <!-- app -->
+    <!-- App -->
     <section id="appBox" class="hidden space-y-6">
-      <!-- metrics -->
+      <!-- Metrics -->
       <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="glass p-5 rounded-3xl">
           <div class="text-xs uppercase tracking-widest text-slate-400">Revenue Today</div>
           <div id="mRevenue" class="text-2xl font-semibold mt-2">0</div>
           <div class="text-xs text-slate-400 mt-1">Paid orders only</div>
         </div>
+
         <div class="glass p-5 rounded-3xl">
           <div class="text-xs uppercase tracking-widest text-slate-400">Orders Today</div>
           <div id="mOrders" class="text-2xl font-semibold mt-2">0</div>
           <div class="text-xs text-slate-400 mt-1">All statuses</div>
         </div>
+
         <div class="glass p-5 rounded-3xl">
           <div class="text-xs uppercase tracking-widest text-slate-400">Peak Hour</div>
           <div id="mPeak" class="text-2xl font-semibold mt-2">—</div>
           <div class="text-xs text-slate-400 mt-1">Paid orders</div>
         </div>
+
         <div class="glass p-5 rounded-3xl">
           <div class="text-xs uppercase tracking-widest text-slate-400">Payment Success</div>
           <div id="mPayRate" class="text-2xl font-semibold mt-2">0%</div>
@@ -66,16 +73,25 @@
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <div class="text-lg font-semibold">Restaurant Management</div>
-                <div class="text-sm text-slate-400">Toggle online mode & availability.</div>
+                <div class="text-sm text-slate-400">
+                  Toggle restaurant online mode, item availability, and monitor sales.
+                </div>
               </div>
-              <button id="exportAllBtn" class="btn-ghost text-sm">Export All Reports (XLSX)</button>
+
+              <button id="exportAllBtn" class="btn-ghost text-sm">
+                Export Full Monthly Report (XLSX)
+              </button>
             </div>
+
             <div id="restaurantsPanel" class="mt-4 space-y-3"></div>
           </div>
 
           <div class="glass p-5 rounded-3xl">
             <div class="text-lg font-semibold">Sales Analytics</div>
-            <div class="text-sm text-slate-400 mt-1">Best-sellers, item breakdown, restaurant ranking.</div>
+            <div class="text-sm text-slate-400 mt-1">
+              Best-sellers, item breakdown, payment type, add-ons, service type, and restaurant ranking.
+            </div>
+
             <div id="analyticsPanel" class="mt-4"></div>
           </div>
         </section>
@@ -85,16 +101,21 @@
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <div class="text-lg font-semibold">Advertisements</div>
-                <div class="text-sm text-slate-400">Idle-mode ads + impression tracking.</div>
+                <div class="text-sm text-slate-400">
+                  Idle-mode ads and impression tracking.
+                </div>
               </div>
+
               <button id="resetAdsBtn" class="btn-ghost text-sm">Reset Ad Stats</button>
             </div>
+
             <div id="adsPanel" class="mt-4 space-y-2"></div>
           </div>
 
           <div class="glass p-5 rounded-3xl">
             <div class="text-lg font-semibold">System Log</div>
-            <div class="text-sm text-slate-400 mt-1">Recent actions (simulated)</div>
+            <div class="text-sm text-slate-400 mt-1">Recent system actions</div>
+
             <div id="logPanel" class="mt-4 space-y-2"></div>
           </div>
         </aside>
@@ -102,10 +123,10 @@
     </section>
   </main>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/supabaseclient.js"></script>
-<script src="assets/storage.js"></script>
-<script src="assets/app.js"></script>
-<script src="assets/admin.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/supabaseclient.js"></script>
+  <script src="assets/storage.js"></script>
+  <script src="assets/app.js"></script>
+  <script src="assets/admin.js"></script>
 </body>
 </html>
