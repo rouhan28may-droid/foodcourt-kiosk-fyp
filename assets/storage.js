@@ -50,6 +50,60 @@ FC._normalizeTableNumber = function (serviceType, value) {
   return serviceType === "dine_in" ? table : "";
 };
 
+FC._normalizePaymentMethod = function (value) {
+  const v = String(value || "").trim().toLowerCase();
+
+  if (v === "cash" || v === "cod" || v === "counter") return "cash";
+  if (v === "online" || v === "stripe" || v === "card" || v === "qr") return "online";
+
+  return "online";
+};
+
+FC._absoluteUrl = function (path, params = {}) {
+  const url = new URL(path, window.location.origin);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  return url.toString();
+};
+
+FC.getStaffPin = function () {
+  const s = FC.getState();
+
+  const candidates = [
+    s.settings?.staffPin,
+    s.settings?.cashierPin,
+    s.settings?.adminPin,
+    localStorage.getItem("fc_staff_pin"),
+    localStorage.getItem("staffPin"),
+    localStorage.getItem("cashierPin")
+  ];
+
+  const found = candidates.find((x) => String(x || "").trim());
+  return String(found || "1234").trim();
+};
+
+FC.verifyStaffPin = function (pin) {
+  return String(pin || "").trim() === FC.getStaffPin();
+};
+
+FC.orderTrackingUrl = function (orderId) {
+  return FC._absoluteUrl("/order-track.html", {
+    order_id: orderId
+  });
+};
+
+FC.cashConfirmUrl = function (orderId, cashToken) {
+  return FC._absoluteUrl("/cash-confirm.html", {
+    order_id: orderId,
+    cash_token: cashToken || ""
+  });
+};
+
 // ---------- Default State ----------
 FC.defaultState = function () {
   return {
@@ -59,7 +113,9 @@ FC.defaultState = function () {
       currency: "PKR",
       taxRate: 0.13,
       idleAdsAfterSeconds: 240,
-      paymentTimeoutSeconds: 180
+      paymentTimeoutSeconds: 180,
+      kioskPin: "1234",
+      staffPin: "1234"
     },
     ads: [],
     orders: [],
@@ -67,7 +123,7 @@ FC.defaultState = function () {
     devices: {
       network: { online: true, latencyMs: 42 },
       printer: { online: true, paper: 85, lastPrintAt: null },
-      paymentGateway: { online: true, provider: "QR Aggregator", lastVerifyAt: null },
+      paymentGateway: { online: true, provider: "Stripe / Cash Counter", lastVerifyAt: null },
       kioskDisplay: { online: true, brightness: 75, locked: false },
       localCache: { enabled: true, queuedOrders: 0 }
     },
@@ -227,13 +283,11 @@ FC.reset = async function () {
 FC.seed = async function () {
   let state = FC.readLocalState();
 
-  // Step 1: seed from local JSON if local state is empty
   if (!state.seededAt || !state.restaurants.length) {
     state = await FC.buildSeedState();
     FC.setState(state, { silent: true });
   }
 
-  // Step 2: only replace local catalog if Supabase actually has catalog data
   try {
     const db = FC._db();
 
@@ -254,7 +308,6 @@ FC.seed = async function () {
     console.warn("Supabase catalog check failed. Using local JSON seed.", err);
   }
 
-  // Step 3: orders can still come from Supabase if available
   await FC.fetchAllOrders().catch(() => {});
 
   FC.startRealtimeSync();
@@ -276,10 +329,10 @@ FC.uid = function (prefix = "ORD") {
 FC._normalizeOrder = function (order) {
   if (!order) return null;
 
-  // Supabase row shape
   if ("restaurant_id" in order || "order_items" in order) {
     const serviceType = FC._normalizeServiceType(order.service_type || order.serviceType || "");
     const tableNumber = FC._normalizeTableNumber(serviceType, order.table_number || order.tableNumber || "");
+    const payment = FC._safeObject(order.payment);
 
     return {
       id: order.id,
@@ -295,7 +348,10 @@ FC._normalizeOrder = function (order) {
       createdAt: order.created_at || null,
       approvedAt: order.approved_at || null,
       paidAt: order.paid_at || null,
-      payment: FC._safeObject(order.payment),
+      payment,
+      paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.payment_method || "online"),
+      trackingUrl: FC.orderTrackingUrl(order.id),
+      cashConfirmUrl: payment.cashToken ? FC.cashConfirmUrl(order.id, payment.cashToken) : "",
       items: FC._safeArray(order.order_items).map((it) => ({
         itemId: it.menu_item_id ?? null,
         name: it.name || "",
@@ -306,9 +362,9 @@ FC._normalizeOrder = function (order) {
     };
   }
 
-  // local/demo shape
   const serviceType = FC._normalizeServiceType(order.serviceType || order.service_type || order.orderType || "");
   const tableNumber = FC._normalizeTableNumber(serviceType, order.tableNumber || order.table_number || order.tableNo || "");
+  const payment = FC._safeObject(order.payment);
 
   return {
     id: order.id,
@@ -324,7 +380,10 @@ FC._normalizeOrder = function (order) {
     createdAt: order.createdAt || null,
     approvedAt: order.approvedAt || null,
     paidAt: order.paidAt || null,
-    payment: FC._safeObject(order.payment),
+    payment,
+    paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.paymentMethod || "online"),
+    trackingUrl: FC.orderTrackingUrl(order.id),
+    cashConfirmUrl: payment.cashToken ? FC.cashConfirmUrl(order.id, payment.cashToken) : "",
     items: FC._safeArray(order.items).map((it) => ({
       itemId: it.itemId ?? null,
       name: it.name || "",
@@ -444,12 +503,39 @@ FC.getOrder = async function (orderId) {
   return found ? FC._normalizeOrder(found) : null;
 };
 
-FC.createOrder = async function ({ restaurantId, items, totals, serviceType, tableNumber }) {
+FC.createOrder = async function ({
+  restaurantId,
+  items,
+  totals,
+  serviceType,
+  tableNumber,
+  paymentMethod = "online"
+}) {
   const normalizedServiceType = FC._normalizeServiceType(serviceType);
   const normalizedTableNumber = FC._normalizeTableNumber(normalizedServiceType, tableNumber);
+  const normalizedPaymentMethod = FC._normalizePaymentMethod(paymentMethod);
+
+  const orderId = FC.uid("ORD");
+  const trackingToken = FC.uid("TRK");
+  const cashToken = normalizedPaymentMethod === "cash" ? FC.uid("CASH") : null;
+
+  const payment = {
+    attemptCount: 0,
+    success: false,
+    method: normalizedPaymentMethod,
+    paymentMethod: normalizedPaymentMethod,
+    provider: normalizedPaymentMethod === "cash" ? "Cash Counter" : "Stripe",
+    qrPayload: null,
+    trackingToken,
+    trackingUrl: FC.orderTrackingUrl(orderId),
+    cashToken,
+    cashConfirmUrl: cashToken ? FC.cashConfirmUrl(orderId, cashToken) : "",
+    cashConfirmedAt: null,
+    cashConfirmedBy: null
+  };
 
   const order = {
-    id: FC.uid("ORD"),
+    id: orderId,
     restaurantId,
     status: "pending_approval",
     serviceType: normalizedServiceType,
@@ -462,12 +548,10 @@ FC.createOrder = async function ({ restaurantId, items, totals, serviceType, tab
     createdAt: FC.nowISO(),
     approvedAt: null,
     paidAt: null,
-    payment: {
-      attemptCount: 0,
-      success: false,
-      method: null,
-      qrPayload: null
-    },
+    payment,
+    paymentMethod: normalizedPaymentMethod,
+    trackingUrl: payment.trackingUrl,
+    cashConfirmUrl: payment.cashConfirmUrl,
     items: FC._safeArray(items).map((it) => ({
       itemId: it.itemId ?? null,
       name: it.name || "",
@@ -590,6 +674,48 @@ FC.updateOrder = async function (orderId, patch) {
   s.orders[idx] = next;
   FC.setState(s);
   return next;
+};
+
+FC.confirmCashPayment = async function (orderId, options = {}) {
+  const order = await FC.getOrder(orderId);
+
+  if (!order) {
+    throw new Error("Order not found.");
+  }
+
+  const enteredPin = String(options.staffPin || "").trim();
+  if (!FC.verifyStaffPin(enteredPin)) {
+    throw new Error("Invalid staff PIN.");
+  }
+
+  const expectedToken = String(order.payment?.cashToken || "").trim();
+  const providedToken = String(options.cashToken || "").trim();
+
+  if (expectedToken && providedToken && expectedToken !== providedToken) {
+    throw new Error("Invalid cash confirmation token.");
+  }
+
+  const payment = {
+    ...FC._safeObject(order.payment),
+    success: true,
+    method: "cash",
+    paymentMethod: "cash",
+    provider: "Cash Counter",
+    cashConfirmedAt: FC.nowISO(),
+    cashConfirmedBy: String(options.staffName || "Staff").trim() || "Staff",
+    verifiedAt: FC.nowISO()
+  };
+
+  const updated = await FC.updateOrder(order.id, {
+    status: "paid",
+    paidAt: FC.nowISO(),
+    payment
+  });
+
+  FC.simulateGatewayVerify(true);
+  FC.log(`Cash payment confirmed for ${order.id}.`);
+
+  return updated;
 };
 
 // ---------- Catalog Sync (restaurants + menu_items) ----------
