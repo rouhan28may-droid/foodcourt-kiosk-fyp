@@ -3,7 +3,7 @@
     {
       "id": "r1",
       "name": "Spice Hub",
-      "tagline": "Desi \u2022 Grilled \u2022 Fast",
+      "tagline": "Desi • Grilled • Fast",
       "online": true,
       "prepTimeMins": 18,
       "menu": [
@@ -13,7 +13,26 @@
           "price": 550,
           "category": "Rice",
           "available": true,
-          "fast": false
+          "fast": false,
+          "image": "assets/images/menu/chicken-biryani.jpg",
+          "description": "Aromatic basmati rice cooked with spiced chicken, fried onions, herbs, and traditional biryani masala. Served hot with rich desi flavor.",
+          "addons": [
+            {
+              "id": "extra_raita",
+              "name": "Extra Raita",
+              "price": 80
+            },
+            {
+              "id": "extra_chicken",
+              "name": "Extra Chicken Piece",
+              "price": 180
+            },
+            {
+              "id": "salad",
+              "name": "Fresh Salad",
+              "price": 70
+            }
+          ]
         },
         {
           "id": "m102",
@@ -21,7 +40,31 @@
           "price": 650,
           "category": "Burgers",
           "available": true,
-          "fast": true
+          "fast": true,
+          "image": "assets/images/menu/beef-burger.jpg",
+          "description": "Juicy beef patty layered with fresh lettuce, cheese, sauces, and soft burger bun. A filling fast-food option for burger lovers.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra Cheese",
+              "price": 100
+            },
+            {
+              "id": "extra_patty",
+              "name": "Extra Beef Patty",
+              "price": 280
+            },
+            {
+              "id": "fries_addon",
+              "name": "Add Fries",
+              "price": 180
+            },
+            {
+              "id": "drink_addon",
+              "name": "Add Drink",
+              "price": 180
+            }
+          ]
         },
         {
           "id": "m103",
@@ -29,7 +72,26 @@
           "price": 380,
           "category": "Rolls",
           "available": true,
-          "fast": true
+          "fast": true,
+          "image": "assets/images/menu/seekh-kebab-roll.jpg",
+          "description": "Grilled seekh kebab wrapped in paratha with onions, chutney, and signature sauce. Quick, spicy, and easy to eat.",
+          "addons": [
+            {
+              "id": "extra_chutney",
+              "name": "Extra Chutney",
+              "price": 40
+            },
+            {
+              "id": "extra_kebab",
+              "name": "Extra Kebab",
+              "price": 150
+            },
+            {
+              "id": "cheese_slice",
+              "name": "Cheese Slice",
+              "price": 90
+            }
+          ]
         },
         {
           "id": "m104",
@@ -37,7 +99,31 @@
           "price": 1050,
           "category": "Desi",
           "available": true,
-          "fast": false
+          "fast": false,
+          "image": "assets/images/menu/chicken-karahi-half.jpg",
+          "description": "Half chicken karahi cooked in tomato-based masala with green chilies, ginger, and traditional spices. Best for sharing.",
+          "addons": [
+            {
+              "id": "extra_roti",
+              "name": "Extra Roti",
+              "price": 40
+            },
+            {
+              "id": "extra_gravy",
+              "name": "Extra Gravy",
+              "price": 120
+            },
+            {
+              "id": "raita",
+              "name": "Raita",
+              "price": 80
+            },
+            {
+              "id": "salad",
+              "name": "Fresh Salad",
+              "price": 70
+            }
+          ]
         },
         {
           "id": "m105",
@@ -45,14 +131,23 @@
           "price": 80,
           "category": "Sides",
           "available": true,
-          "fast": true
+          "fast": true,
+          "image": "assets/images/menu/mint-raita.jpg",
+          "description": "Cool yogurt raita blended with mint and spices. Perfect side for biryani, rolls, and desi meals.",
+          "addons": [
+            {
+              "id": "large_cup",
+              "name": "Large Cup",
+              "price": 60
+            }
+          ]
         }
       ]
     },
     {
       "id": "r2",
       "name": "Pasta & Co.",
-      "tagline": "Italian \u2022 Cheesy \u2022 Comfort",
+      "tagline": "Italian • Cheesy • Comfort",
       "online": true,
       "prepTimeMins": 15,
       "menu": [
@@ -62,7 +157,26 @@
           "price": 790,
           "category": "Pasta",
           "available": true,
-          "fast": false
+          "fast": false,
+          "image": "assets/images/menu/alfredo-pasta.jpg",
+          "description": "Creamy white sauce pasta cooked with tender chicken, herbs, and parmesan-style cheesy flavor.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra Cheese",
+              "price": 120
+            },
+            {
+              "id": "extra_chicken",
+              "name": "Extra Chicken",
+              "price": 220
+            },
+            {
+              "id": "mushrooms",
+              "name": "Add Mushrooms",
+              "price": 140
+            }
+          ]
         },
         {
           "id": "m202",
@@ -70,7 +184,26 @@
           "price": 760,
           "category": "Pasta",
           "available": true,
-          "fast": false
+          "fast": false,
+          "image": "assets/images/menu/spicy-arrabbiata.jpg",
+          "description": "Red sauce pasta with chili, garlic, herbs, and tangy tomato flavor. A spicy Italian-style comfort meal.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra Cheese",
+              "price": 120
+            },
+            {
+              "id": "extra_sauce",
+              "name": "Extra Sauce",
+              "price": 90
+            },
+            {
+              "id": "extra_chicken",
+              "name": "Extra Chicken",
+              "price": 220
+            }
+          ]
         },
         {
           "id": "m203",
@@ -78,7 +211,21 @@
           "price": 220,
           "category": "Sides",
           "available": true,
-          "fast": true
+          "fast": true,
+          "image": "assets/images/menu/garlic-bread.jpg",
+          "description": "Toasted bread with garlic butter and herbs. A quick side to pair with pasta or baked items.",
+          "addons": [
+            {
+              "id": "cheese_topping",
+              "name": "Cheese Topping",
+              "price": 100
+            },
+            {
+              "id": "extra_piece",
+              "name": "Extra Piece",
+              "price": 80
+            }
+          ]
         },
         {
           "id": "m204",
@@ -86,7 +233,21 @@
           "price": 590,
           "category": "Bakes",
           "available": true,
-          "fast": false
+          "fast": false,
+          "image": "assets/images/menu/lasagna-slice.jpg",
+          "description": "Layered pasta bake with meat sauce, creamy white sauce, and melted cheese. Served as a hot slice.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra Cheese",
+              "price": 120
+            },
+            {
+              "id": "extra_sauce",
+              "name": "Extra Sauce",
+              "price": 90
+            }
+          ]
         },
         {
           "id": "m205",
@@ -94,14 +255,23 @@
           "price": 180,
           "category": "Drinks",
           "available": true,
-          "fast": true
+          "fast": true,
+          "image": "assets/images/menu/cola-can.jpg",
+          "description": "Chilled cola can served with your meal.",
+          "addons": [
+            {
+              "id": "large_cup_ice",
+              "name": "Cup With Ice",
+              "price": 30
+            }
+          ]
         }
       ]
     },
     {
       "id": "r3",
       "name": "Green Bowl",
-      "tagline": "Healthy \u2022 Fresh \u2022 Lean",
+      "tagline": "Healthy • Fresh • Lean",
       "online": true,
       "prepTimeMins": 12,
       "menu": [
@@ -111,7 +281,26 @@
           "price": 690,
           "category": "Salads",
           "available": true,
-          "fast": true
+          "fast": true,
+          "image": "assets/images/menu/chicken-caesar-salad.jpg",
+          "description": "Fresh lettuce, grilled chicken, croutons, and creamy Caesar-style dressing for a light protein meal.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra Chicken",
+              "price": 220
+            },
+            {
+              "id": "extra_dressing",
+              "name": "Extra Dressing",
+              "price": 70
+            },
+            {
+              "id": "boiled_egg",
+              "name": "Boiled Egg",
+              "price": 90
+            }
+          ]
         },
         {
           "id": "m302",
@@ -119,7 +308,26 @@
           "price": 640,
           "category": "Wraps",
           "available": true,
-          "fast": true
+          "fast": true,
+          "image": "assets/images/menu/protein-wrap.jpg",
+          "description": "Lean chicken protein wrap with fresh vegetables and light sauce. Designed for quick healthy eating.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra Chicken",
+              "price": 220
+            },
+            {
+              "id": "cheese_slice",
+              "name": "Cheese Slice",
+              "price": 90
+            },
+            {
+              "id": "extra_sauce",
+              "name": "Extra Sauce",
+              "price": 50
+            }
+          ]
         },
         {
           "id": "m303",
@@ -127,7 +335,21 @@
           "price": 320,
           "category": "Drinks",
           "available": true,
-          "fast": true
+          "fast": true,
+          "image": "assets/images/menu/orange-juice.jpg",
+          "description": "Fresh orange juice served chilled. A refreshing drink option with natural citrus flavor.",
+          "addons": [
+            {
+              "id": "large_size",
+              "name": "Large Size",
+              "price": 120
+            },
+            {
+              "id": "no_ice",
+              "name": "No Ice",
+              "price": 0
+            }
+          ]
         },
         {
           "id": "m304",
@@ -135,7 +357,26 @@
           "price": 780,
           "category": "Bowls",
           "available": true,
-          "fast": false
+          "fast": false,
+          "image": "assets/images/menu/quinoa-bowl.jpg",
+          "description": "Nutritious quinoa bowl with vegetables, protein topping, and light dressing for a balanced meal.",
+          "addons": [
+            {
+              "id": "extra_protein",
+              "name": "Extra Protein",
+              "price": 240
+            },
+            {
+              "id": "avocado",
+              "name": "Add Avocado",
+              "price": 180
+            },
+            {
+              "id": "extra_dressing",
+              "name": "Extra Dressing",
+              "price": 70
+            }
+          ]
         },
         {
           "id": "m305",
@@ -143,9 +384,27 @@
           "price": 250,
           "category": "Dessert",
           "available": true,
-          "fast": true
-    
-        } 
+          "fast": true,
+          "image": "assets/images/menu/greek-yogurt-cup.jpg",
+          "description": "Creamy Greek yogurt cup served as a healthy dessert or light snack.",
+          "addons": [
+            {
+              "id": "honey",
+              "name": "Add Honey",
+              "price": 60
+            },
+            {
+              "id": "granola",
+              "name": "Add Granola",
+              "price": 90
+            },
+            {
+              "id": "mixed_fruits",
+              "name": "Mixed Fruits",
+              "price": 120
+            }
+          ]
+        }
       ]
     }
   ],
