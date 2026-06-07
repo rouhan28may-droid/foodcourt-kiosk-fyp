@@ -507,6 +507,66 @@
     return Number(value || 0);
   }
 
+  function normalizePaymentMethod(value) {
+    const v = String(value || "").trim().toLowerCase();
+
+    if (!v) return "";
+    if (v.includes("cash") || v === "cod" || v.includes("counter")) return "cash";
+    if (v.includes("online") || v.includes("stripe") || v.includes("card") || v.includes("qr")) return "online";
+
+    return "";
+  }
+
+  function paymentMethodOf(order = {}) {
+    const payment = safeObject(order.payment);
+
+    const detected = normalizePaymentMethod(
+      order.paymentMethod ||
+      order.payment_method ||
+      payment.paymentMethod ||
+      payment.method ||
+      payment.provider ||
+      ""
+    );
+
+    if (detected) return detected;
+
+    if (payment.stripeSessionId || payment.stripeCheckoutUrl) return "online";
+    if (payment.cashToken || payment.cashConfirmedAt) return "cash";
+
+    return "online";
+  }
+
+  function paymentMethodLabel(order = {}) {
+    const method = paymentMethodOf(order);
+
+    if (method === "cash") return "Cash";
+    if (method === "online") return "Online / Stripe";
+
+    return "Not selected";
+  }
+
+  function paymentStatusLabel(order = {}) {
+    const status = String(order.status || "").toLowerCase();
+    const payment = safeObject(order.payment);
+    const method = paymentMethodOf(order);
+
+    if (payment.success || ["paid", "preparing", "ready", "completed"].includes(status)) {
+      return method === "cash" ? "Cash Paid" : "Online Paid";
+    }
+
+    if (status === "rejected") return "Rejected";
+    if (status === "pending_approval") return "Pending Approval";
+    if (status === "approved") return "Approved - Payment Pending";
+    if (status === "awaiting_payment") return method === "cash" ? "Cash Pending" : "Online Pending";
+
+    return status || "Pending";
+  }
+
+  function paidOrActiveStatus(status) {
+    return ["paid", "preparing", "ready", "completed"].includes(String(status || "").toLowerCase());
+  }
+
   function prepMinutes(order) {
     const start = validDate(order.approvedAt || order.createdAt);
     const end = validDate(order.readyAt || order.completedAt || order.paidAt);
@@ -515,6 +575,58 @@
 
     const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
     return minutes >= 0 ? minutes : "";
+  }
+
+  function addonsOfItem(item = {}) {
+    const raw = item.addons || item.selectedAddons || item.options || [];
+
+    return safeArray(raw)
+      .map((addon) => {
+        const a = safeObject(addon);
+        const name = String(a.name || a.title || "").trim();
+        if (!name) return null;
+
+        return {
+          id: String(a.id || a.addonId || a.key || name).trim(),
+          name,
+          price: Number(a.price || 0),
+          qty: Math.max(1, Number(a.qty || a.quantity || 1))
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function addonText(addons) {
+    return safeArray(addons)
+      .map((addon) => {
+        const qty = Number(addon.qty || 1);
+        const price = Number(addon.price || 0);
+        const qtyText = qty > 1 ? ` x${qty}` : "";
+        const priceText = price ? ` (${reportCurrency(price)})` : "";
+        return `${addon.name}${qtyText}${priceText}`;
+      })
+      .join(", ");
+  }
+
+  function itemBaseName(item = {}) {
+    return String(item.originalName || item.baseName || item.name || "Item")
+      .replace(/\s*\(\+.*\)\s*$/i, "")
+      .trim() || "Item";
+  }
+
+  function itemAddonsSummary(item = {}) {
+    return addonText(addonsOfItem(item));
+  }
+
+  function orderAddonsSummary(order = {}) {
+    const parts = [];
+
+    safeArray(order.items).forEach((item) => {
+      const summary = itemAddonsSummary(item);
+      if (summary) parts.push(`${itemBaseName(item)}: ${summary}`);
+    });
+
+    return parts.join(" | ");
   }
 
   function itemsSummary(order) {
@@ -528,7 +640,7 @@
   }
 
   function uniqueDishCount(order) {
-    return new Set(safeArray(order.items).map((it) => it.name || it.itemId || "Item")).size;
+    return new Set(safeArray(order.items).map((it) => itemBaseName(it) || it.itemId || "Item")).size;
   }
 
   function safeSheetName(name) {
@@ -563,7 +675,7 @@
 
     safeArray(orders).forEach((order) => {
       safeArray(order.items).forEach((item) => {
-        const name = item.name || "Unknown";
+        const name = itemBaseName(item);
         const qty = Number(item.qty || 0);
         const unitPrice = Number(item.price || 0);
         const lineTotal = qty * unitPrice;
@@ -586,6 +698,35 @@
     return Object.values(stats).sort((a, b) => b.total_qty - a.total_qty);
   }
 
+  function buildAddonStats(orders) {
+    const stats = {};
+
+    safeArray(orders).forEach((order) => {
+      safeArray(order.items).forEach((item) => {
+        addonsOfItem(item).forEach((addon) => {
+          const key = addon.name || "Add-on";
+          const qty = Number(item.qty || 0) * Number(addon.qty || 1);
+          const sales = qty * Number(addon.price || 0);
+
+          if (!stats[key]) {
+            stats[key] = {
+              addon: key,
+              total_qty: 0,
+              total_sales: 0,
+              order_lines: 0
+            };
+          }
+
+          stats[key].total_qty += qty;
+          stats[key].total_sales += sales;
+          stats[key].order_lines += 1;
+        });
+      });
+    });
+
+    return Object.values(stats).sort((a, b) => b.total_qty - a.total_qty);
+  }
+
   function buildDailyStats(orders) {
     const stats = {};
 
@@ -597,20 +738,61 @@
         stats[day] = {
           date: day,
           orders: 0,
+          paid_active: 0,
           dine_in: 0,
           takeaway: 0,
-          revenue: 0
+          cash: 0,
+          online: 0,
+          revenue: 0,
+          tax: 0
         };
       }
 
-      stats[day].orders += 1;
-      stats[day].revenue += Number(order.total || 0);
+      const paidActive = paidOrActiveStatus(order.status);
+      const method = paymentMethodOf(order);
 
+      stats[day].orders += 1;
+      if (paidActive) stats[day].paid_active += 1;
       if (serviceTypeOf(order) === "dine_in") stats[day].dine_in += 1;
       if (serviceTypeOf(order) === "takeaway") stats[day].takeaway += 1;
+      if (method === "cash") stats[day].cash += 1;
+      if (method === "online") stats[day].online += 1;
+      if (paidActive) {
+        stats[day].revenue += Number(order.total || 0);
+        stats[day].tax += Number(order.tax || 0);
+      }
     });
 
     return Object.values(stats).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+
+  function buildStatusStats(orders) {
+    const stats = {};
+
+    safeArray(orders).forEach((order) => {
+      const status = String(order.status || "unknown").toLowerCase();
+      stats[status] = (stats[status] || 0) + 1;
+    });
+
+    return Object.entries(stats)
+      .map(([status, count]) => ({ status, count }))
+      .sort((a, b) => String(a.status).localeCompare(String(b.status)));
+  }
+
+  function buildPaymentStats(orders) {
+    const stats = {
+      cash: { method: "Cash", orders: 0, revenue: 0, tax: 0 },
+      online: { method: "Online / Stripe", orders: 0, revenue: 0, tax: 0 }
+    };
+
+    safeArray(orders).forEach((order) => {
+      const method = paymentMethodOf(order) === "cash" ? "cash" : "online";
+      stats[method].orders += 1;
+      stats[method].revenue += Number(order.total || 0);
+      stats[method].tax += Number(order.tax || 0);
+    });
+
+    return [stats.cash, stats.online];
   }
 
   function exportMonthlyRestaurantReport(restaurant, orders) {
@@ -627,13 +809,16 @@
       .filter((o) => o && o.id);
 
     const monthOrders = normalizedOrders.filter((o) => isSameMonth(o.createdAt, now));
-    const paidStatuses = new Set(["paid", "preparing", "ready", "completed"]);
-    const paidOrActive = monthOrders.filter((o) => paidStatuses.has(o.status));
+    const paidOrActive = monthOrders.filter((o) => paidOrActiveStatus(o.status));
 
     const totalRevenue = paidOrActive.reduce((sum, o) => sum + Number(o.total || 0), 0);
     const totalTax = paidOrActive.reduce((sum, o) => sum + Number(o.tax || 0), 0);
     const dineInCount = paidOrActive.filter((o) => serviceTypeOf(o) === "dine_in").length;
     const takeawayCount = paidOrActive.filter((o) => serviceTypeOf(o) === "takeaway").length;
+    const cashOrders = paidOrActive.filter((o) => paymentMethodOf(o) === "cash");
+    const onlineOrders = paidOrActive.filter((o) => paymentMethodOf(o) === "online");
+    const cashRevenue = cashOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+    const onlineRevenue = onlineOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
 
     const prepValues = paidOrActive
       .map(prepMinutes)
@@ -645,8 +830,12 @@
         : "";
 
     const itemStats = buildItemStats(paidOrActive);
-    const dailyStats = buildDailyStats(paidOrActive);
+    const addonStats = buildAddonStats(paidOrActive);
+    const dailyStats = buildDailyStats(monthOrders);
+    const statusStats = buildStatusStats(monthOrders);
+    const paymentStats = buildPaymentStats(paidOrActive);
     const bestSeller = itemStats[0]?.item || "—";
+    const bestAddon = addonStats[0]?.addon || "—";
 
     const summaryRows = [
       [`${restaurantName} - Monthly Sales Report`],
@@ -661,78 +850,77 @@
       ["Paid / Active Orders", paidOrActive.length],
       ["Dine In Orders", dineInCount],
       ["Takeaway Orders", takeawayCount],
+      ["Cash Orders", cashOrders.length],
+      ["Online Orders", onlineOrders.length],
+      ["Cash Revenue", reportCurrency(cashRevenue)],
+      ["Online Revenue", reportCurrency(onlineRevenue)],
       ["Average Preparation Time (minutes)", avgPrep],
       ["Best Seller", bestSeller],
+      ["Best Add-on", bestAddon],
       [],
       ["Daily Summary"],
-      ["Date", "Orders", "Dine In", "Takeaway", "Revenue"]
+      ["Date", "Orders", "Paid / Active", "Dine In", "Takeaway", "Cash", "Online", "Revenue", "Tax"]
     ];
 
     dailyStats.forEach((d) => {
       summaryRows.push([
         d.date,
         d.orders,
+        d.paid_active,
         d.dine_in,
         d.takeaway,
-        reportCurrency(d.revenue)
+        d.cash,
+        d.online,
+        reportCurrency(d.revenue),
+        reportCurrency(d.tax)
       ]);
     });
+
+    const ordersHeaderRowIndex = summaryRows.length + 2;
 
     summaryRows.push([]);
-    summaryRows.push(["Item Summary"]);
-    summaryRows.push(["Item", "Total Qty Sold", "Total Sales", "Order Lines"]);
-
-    itemStats.forEach((it) => {
-      summaryRows.push([
-        it.item,
-        it.total_qty,
-        reportCurrency(it.total_sales),
-        it.order_count
-      ]);
-    });
-
-    const orderRows = [
-      [`${restaurantName} - Orders Overview`],
-      [`Month: ${monthTitle(now)}`],
-      [],
-      [
-        "Order ID",
-        "Restaurant",
-        "Service Type",
-        "Table Number",
-        "Order Type",
-        "Order Date",
-        "Order Placed",
-        "Approved At",
-        "Paid At",
-        "Prep Time (min)",
-        "Status",
-        "Subtotal",
-        "Tax",
-        "Total",
-        "Items Summary",
-        "Total Dish Qty",
-        "Unique Dishes"
-      ]
-    ];
+    summaryRows.push(["Orders Overview"]);
+    summaryRows.push([
+      "Order ID",
+      "Restaurant",
+      "Order Date",
+      "Order Placed",
+      "Approved At",
+      "Paid At",
+      "Service Type",
+      "Table Number",
+      "Order Type",
+      "Payment Method",
+      "Payment Status",
+      "Status",
+      "Subtotal",
+      "Tax",
+      "Total",
+      "Items Summary",
+      "Add-ons Summary",
+      "Total Dish Qty",
+      "Unique Dishes"
+    ]);
 
     monthOrders.forEach((o) => {
-      orderRows.push([
+      summaryRows.push([
         o.id,
         restaurantName,
-        serviceTypeLabel(o),
-        tableNumberOf(o),
-        serviceLabel(o),
         dateOnly(o.createdAt),
         timeOnly(o.createdAt),
         timeOnly(o.approvedAt),
         timeOnly(o.paidAt),
-        prepMinutes(o),
+        serviceTypeLabel(o),
+        tableNumberOf(o),
+        serviceLabel(o),
+        paymentMethodLabel(o),
+        paymentStatusLabel(o),
         o.status || "",
         reportCurrency(o.subtotal),
         reportCurrency(o.tax),
         reportCurrency(o.total),
         itemsSummary(o),
+        orderAddonsSummary(o),
         totalDishQty(o),
         uniqueDishCount(o)
       ]);
@@ -748,6 +936,8 @@
         "Service Type",
         "Table Number",
         "Order Type",
+        "Payment Method",
+        "Payment Status",
         "Order Date",
         "Placed At",
         "Approved At",
@@ -755,6 +945,7 @@
         "Prep Time (min)",
         "Status",
         "Dish",
+        "Add-ons",
         "Qty",
         "Unit Price",
         "Line Total"
@@ -772,13 +963,16 @@
           serviceTypeLabel(o),
           tableNumberOf(o),
           serviceLabel(o),
+          paymentMethodLabel(o),
+          paymentStatusLabel(o),
           dateOnly(o.createdAt),
           timeOnly(o.createdAt),
           timeOnly(o.approvedAt),
           timeOnly(o.paidAt),
           prepMinutes(o),
           o.status || "",
-          it.name || "Item",
+          itemBaseName(it),
+          itemAddonsSummary(it),
           qty,
           reportCurrency(unitPrice),
           reportCurrency(qty * unitPrice)
@@ -786,36 +980,116 @@
       });
     });
 
+    const itemRows = [
+      [`${restaurantName} - Item Sales`],
+      [`Month: ${monthTitle(now)}`],
+      [],
+      ["Item", "Total Qty Sold", "Total Sales", "Order Lines"]
+    ];
+
+    itemStats.forEach((it) => {
+      itemRows.push([
+        it.item,
+        it.total_qty,
+        reportCurrency(it.total_sales),
+        it.order_count
+      ]);
+    });
+
+    const addonRows = [
+      [`${restaurantName} - Add-ons Sales`],
+      [`Month: ${monthTitle(now)}`],
+      [],
+      ["Add-on", "Total Qty Sold", "Total Sales", "Order Lines"]
+    ];
+
+    addonStats.forEach((it) => {
+      addonRows.push([
+        it.addon,
+        it.total_qty,
+        reportCurrency(it.total_sales),
+        it.order_lines
+      ]);
+    });
+
+    const paymentRows = [
+      [`${restaurantName} - Payment Summary`],
+      [`Month: ${monthTitle(now)}`],
+      [],
+      ["Payment Method", "Paid / Active Orders", "Revenue", "Tax"]
+    ];
+
+    paymentStats.forEach((p) => {
+      paymentRows.push([
+        p.method,
+        p.orders,
+        reportCurrency(p.revenue),
+        reportCurrency(p.tax)
+      ]);
+    });
+
+    paymentRows.push([]);
+    paymentRows.push(["Status Summary"]);
+    paymentRows.push(["Status", "Orders"]);
+
+    statusStats.forEach((s) => {
+      paymentRows.push([s.status, s.count]);
+    });
+
     const wb = XLSX.utils.book_new();
+    wb.Props = {
+      Title: `${restaurantName} Monthly Sales Report`,
+      Subject: "Food Court Kiosk Sales Report",
+      Author: "Food Court Kiosk",
+      CreatedDate: new Date()
+    };
 
     const summarySheet = createSheet(
       summaryRows,
-      [18, 18, 14, 14, 14, 18, 18, 18, 18, 18],
-      dailyStats.length ? `A17:E${16 + dailyStats.length + 1}` : undefined
+      [24, 18, 16, 16, 16, 14, 14, 14, 14, 20, 18, 16, 12, 12, 12, 52, 42, 14, 14],
+      monthOrders.length ? `A${ordersHeaderRowIndex + 1}:S${summaryRows.length}` : undefined
     );
-    addMerge(summarySheet, 0, 0, 0, 9);
-    addMerge(summarySheet, 1, 0, 1, 9);
-    addMerge(summarySheet, 2, 0, 2, 9);
-
-    const ordersSheet = createSheet(
-      orderRows,
-      [22, 18, 15, 14, 22, 14, 14, 14, 14, 16, 16, 12, 12, 12, 48, 14, 14],
-      `A4:Q${orderRows.length}`
-    );
-    addMerge(ordersSheet, 0, 0, 0, 16);
-    addMerge(ordersSheet, 1, 0, 1, 16);
+    addMerge(summarySheet, 0, 0, 0, 18);
+    addMerge(summarySheet, 1, 0, 1, 18);
+    addMerge(summarySheet, 2, 0, 2, 18);
 
     const lineSheet = createSheet(
       lineRows,
-      [22, 18, 15, 14, 22, 14, 14, 14, 14, 16, 16, 28, 8, 12, 12],
-      `A4:O${lineRows.length}`
+      [22, 18, 15, 14, 22, 18, 18, 14, 14, 14, 14, 16, 16, 28, 40, 8, 12, 12],
+      `A4:R${lineRows.length}`
     );
-    addMerge(lineSheet, 0, 0, 0, 14);
-    addMerge(lineSheet, 1, 0, 1, 14);
+    addMerge(lineSheet, 0, 0, 0, 17);
+    addMerge(lineSheet, 1, 0, 1, 17);
+
+    const itemSheet = createSheet(
+      itemRows,
+      [34, 16, 16, 14],
+      `A4:D${itemRows.length}`
+    );
+    addMerge(itemSheet, 0, 0, 0, 3);
+    addMerge(itemSheet, 1, 0, 1, 3);
+
+    const addonSheet = createSheet(
+      addonRows,
+      [34, 16, 16, 14],
+      `A4:D${addonRows.length}`
+    );
+    addMerge(addonSheet, 0, 0, 0, 3);
+    addMerge(addonSheet, 1, 0, 1, 3);
+
+    const paymentSheet = createSheet(
+      paymentRows,
+      [24, 20, 16, 16],
+      `A4:D${paymentRows.length}`
+    );
+    addMerge(paymentSheet, 0, 0, 0, 3);
+    addMerge(paymentSheet, 1, 0, 1, 3);
 
     XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
-    XLSX.utils.book_append_sheet(wb, ordersSheet, "Orders Overview");
     XLSX.utils.book_append_sheet(wb, lineSheet, "Order Lines");
+    XLSX.utils.book_append_sheet(wb, itemSheet, "Item Sales");
+    XLSX.utils.book_append_sheet(wb, addonSheet, "Add-ons Sales");
+    XLSX.utils.book_append_sheet(wb, paymentSheet, "Payment Summary");
 
     const safeRestaurantName = String(restaurantName).replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "");
     XLSX.writeFile(wb, `${safeRestaurantName || "Restaurant"}_Monthly_Sales_Report.xlsx`);
