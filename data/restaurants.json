@@ -2,406 +2,1825 @@
   "restaurants": [
     {
       "id": "r1",
-      "name": "Spice Hub",
-      "tagline": "Desi • Grilled • Fast",
+      "name": "BurgerJeez",
+      "tagline": "Burgers • Fast Food • Loaded",
       "online": true,
-      "prepTimeMins": 18,
+      "prepTimeMins": 14,
       "menu": [
         {
           "id": "m101",
-          "name": "Chicken Biryani",
-          "price": 550,
-          "category": "Rice",
+          "name": "Quadra Beef Burger",
+          "price": 990,
+          "category": "Burgers",
           "available": true,
-          "fast": false,
-          "image": "assets/images/menu/chicken-biryani.jpg",
-          "description": "Aromatic basmati rice cooked with spiced chicken, fried onions, herbs, and traditional biryani masala. Served hot with rich desi flavor.",
+          "fast": true,
+          "image": "",
+          "description": "Beef patty, garlic mayo, cheese, lettuce, tomato, onion, and special sauce.",
           "addons": [
             {
-              "id": "extra_raita",
-              "name": "Extra Raita",
-              "price": 80
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 120
             },
             {
-              "id": "extra_chicken",
-              "name": "Extra Chicken Piece",
-              "price": 180
-            },
-            {
-              "id": "salad",
-              "name": "Fresh Salad",
-              "price": 70
+              "id": "extra_patty",
+              "name": "Extra patty",
+              "price": 350
             }
           ]
         },
         {
           "id": "m102",
-          "name": "Beef Burger",
-          "price": 650,
+          "name": "Smoky Zinger Burger",
+          "price": 790,
           "category": "Burgers",
           "available": true,
           "fast": true,
-          "image": "assets/images/menu/beef-burger.jpg",
-          "description": "Juicy beef patty layered with fresh lettuce, cheese, sauces, and soft burger bun. A filling fast-food option for burger lovers.",
+          "image": "",
+          "description": "Crispy chicken fillet with smoky mayo, lettuce, pickles, and cheese.",
           "addons": [
             {
-              "id": "extra_cheese",
-              "name": "Extra Cheese",
+              "id": "cheese_slice",
+              "name": "Cheese slice",
               "price": 100
             },
             {
-              "id": "extra_patty",
-              "name": "Extra Beef Patty",
-              "price": 280
-            },
-            {
-              "id": "fries_addon",
-              "name": "Add Fries",
-              "price": 180
-            },
-            {
-              "id": "drink_addon",
-              "name": "Add Drink",
-              "price": 180
+              "id": "jalapenos",
+              "name": "Jalapeños",
+              "price": 80
             }
           ]
         },
         {
           "id": "m103",
-          "name": "Seekh Kebab Roll",
-          "price": 380,
-          "category": "Rolls",
+          "name": "Classic Cheese Burger",
+          "price": 650,
+          "category": "Burgers",
           "available": true,
           "fast": true,
-          "image": "assets/images/menu/seekh-kebab-roll.jpg",
-          "description": "Grilled seekh kebab wrapped in paratha with onions, chutney, and signature sauce. Quick, spicy, and easy to eat.",
+          "image": "",
+          "description": "Beef patty, cheddar cheese, ketchup, mustard, onion, and lettuce.",
           "addons": [
             {
-              "id": "extra_chutney",
-              "name": "Extra Chutney",
-              "price": 40
-            },
-            {
-              "id": "extra_kebab",
-              "name": "Extra Kebab",
-              "price": 150
-            },
-            {
-              "id": "cheese_slice",
-              "name": "Cheese Slice",
-              "price": 90
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 120
             }
           ]
         },
         {
           "id": "m104",
-          "name": "Chicken Karahi (Half)",
-          "price": 1050,
-          "category": "Desi",
+          "name": "Fire Crunch Burger",
+          "price": 760,
+          "category": "Burgers",
           "available": true,
-          "fast": false,
-          "image": "assets/images/menu/chicken-karahi-half.jpg",
-          "description": "Half chicken karahi cooked in tomato-based masala with green chilies, ginger, and traditional spices. Best for sharing.",
+          "fast": true,
+          "image": "",
+          "description": "Spicy crispy chicken with chili mayo, lettuce, tomato, and crunchy chips.",
           "addons": [
             {
-              "id": "extra_roti",
-              "name": "Extra Roti",
-              "price": 40
-            },
-            {
-              "id": "extra_gravy",
-              "name": "Extra Gravy",
-              "price": 120
-            },
-            {
-              "id": "raita",
-              "name": "Raita",
-              "price": 80
-            },
-            {
-              "id": "salad",
-              "name": "Fresh Salad",
+              "id": "extra_spicy_sauce",
+              "name": "Extra spicy sauce",
               "price": 70
             }
           ]
         },
         {
           "id": "m105",
-          "name": "Mint Raita",
-          "price": 80,
+          "name": "Mushroom Melt Burger",
+          "price": 930,
+          "category": "Burgers",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Beef patty with sautéed mushrooms, cheese, and garlic sauce.",
+          "addons": [
+            {
+              "id": "extra_mushroom",
+              "name": "Extra mushroom",
+              "price": 140
+            },
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m106",
+          "name": "BBQ Ranch Burger",
+          "price": 820,
+          "category": "Burgers",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Grilled chicken with BBQ sauce, ranch dressing, lettuce, and onion rings.",
+          "addons": [
+            {
+              "id": "onion_rings",
+              "name": "Onion rings",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m107",
+          "name": "Loaded Fries",
+          "price": 520,
           "category": "Sides",
           "available": true,
           "fast": true,
-          "image": "assets/images/menu/mint-raita.jpg",
-          "description": "Cool yogurt raita blended with mint and spices. Perfect side for biryani, rolls, and desi meals.",
+          "image": "",
+          "description": "Fries topped with cheese sauce, chicken chunks, mayo, and spicy sauce.",
           "addons": [
             {
-              "id": "large_cup",
-              "name": "Large Cup",
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            },
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m108",
+          "name": "Crispy Wings",
+          "price": 690,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Fried chicken wings coated with spicy, BBQ, or garlic sauce.",
+          "addons": [
+            {
+              "id": "bbq_flavor",
+              "name": "BBQ flavor",
+              "price": 60
+            },
+            {
+              "id": "spicy_flavor",
+              "name": "Spicy flavor",
+              "price": 60
+            },
+            {
+              "id": "garlic_flavor",
+              "name": "Garlic flavor",
               "price": 60
             }
           ]
-        }
-      ]
-    },
-    {
-      "id": "r2",
-      "name": "Pasta & Co.",
-      "tagline": "Italian • Cheesy • Comfort",
-      "online": true,
-      "prepTimeMins": 15,
-      "menu": [
-        {
-          "id": "m201",
-          "name": "Alfredo Pasta",
-          "price": 790,
-          "category": "Pasta",
-          "available": true,
-          "fast": false,
-          "image": "assets/images/menu/alfredo-pasta.jpg",
-          "description": "Creamy white sauce pasta cooked with tender chicken, herbs, and parmesan-style cheesy flavor.",
-          "addons": [
-            {
-              "id": "extra_cheese",
-              "name": "Extra Cheese",
-              "price": 120
-            },
-            {
-              "id": "extra_chicken",
-              "name": "Extra Chicken",
-              "price": 220
-            },
-            {
-              "id": "mushrooms",
-              "name": "Add Mushrooms",
-              "price": 140
-            }
-          ]
         },
         {
-          "id": "m202",
-          "name": "Spicy Arrabbiata",
-          "price": 760,
-          "category": "Pasta",
-          "available": true,
-          "fast": false,
-          "image": "assets/images/menu/spicy-arrabbiata.jpg",
-          "description": "Red sauce pasta with chili, garlic, herbs, and tangy tomato flavor. A spicy Italian-style comfort meal.",
-          "addons": [
-            {
-              "id": "extra_cheese",
-              "name": "Extra Cheese",
-              "price": 120
-            },
-            {
-              "id": "extra_sauce",
-              "name": "Extra Sauce",
-              "price": 90
-            },
-            {
-              "id": "extra_chicken",
-              "name": "Extra Chicken",
-              "price": 220
-            }
-          ]
-        },
-        {
-          "id": "m203",
-          "name": "Garlic Bread",
-          "price": 220,
-          "category": "Sides",
-          "available": true,
-          "fast": true,
-          "image": "assets/images/menu/garlic-bread.jpg",
-          "description": "Toasted bread with garlic butter and herbs. A quick side to pair with pasta or baked items.",
-          "addons": [
-            {
-              "id": "cheese_topping",
-              "name": "Cheese Topping",
-              "price": 100
-            },
-            {
-              "id": "extra_piece",
-              "name": "Extra Piece",
-              "price": 80
-            }
-          ]
-        },
-        {
-          "id": "m204",
-          "name": "Lasagna Slice",
-          "price": 590,
-          "category": "Bakes",
-          "available": true,
-          "fast": false,
-          "image": "assets/images/menu/lasagna-slice.jpg",
-          "description": "Layered pasta bake with meat sauce, creamy white sauce, and melted cheese. Served as a hot slice.",
-          "addons": [
-            {
-              "id": "extra_cheese",
-              "name": "Extra Cheese",
-              "price": 120
-            },
-            {
-              "id": "extra_sauce",
-              "name": "Extra Sauce",
-              "price": 90
-            }
-          ]
-        },
-        {
-          "id": "m205",
-          "name": "Cola (Can)",
-          "price": 180,
+          "id": "m109",
+          "name": "Mint Margarita",
+          "price": 290,
           "category": "Drinks",
           "available": true,
           "fast": true,
-          "image": "assets/images/menu/cola-can.jpg",
-          "description": "Chilled cola can served with your meal.",
+          "image": "",
+          "description": "Lemon, mint, ice, soda, and sugar syrup blended fresh.",
           "addons": [
             {
-              "id": "large_cup_ice",
-              "name": "Cup With Ice",
-              "price": 30
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "r3",
-      "name": "Green Bowl",
-      "tagline": "Healthy • Fresh • Lean",
-      "online": true,
-      "prepTimeMins": 12,
-      "menu": [
-        {
-          "id": "m301",
-          "name": "Chicken Caesar Salad",
-          "price": 690,
-          "category": "Salads",
-          "available": true,
-          "fast": true,
-          "image": "assets/images/menu/chicken-caesar-salad.jpg",
-          "description": "Fresh lettuce, grilled chicken, croutons, and creamy Caesar-style dressing for a light protein meal.",
-          "addons": [
-            {
-              "id": "extra_chicken",
-              "name": "Extra Chicken",
-              "price": 220
-            },
-            {
-              "id": "extra_dressing",
-              "name": "Extra Dressing",
-              "price": 70
-            },
-            {
-              "id": "boiled_egg",
-              "name": "Boiled Egg",
-              "price": 90
-            }
-          ]
-        },
-        {
-          "id": "m302",
-          "name": "Protein Wrap",
-          "price": 640,
-          "category": "Wraps",
-          "available": true,
-          "fast": true,
-          "image": "assets/images/menu/protein-wrap.jpg",
-          "description": "Lean chicken protein wrap with fresh vegetables and light sauce. Designed for quick healthy eating.",
-          "addons": [
-            {
-              "id": "extra_chicken",
-              "name": "Extra Chicken",
-              "price": 220
-            },
-            {
-              "id": "cheese_slice",
-              "name": "Cheese Slice",
-              "price": 90
-            },
-            {
-              "id": "extra_sauce",
-              "name": "Extra Sauce",
-              "price": 50
-            }
-          ]
-        },
-        {
-          "id": "m303",
-          "name": "Fresh Juice (Orange)",
-          "price": 320,
-          "category": "Drinks",
-          "available": true,
-          "fast": true,
-          "image": "assets/images/menu/orange-juice.jpg",
-          "description": "Fresh orange juice served chilled. A refreshing drink option with natural citrus flavor.",
-          "addons": [
-            {
-              "id": "large_size",
-              "name": "Large Size",
-              "price": 120
-            },
-            {
-              "id": "no_ice",
-              "name": "No Ice",
+              "id": "no_sugar",
+              "name": "No sugar option",
               "price": 0
             }
           ]
         },
         {
-          "id": "m304",
-          "name": "Quinoa Bowl",
-          "price": 780,
-          "category": "Bowls",
+          "id": "m110",
+          "name": "Soft Drinks",
+          "price": 180,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Chilled regular soft drink can.",
+          "addons": []
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "name": "Wideway Pizza",
+      "tagline": "Pizza • Italian Fast Food • Cheesy",
+      "online": true,
+      "prepTimeMins": 18,
+      "menu": [
+        {
+          "id": "m201",
+          "name": "Chicken Fajita Pizza",
+          "price": 1450,
+          "category": "Pizza",
           "available": true,
           "fast": false,
-          "image": "assets/images/menu/quinoa-bowl.jpg",
-          "description": "Nutritious quinoa bowl with vegetables, protein topping, and light dressing for a balanced meal.",
+          "image": "",
+          "description": "Chicken chunks, capsicum, onion, mozzarella, and fajita spices.",
           "addons": [
             {
-              "id": "extra_protein",
-              "name": "Extra Protein",
-              "price": 240
+              "id": "cheesy_crust",
+              "name": "Cheesy crust",
+              "price": 250
             },
             {
-              "id": "avocado",
-              "name": "Add Avocado",
+              "id": "extra_cheese",
+              "name": "Extra cheese",
               "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m202",
+          "name": "Pepperoni Feast",
+          "price": 1590,
+          "category": "Pizza",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Pepperoni slices with mozzarella, tomato sauce, and oregano.",
+          "addons": [
+            {
+              "id": "extra_pepperoni",
+              "name": "Extra pepperoni",
+              "price": 250
+            }
+          ]
+        },
+        {
+          "id": "m203",
+          "name": "Creamy Tikka Pizza",
+          "price": 1490,
+          "category": "Pizza",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Chicken tikka with creamy sauce, onion, capsicum, and cheese.",
+          "addons": [
+            {
+              "id": "cheesy_crust",
+              "name": "Cheesy crust",
+              "price": 250
+            }
+          ]
+        },
+        {
+          "id": "m204",
+          "name": "BBQ Chicken Pizza",
+          "price": 1390,
+          "category": "Pizza",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "BBQ chicken, onion, mozzarella, and BBQ sauce drizzle.",
+          "addons": [
+            {
+              "id": "extra_bbq_sauce",
+              "name": "Extra BBQ sauce",
+              "price": 80
+            }
+          ]
+        },
+        {
+          "id": "m205",
+          "name": "Veggie Supreme",
+          "price": 1190,
+          "category": "Pizza",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Olives, mushrooms, capsicum, onion, corn, and cheese.",
+          "addons": [
+            {
+              "id": "extra_olives",
+              "name": "Extra olives",
+              "price": 100
             },
             {
-              "id": "extra_dressing",
-              "name": "Extra Dressing",
-              "price": 70
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m206",
+          "name": "Beefy Blast Pizza",
+          "price": 1550,
+          "category": "Pizza",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Beef mince, jalapeños, onion, cheese, and spicy sauce.",
+          "addons": [
+            {
+              "id": "extra_beef",
+              "name": "Extra beef",
+              "price": 250
+            }
+          ]
+        },
+        {
+          "id": "m207",
+          "name": "Margherita Pizza",
+          "price": 1050,
+          "category": "Pizza",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Tomato sauce, mozzarella cheese, basil, and oregano.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m208",
+          "name": "Garlic Bread",
+          "price": 320,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Toasted bread with garlic butter and herbs.",
+          "addons": [
+            {
+              "id": "cheese_topping",
+              "name": "Cheese topping",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m209",
+          "name": "Pasta Alfredo",
+          "price": 790,
+          "category": "Pasta",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Creamy white sauce pasta with chicken and mushrooms.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m210",
+          "name": "Cold Drink Pitcher",
+          "price": 450,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Chilled soft drink served in a large pitcher.",
+          "addons": []
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "name": "Ice Cream Frio",
+      "tagline": "Ice Cream • Desserts • Drinks",
+      "online": true,
+      "prepTimeMins": 8,
+      "menu": [
+        {
+          "id": "m301",
+          "name": "Chocolate Fudge Sundae",
+          "price": 520,
+          "category": "Desserts",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Chocolate ice cream with fudge sauce, brownie chunks, and whipped cream.",
+          "addons": [
+            {
+              "id": "extra_brownie",
+              "name": "Extra brownie",
+              "price": 140
+            }
+          ]
+        },
+        {
+          "id": "m302",
+          "name": "Strawberry Dream Scoop",
+          "price": 360,
+          "category": "Ice Cream",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Strawberry ice cream with strawberry syrup and fresh chunks.",
+          "addons": [
+            {
+              "id": "extra_syrup",
+              "name": "Extra syrup",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m303",
+          "name": "Mango Mania Shake",
+          "price": 480,
+          "category": "Shakes",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Mango ice cream blended with milk and mango pulp.",
+          "addons": [
+            {
+              "id": "ice_cream_scoop",
+              "name": "Ice cream scoop",
+              "price": 160
+            }
+          ]
+        },
+        {
+          "id": "m304",
+          "name": "Oreo Blast Shake",
+          "price": 520,
+          "category": "Shakes",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Vanilla ice cream, Oreo biscuits, and chocolate syrup.",
+          "addons": [
+            {
+              "id": "extra_oreo",
+              "name": "Extra Oreo",
+              "price": 100
             }
           ]
         },
         {
           "id": "m305",
-          "name": "Greek Yogurt Cup",
-          "price": 250,
-          "category": "Dessert",
+          "name": "Brownie Ice Cream",
+          "price": 590,
+          "category": "Desserts",
           "available": true,
-          "fast": true,
-          "image": "assets/images/menu/greek-yogurt-cup.jpg",
-          "description": "Creamy Greek yogurt cup served as a healthy dessert or light snack.",
+          "fast": false,
+          "image": "",
+          "description": "Warm brownie topped with vanilla ice cream and fudge.",
           "addons": [
             {
-              "id": "honey",
-              "name": "Add Honey",
-              "price": 60
-            },
+              "id": "extra_scoop",
+              "name": "Extra scoop",
+              "price": 160
+            }
+          ]
+        },
+        {
+          "id": "m306",
+          "name": "Kulfa Falooda",
+          "price": 540,
+          "category": "Desserts",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Kulfa ice cream with rabri, jelly, basil seeds, and vermicelli.",
+          "addons": [
             {
-              "id": "granola",
-              "name": "Add Granola",
-              "price": 90
-            },
-            {
-              "id": "mixed_fruits",
-              "name": "Mixed Fruits",
+              "id": "extra_rabri",
+              "name": "Extra rabri",
               "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m307",
+          "name": "Caramel Crunch Sundae",
+          "price": 520,
+          "category": "Desserts",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Vanilla ice cream, caramel sauce, nuts, and wafer sticks.",
+          "addons": [
+            {
+              "id": "extra_nuts",
+              "name": "Extra nuts",
+              "price": 90
+            }
+          ]
+        },
+        {
+          "id": "m308",
+          "name": "Waffle Cone Special",
+          "price": 460,
+          "category": "Ice Cream",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Fresh waffle cone filled with two scoops and toppings.",
+          "addons": [
+            {
+              "id": "extra_scoop",
+              "name": "Extra scoop",
+              "price": 160
+            }
+          ]
+        },
+        {
+          "id": "m309",
+          "name": "Cold Coffee",
+          "price": 440,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Coffee blended with milk, ice cream, and chocolate.",
+          "addons": [
+            {
+              "id": "extra_cream",
+              "name": "Extra cream",
+              "price": 90
+            }
+          ]
+        },
+        {
+          "id": "m310",
+          "name": "Fresh Lime Soda",
+          "price": 280,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Lemon, soda, mint, ice, and sugar or salt.",
+          "addons": [
+            {
+              "id": "sweet",
+              "name": "Sweet",
+              "price": 0
+            },
+            {
+              "id": "salty",
+              "name": "Salty",
+              "price": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r4",
+      "name": "Anonymous Shinwari",
+      "tagline": "Shinwari • Pashtun • Traditional",
+      "online": true,
+      "prepTimeMins": 25,
+      "menu": [
+        {
+          "id": "m401",
+          "name": "Shinwari Lamb Karahi",
+          "price": 2200,
+          "category": "Karahi",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Lamb cooked with tomato, green chili, salt, black pepper, and desi ghee.",
+          "addons": [
+            {
+              "id": "extra_ghee",
+              "name": "Extra ghee",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m402",
+          "name": "Namkeen Rosh",
+          "price": 1900,
+          "category": "Traditional",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Soft mutton cooked with salt, fat, and simple spices.",
+          "addons": [
+            {
+              "id": "extra_soup",
+              "name": "Extra soup",
+              "price": 150
+            }
+          ]
+        },
+        {
+          "id": "m403",
+          "name": "Chapli Kabab",
+          "price": 650,
+          "category": "BBQ",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Minced beef kabab with tomato, onion, coriander, and spices.",
+          "addons": [
+            {
+              "id": "extra_chutney",
+              "name": "Extra chutney",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m404",
+          "name": "Afghani Tikka",
+          "price": 1100,
+          "category": "BBQ",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Grilled meat cubes marinated with salt, lemon, and light spices.",
+          "addons": [
+            {
+              "id": "extra_pieces",
+              "name": "Extra pieces",
+              "price": 350
+            }
+          ]
+        },
+        {
+          "id": "m405",
+          "name": "Chicken Karahi",
+          "price": 1450,
+          "category": "Karahi",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Chicken cooked with tomato, green chili, ginger, garlic, and oil.",
+          "addons": [
+            {
+              "id": "full_spicy",
+              "name": "Full spicy option",
+              "price": 80
+            }
+          ]
+        },
+        {
+          "id": "m406",
+          "name": "Kabuli Pulao",
+          "price": 1200,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Rice with carrots, raisins, meat, and mild spices.",
+          "addons": [
+            {
+              "id": "extra_meat",
+              "name": "Extra meat",
+              "price": 350
+            }
+          ]
+        },
+        {
+          "id": "m407",
+          "name": "Tandoori Roti",
+          "price": 70,
+          "category": "Bread",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Fresh roti baked in tandoor.",
+          "addons": [
+            {
+              "id": "butter_roti",
+              "name": "Butter roti",
+              "price": 40
+            }
+          ]
+        },
+        {
+          "id": "m408",
+          "name": "Green Chutney",
+          "price": 80,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Mint, coriander, green chili, lemon, and salt.",
+          "addons": []
+        },
+        {
+          "id": "m409",
+          "name": "Plain Raita",
+          "price": 120,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Yogurt with cumin, salt, and mint.",
+          "addons": []
+        },
+        {
+          "id": "m410",
+          "name": "Kehwa",
+          "price": 160,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Traditional green tea with cardamom.",
+          "addons": [
+            {
+              "id": "sugar",
+              "name": "Sugar",
+              "price": 0
+            },
+            {
+              "id": "no_sugar",
+              "name": "No sugar",
+              "price": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r5",
+      "name": "Scholar Biryani",
+      "tagline": "Pakistani Biryani • Rice • Desi",
+      "online": true,
+      "prepTimeMins": 16,
+      "menu": [
+        {
+          "id": "m501",
+          "name": "Chicken Biryani",
+          "price": 550,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Spiced rice with chicken, potato, fried onion, mint, and masala.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            },
+            {
+              "id": "extra_raita",
+              "name": "Extra raita",
+              "price": 80
+            }
+          ]
+        },
+        {
+          "id": "m502",
+          "name": "Beef Biryani",
+          "price": 720,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Beef pieces cooked with rice, biryani masala, potato, and herbs.",
+          "addons": [
+            {
+              "id": "extra_beef",
+              "name": "Extra beef",
+              "price": 250
+            }
+          ]
+        },
+        {
+          "id": "m503",
+          "name": "Mutton Biryani",
+          "price": 980,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Mutton, basmati rice, saffron color, fried onion, and traditional spices.",
+          "addons": [
+            {
+              "id": "extra_mutton",
+              "name": "Extra mutton",
+              "price": 350
+            }
+          ]
+        },
+        {
+          "id": "m504",
+          "name": "Tikka Biryani",
+          "price": 750,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "BBQ chicken tikka served over spicy biryani rice.",
+          "addons": [
+            {
+              "id": "extra_tikka",
+              "name": "Extra tikka",
+              "price": 220
+            }
+          ]
+        },
+        {
+          "id": "m505",
+          "name": "Sindhi Biryani",
+          "price": 620,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Spicy biryani with chicken, potato, plum, green chili, and yogurt masala.",
+          "addons": [
+            {
+              "id": "extra_spicy",
+              "name": "Extra spicy",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m506",
+          "name": "White Biryani",
+          "price": 600,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Mild biryani with chicken, yogurt, green chili, and light spices.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m507",
+          "name": "Chicken Pulao",
+          "price": 520,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Mild rice cooked in chicken stock with garam masala.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m508",
+          "name": "Shami Kabab",
+          "price": 160,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Beef and lentil kabab served with chutney.",
+          "addons": [
+            {
+              "id": "extra_kabab",
+              "name": "Extra kabab",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m509",
+          "name": "Zeera Raita",
+          "price": 100,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Yogurt with cumin, mint, salt, and green chili.",
+          "addons": []
+        },
+        {
+          "id": "m510",
+          "name": "Cold Drink",
+          "price": 180,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Chilled soft drink can.",
+          "addons": []
+        }
+      ]
+    },
+    {
+      "id": "r6",
+      "name": "Chinsoy Wok",
+      "tagline": "Chinese • Asian Fusion • Wok",
+      "online": true,
+      "prepTimeMins": 15,
+      "menu": [
+        {
+          "id": "m601",
+          "name": "Chicken Chow Mein",
+          "price": 780,
+          "category": "Noodles",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Noodles tossed with chicken, cabbage, capsicum, carrot, and soy sauce.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m602",
+          "name": "Egg Fried Rice",
+          "price": 620,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Rice fried with egg, spring onion, carrot, and light soy sauce.",
+          "addons": [
+            {
+              "id": "extra_egg",
+              "name": "Extra egg",
+              "price": 100
+            }
+          ]
+        },
+        {
+          "id": "m603",
+          "name": "Chicken Manchurian",
+          "price": 820,
+          "category": "Chicken",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Fried chicken balls in sweet and spicy red sauce.",
+          "addons": [
+            {
+              "id": "extra_gravy",
+              "name": "Extra gravy",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m604",
+          "name": "Kung Pao Chicken",
+          "price": 890,
+          "category": "Chicken",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Chicken cooked with peanuts, dried chili, capsicum, and sauce.",
+          "addons": [
+            {
+              "id": "extra_peanuts",
+              "name": "Extra peanuts",
+              "price": 100
+            }
+          ]
+        },
+        {
+          "id": "m605",
+          "name": "Schezwan Rice",
+          "price": 760,
+          "category": "Rice",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Spicy fried rice with chicken, vegetables, and Schezwan sauce.",
+          "addons": [
+            {
+              "id": "extra_spicy",
+              "name": "Extra spicy",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m606",
+          "name": "Beef Chili Dry",
+          "price": 980,
+          "category": "Beef",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Beef strips with capsicum, onion, green chili, and soy sauce.",
+          "addons": [
+            {
+              "id": "extra_beef",
+              "name": "Extra beef",
+              "price": 250
+            }
+          ]
+        },
+        {
+          "id": "m607",
+          "name": "Hot & Sour Soup",
+          "price": 380,
+          "category": "Soup",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Chicken broth with egg, vegetables, chili, vinegar, and soy sauce.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 150
+            }
+          ]
+        },
+        {
+          "id": "m608",
+          "name": "Dynamite Prawns",
+          "price": 1050,
+          "category": "Seafood",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Crispy prawns coated in creamy spicy sauce.",
+          "addons": [
+            {
+              "id": "extra_sauce",
+              "name": "Extra sauce",
+              "price": 90
+            }
+          ]
+        },
+        {
+          "id": "m609",
+          "name": "Spring Rolls",
+          "price": 360,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Fried rolls filled with chicken and vegetables.",
+          "addons": [
+            {
+              "id": "extra_dip",
+              "name": "Extra dip",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m610",
+          "name": "Lemon Iced Tea",
+          "price": 300,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Cold tea with lemon, sugar, and ice.",
+          "addons": [
+            {
+              "id": "less_sugar",
+              "name": "Less sugar",
+              "price": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r7",
+      "name": "Tikka Talk",
+      "tagline": "BBQ • Desi Grill • Tandoor",
+      "online": true,
+      "prepTimeMins": 20,
+      "menu": [
+        {
+          "id": "m701",
+          "name": "Chicken Tikka Leg",
+          "price": 520,
+          "category": "BBQ",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Chicken leg marinated with yogurt, lemon, red chili, and BBQ spices.",
+          "addons": [
+            {
+              "id": "extra_chutney",
+              "name": "Extra chutney",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m702",
+          "name": "Chicken Malai Boti",
+          "price": 850,
+          "category": "BBQ",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Creamy boneless chicken with yogurt, cream, cheese, and mild spices.",
+          "addons": [
+            {
+              "id": "extra_cream",
+              "name": "Extra cream",
+              "price": 100
+            }
+          ]
+        },
+        {
+          "id": "m703",
+          "name": "Beef Seekh Kabab",
+          "price": 720,
+          "category": "BBQ",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Minced beef with onion, coriander, green chili, and spices.",
+          "addons": [
+            {
+              "id": "extra_kabab",
+              "name": "Extra kabab",
+              "price": 200
+            }
+          ]
+        },
+        {
+          "id": "m704",
+          "name": "Reshmi Kabab",
+          "price": 760,
+          "category": "BBQ",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Soft chicken mince kabab with cream, cheese, and light spices.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m705",
+          "name": "Mutton Chops",
+          "price": 1450,
+          "category": "BBQ",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Grilled mutton chops with ginger, garlic, lemon, and masala.",
+          "addons": [
+            {
+              "id": "extra_chops",
+              "name": "Extra chops",
+              "price": 450
+            }
+          ]
+        },
+        {
+          "id": "m706",
+          "name": "Fish Tikka",
+          "price": 980,
+          "category": "BBQ",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Boneless fish marinated with lemon, chili, garlic, and ajwain.",
+          "addons": [
+            {
+              "id": "extra_dip",
+              "name": "Extra dip",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m707",
+          "name": "BBQ Platter",
+          "price": 2100,
+          "category": "Platters",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Mixed tikka, seekh kabab, malai boti, chutney, and naan.",
+          "addons": [
+            {
+              "id": "extra_naan",
+              "name": "Extra naan",
+              "price": 80
+            }
+          ]
+        },
+        {
+          "id": "m708",
+          "name": "Paratha Roll",
+          "price": 420,
+          "category": "Rolls",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "BBQ chicken wrapped in paratha with mayo and chutney.",
+          "addons": [
+            {
+              "id": "cheese",
+              "name": "Cheese",
+              "price": 100
+            },
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 160
+            }
+          ]
+        },
+        {
+          "id": "m709",
+          "name": "Mint Raita",
+          "price": 100,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Yogurt with mint, cumin, salt, and green chili.",
+          "addons": []
+        },
+        {
+          "id": "m710",
+          "name": "Fresh Lime",
+          "price": 280,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Lemon, soda, ice, mint, and sugar.",
+          "addons": [
+            {
+              "id": "sweet",
+              "name": "Sweet",
+              "price": 0
+            },
+            {
+              "id": "salty",
+              "name": "Salty",
+              "price": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r8",
+      "name": "Pasta Vista",
+      "tagline": "Italian • Pasta • Comfort",
+      "online": true,
+      "prepTimeMins": 17,
+      "menu": [
+        {
+          "id": "m801",
+          "name": "Chicken Alfredo Pasta",
+          "price": 890,
+          "category": "Pasta",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Pasta in creamy white sauce with chicken, mushrooms, and parmesan.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            },
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 150
+            }
+          ]
+        },
+        {
+          "id": "m802",
+          "name": "Arrabbiata Pasta",
+          "price": 780,
+          "category": "Pasta",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Pasta in spicy tomato sauce with garlic, chili, and herbs.",
+          "addons": [
+            {
+              "id": "extra_spicy",
+              "name": "Extra spicy",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m803",
+          "name": "Lasagna Slice",
+          "price": 690,
+          "category": "Bakes",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Layered pasta with beef mince, tomato sauce, white sauce, and cheese.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 150
+            }
+          ]
+        },
+        {
+          "id": "m804",
+          "name": "Creamy Mushroom Pasta",
+          "price": 820,
+          "category": "Pasta",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Pasta with mushrooms, cream sauce, garlic, and herbs.",
+          "addons": [
+            {
+              "id": "extra_mushrooms",
+              "name": "Extra mushrooms",
+              "price": 140
+            }
+          ]
+        },
+        {
+          "id": "m805",
+          "name": "Pesto Chicken Pasta",
+          "price": 920,
+          "category": "Pasta",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Pasta with basil pesto, grilled chicken, olive oil, and cheese.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m806",
+          "name": "Spaghetti Bolognese",
+          "price": 860,
+          "category": "Pasta",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Spaghetti with beef mince, tomato sauce, garlic, and oregano.",
+          "addons": [
+            {
+              "id": "extra_beef",
+              "name": "Extra beef",
+              "price": 220
+            }
+          ]
+        },
+        {
+          "id": "m807",
+          "name": "Chicken Parmesan",
+          "price": 980,
+          "category": "Chicken",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Fried chicken fillet with tomato sauce and melted cheese.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 150
+            }
+          ]
+        },
+        {
+          "id": "m808",
+          "name": "Garlic Cheese Bread",
+          "price": 380,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Bread topped with garlic butter, herbs, and mozzarella.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m809",
+          "name": "Italian Soda",
+          "price": 320,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Soda with flavored syrup, lemon, and ice.",
+          "addons": [
+            {
+              "id": "strawberry",
+              "name": "Strawberry",
+              "price": 0
+            },
+            {
+              "id": "blueberry",
+              "name": "Blue berry",
+              "price": 0
+            }
+          ]
+        },
+        {
+          "id": "m810",
+          "name": "Tiramisu Cup",
+          "price": 480,
+          "category": "Desserts",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Coffee-soaked dessert with cream, cocoa, and soft layers.",
+          "addons": []
+        }
+      ]
+    },
+    {
+      "id": "r9",
+      "name": "Doner Donner",
+      "tagline": "Turkish • Middle Eastern • Wraps",
+      "online": true,
+      "prepTimeMins": 16,
+      "menu": [
+        {
+          "id": "m901",
+          "name": "Chicken Doner Wrap",
+          "price": 650,
+          "category": "Wraps",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Turkish-style chicken, garlic sauce, lettuce, tomato, onion, and wrap bread.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m902",
+          "name": "Beef Doner Wrap",
+          "price": 760,
+          "category": "Wraps",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Beef slices with garlic sauce, pickles, tomato, onion, and wrap bread.",
+          "addons": [
+            {
+              "id": "extra_beef",
+              "name": "Extra beef",
+              "price": 220
+            }
+          ]
+        },
+        {
+          "id": "m903",
+          "name": "Doner Rice Bowl",
+          "price": 850,
+          "category": "Bowls",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Rice topped with doner meat, salad, garlic sauce, and chili sauce.",
+          "addons": [
+            {
+              "id": "extra_sauce",
+              "name": "Extra sauce",
+              "price": 80
+            }
+          ]
+        },
+        {
+          "id": "m904",
+          "name": "Iskender Kebab",
+          "price": 1150,
+          "category": "Kebab",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Doner meat served on bread with tomato sauce, yogurt, and butter.",
+          "addons": [
+            {
+              "id": "extra_yogurt",
+              "name": "Extra yogurt",
+              "price": 100
+            }
+          ]
+        },
+        {
+          "id": "m905",
+          "name": "Turkish Adana Kebab",
+          "price": 980,
+          "category": "Kebab",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Spicy minced meat kebab with onion, chili, and Turkish spices.",
+          "addons": [
+            {
+              "id": "extra_kebab",
+              "name": "Extra kebab",
+              "price": 250
+            }
+          ]
+        },
+        {
+          "id": "m906",
+          "name": "Chicken Shish",
+          "price": 890,
+          "category": "Grill",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Grilled chicken cubes with lemon, garlic, capsicum, and rice.",
+          "addons": [
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 180
+            }
+          ]
+        },
+        {
+          "id": "m907",
+          "name": "Lahmacun",
+          "price": 520,
+          "category": "Flatbread",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Thin Turkish flatbread with minced meat, tomato, onion, and herbs.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m908",
+          "name": "Hummus Plate",
+          "price": 420,
+          "category": "Sides",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Chickpea dip with olive oil, paprika, and pita bread.",
+          "addons": [
+            {
+              "id": "extra_pita",
+              "name": "Extra pita",
+              "price": 90
+            }
+          ]
+        },
+        {
+          "id": "m909",
+          "name": "Ayran",
+          "price": 240,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Turkish yogurt drink with salt and water.",
+          "addons": []
+        },
+        {
+          "id": "m910",
+          "name": "Baklava",
+          "price": 380,
+          "category": "Desserts",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Sweet pastry with nuts, syrup, and crispy layers.",
+          "addons": [
+            {
+              "id": "extra_piece",
+              "name": "Extra piece",
+              "price": 180
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r10",
+      "name": "Chai Shai Café",
+      "tagline": "Pakistani Café • Chai • Snacks",
+      "online": true,
+      "prepTimeMins": 10,
+      "menu": [
+        {
+          "id": "m1001",
+          "name": "Doodh Patti Chai",
+          "price": 180,
+          "category": "Chai",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Strong tea cooked with milk, sugar, and tea leaves.",
+          "addons": [
+            {
+              "id": "less_sugar",
+              "name": "Less sugar",
+              "price": 0
+            },
+            {
+              "id": "extra_strong",
+              "name": "Extra strong",
+              "price": 40
+            }
+          ]
+        },
+        {
+          "id": "m1002",
+          "name": "Kashmiri Chai",
+          "price": 260,
+          "category": "Chai",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Pink tea with milk, nuts, cardamom, and light salt.",
+          "addons": [
+            {
+              "id": "extra_nuts",
+              "name": "Extra nuts",
+              "price": 80
+            }
+          ]
+        },
+        {
+          "id": "m1003",
+          "name": "Paratha Roll",
+          "price": 420,
+          "category": "Rolls",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Chicken filling, mayo, chutney, onion, wrapped in paratha.",
+          "addons": [
+            {
+              "id": "cheese",
+              "name": "Cheese",
+              "price": 100
+            },
+            {
+              "id": "extra_chicken",
+              "name": "Extra chicken",
+              "price": 160
+            }
+          ]
+        },
+        {
+          "id": "m1004",
+          "name": "Aloo Paratha",
+          "price": 280,
+          "category": "Paratha",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Stuffed paratha with potato, green chili, coriander, and spices.",
+          "addons": [
+            {
+              "id": "butter_topping",
+              "name": "Butter topping",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m1005",
+          "name": "Chicken Cheese Paratha",
+          "price": 480,
+          "category": "Paratha",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Paratha stuffed with chicken, cheese, onion, and spices.",
+          "addons": [
+            {
+              "id": "extra_cheese",
+              "name": "Extra cheese",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m1006",
+          "name": "Bun Kabab",
+          "price": 320,
+          "category": "Snacks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Bun with shami kabab, egg, chutney, onion, and ketchup.",
+          "addons": [
+            {
+              "id": "extra_egg",
+              "name": "Extra egg",
+              "price": 80
+            },
+            {
+              "id": "extra_kabab",
+              "name": "Extra kabab",
+              "price": 120
+            }
+          ]
+        },
+        {
+          "id": "m1007",
+          "name": "Samosa Chaat",
+          "price": 360,
+          "category": "Chaat",
+          "available": true,
+          "fast": false,
+          "image": "",
+          "description": "Samosa topped with chana, yogurt, chutney, onion, and masala.",
+          "addons": [
+            {
+              "id": "extra_yogurt",
+              "name": "Extra yogurt",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m1008",
+          "name": "Pakora Basket",
+          "price": 300,
+          "category": "Snacks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Mixed pakoras with potato, onion, spinach, and green chutney.",
+          "addons": [
+            {
+              "id": "extra_chutney",
+              "name": "Extra chutney",
+              "price": 60
+            }
+          ]
+        },
+        {
+          "id": "m1009",
+          "name": "Fries Masala",
+          "price": 330,
+          "category": "Fries",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Fries tossed with chaat masala and spicy sauce.",
+          "addons": [
+            {
+              "id": "cheese_sauce",
+              "name": "Cheese sauce",
+              "price": 100
+            }
+          ]
+        },
+        {
+          "id": "m1010",
+          "name": "Mint Lemonade",
+          "price": 280,
+          "category": "Drinks",
+          "available": true,
+          "fast": true,
+          "image": "",
+          "description": "Lemon, mint, ice, sugar, and soda.",
+          "addons": [
+            {
+              "id": "less_sugar",
+              "name": "Less sugar",
+              "price": 0
             }
           ]
         }

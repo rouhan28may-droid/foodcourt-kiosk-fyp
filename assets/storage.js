@@ -1,964 +1,2084 @@
-window.FC = window.FC || {};
+(async function () {
+  window.FC = window.FC || {};
 
-FC.KEY = "fc_state_v3";
-FC._realtimeStarted = false;
-FC._realtimeChannel = null;
+  const $ = (id) => document.getElementById(id);
 
-// ---------- Helpers ----------
-FC.nowISO = () => new Date().toISOString();
-
-FC._safeArray = function (v) {
-  return Array.isArray(v) ? v : [];
-};
-
-FC._safeObject = function (v) {
-  return v && typeof v === "object" ? v : {};
-};
-
-FC._clone = function (v) {
-  try {
-    return JSON.parse(JSON.stringify(v));
-  } catch {
-    return v;
-  }
-};
-
-FC._db = function () {
-  return FC.supabase || window.DB || null;
-};
-
-FC._hasDb = function () {
-  const db = FC._db();
-  return !!(db && typeof db.from === "function");
-};
-
-FC._emitStateChanged = function () {
-  window.dispatchEvent(new CustomEvent("fc:state-changed"));
-};
-
-FC._normalizeServiceType = function (value) {
-  const v = String(value || "").trim().toLowerCase();
-
-  if (v === "dine_in" || v === "dine-in" || v === "dine in") return "dine_in";
-  if (v === "takeaway" || v === "take_away" || v === "take-away" || v === "take away") return "takeaway";
-
-  return "";
-};
-
-FC._normalizeTableNumber = function (serviceType, value) {
-  const table = String(value || "").trim();
-  return serviceType === "dine_in" ? table : "";
-};
-
-FC._normalizePaymentMethod = function (value) {
-  const v = String(value || "").trim().toLowerCase();
-
-  if (v === "cash" || v === "cod" || v === "counter") return "cash";
-  if (v === "online" || v === "stripe" || v === "card" || v === "qr") return "online";
-
-  return "online";
-};
-
-FC._absoluteUrl = function (path, params = {}) {
-  const url = new URL(path, window.location.origin);
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && String(value).trim() !== "") {
-      url.searchParams.set(key, String(value));
-    }
-  });
-
-  return url.toString();
-};
-
-FC.getStaffPin = function () {
-  const s = FC.getState();
-
-  const candidates = [
-    s.settings?.staffPin,
-    s.settings?.cashierPin,
-    s.settings?.adminPin,
-    localStorage.getItem("fc_staff_pin"),
-    localStorage.getItem("staffPin"),
-    localStorage.getItem("cashierPin")
-  ];
-
-  const found = candidates.find((x) => String(x || "").trim());
-  return String(found || "1234").trim();
-};
-
-FC.verifyStaffPin = function (pin) {
-  return String(pin || "").trim() === FC.getStaffPin();
-};
-
-FC.orderTrackingUrl = function (orderId) {
-  return FC._absoluteUrl("/order-track.html", {
-    order_id: orderId
-  });
-};
-
-FC.cashConfirmUrl = function (orderId, cashToken) {
-  return FC._absoluteUrl("/cash-confirm.html", {
-    order_id: orderId,
-    cash_token: cashToken || ""
-  });
-};
-
-// ---------- Default State ----------
-FC.defaultState = function () {
-  return {
-    seededAt: null,
-    restaurants: [],
-    settings: {
-      currency: "PKR",
-      taxRate: 0.13,
-      idleAdsAfterSeconds: 240,
-      paymentTimeoutSeconds: 180,
-      kioskPin: "1234",
-      staffPin: "1234"
-    },
-    ads: [],
-    orders: [],
-    adMetrics: { impressions: {}, totalSeconds: 0 },
-    devices: {
-      network: { online: true, latencyMs: 42 },
-      printer: { online: true, paper: 85, lastPrintAt: null },
-      paymentGateway: { online: true, provider: "Stripe / Cash Counter", lastVerifyAt: null },
-      kioskDisplay: { online: true, brightness: 75, locked: false },
-      localCache: { enabled: true, queuedOrders: 0 }
-    },
-    deviceLogs: [],
-    logs: []
-  };
-};
-
-FC._normalizeState = function (raw) {
-  const base = FC.defaultState();
-  const s = FC._safeObject(raw);
-
-  return {
-    ...base,
-    ...s,
-    settings: {
-      ...base.settings,
-      ...FC._safeObject(s.settings)
-    },
-    adMetrics: {
-      ...base.adMetrics,
-      ...FC._safeObject(s.adMetrics),
-      impressions: {
-        ...base.adMetrics.impressions,
-        ...FC._safeObject(s.adMetrics?.impressions)
-      }
-    },
-    devices: {
-      ...base.devices,
-      ...FC._safeObject(s.devices),
-      network: {
-        ...base.devices.network,
-        ...FC._safeObject(s.devices?.network)
-      },
-      printer: {
-        ...base.devices.printer,
-        ...FC._safeObject(s.devices?.printer)
-      },
-      paymentGateway: {
-        ...base.devices.paymentGateway,
-        ...FC._safeObject(s.devices?.paymentGateway)
-      },
-      kioskDisplay: {
-        ...base.devices.kioskDisplay,
-        ...FC._safeObject(s.devices?.kioskDisplay)
-      },
-      localCache: {
-        ...base.devices.localCache,
-        ...FC._safeObject(s.devices?.localCache)
-      }
-    },
-    restaurants: FC._safeArray(s.restaurants),
-    ads: FC._safeArray(s.ads),
-    orders: FC._safeArray(s.orders).map(FC._normalizeOrder).filter(Boolean),
-    deviceLogs: FC._safeArray(s.deviceLogs),
-    logs: FC._safeArray(s.logs)
-  };
-};
-
-// ---------- Local State ----------
-FC.readLocalState = function () {
-  const raw = localStorage.getItem(FC.KEY);
-  if (!raw) return FC.defaultState();
-
-  try {
-    return FC._normalizeState(JSON.parse(raw));
-  } catch {
-    return FC.defaultState();
-  }
-};
-
-FC.writeLocalState = function (state) {
-  localStorage.setItem(FC.KEY, JSON.stringify(FC._normalizeState(state)));
-};
-
-FC.getState = function () {
-  return FC.readLocalState();
-};
-
-FC.setState = function (state, options = {}) {
-  const prevJson = localStorage.getItem(FC.KEY) || "";
-  const nextState = FC._normalizeState(state);
-  const nextJson = JSON.stringify(nextState);
-
-  FC.writeLocalState(nextState);
-
-  if (!options.silent && prevJson !== nextJson) {
-    FC._emitStateChanged();
+  function safeArray(v) {
+    return Array.isArray(v) ? v : [];
   }
 
-  return nextState;
-};
-
-// ---------- Logs ----------
-FC.log = function (message) {
-  const s = FC.getState();
-  s.logs.unshift({ at: FC.nowISO(), message });
-  s.logs = s.logs.slice(0, 30);
-  FC.setState(s);
-};
-
-// ---------- Seed / Reset ----------
-FC.buildSeedState = async function () {
-  const state = FC.defaultState();
-
-  try {
-    const [rRes, aRes] = await Promise.all([
-      fetch("data/restaurants.json", { cache: "no-store" }),
-      fetch("data/ads.json", { cache: "no-store" })
-    ]);
-
-    if (!rRes.ok) throw new Error(`restaurants.json HTTP ${rRes.status}`);
-    if (!aRes.ok) throw new Error(`ads.json HTTP ${aRes.status}`);
-
-    const r = await rRes.json();
-    const a = await aRes.json();
-
-    state.seededAt = FC.nowISO();
-    state.restaurants = FC._safeArray(r.restaurants);
-    state.settings = {
-      ...state.settings,
-      ...FC._safeObject(r.settings)
-    };
-    state.ads = FC._safeArray(a.ads);
-  } catch (err) {
-    console.error("FC.buildSeedState failed:", err);
-    state.seededAt = FC.nowISO();
+  function safeObject(v) {
+    return v && typeof v === "object" ? v : {};
   }
 
-  return FC._normalizeState(state);
-};
-
-FC._clearSessions = function () {
-  localStorage.removeItem("fc_session");
-  localStorage.removeItem("fc_restaurant_session");
-  localStorage.removeItem("fc_admin_session");
-};
-
-FC.reset = async function () {
-  FC._clearSessions();
-  localStorage.removeItem(FC.KEY);
-
-  const db = FC._db();
-  if (db) {
+  function safeState() {
     try {
-      await db.from("orders").delete().not("id", "is", null);
+      if (typeof FC.getStateSafe === "function") return FC.getStateSafe();
+      return typeof FC.getState === "function" ? (FC.getState() || {}) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function safeSessionRead(key, fallback) {
+    try {
+      return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+    } catch {
+      return fallback;
+    }
+  }
+
+  function logSafe(message) {
+    try {
+      if (typeof FC.log === "function") FC.log(message);
     } catch (err) {
-      console.warn("Cloud order reset skipped/failed:", err);
+      console.error("kiosk.js log failed", err);
     }
   }
 
-  const seeded = await FC.buildSeedState();
-  FC.setState(seeded);
-  FC.log("System reset.");
-};
-
-FC.seed = async function () {
-  let state = FC.readLocalState();
-
-  if (!state.seededAt || !state.restaurants.length) {
-    state = await FC.buildSeedState();
-    FC.setState(state, { silent: true });
+  function alertSafe(message) {
+    try {
+      window.alert(message);
+    } catch {
+      console.warn(message);
+    }
   }
 
-  try {
-    const db = FC._db();
-
-    if (db) {
-      const [{ count: restCount, error: restErr }, { count: itemCount, error: itemErr }] =
-        await Promise.all([
-          db.from("restaurants").select("*", { count: "exact", head: true }),
-          db.from("menu_items").select("*", { count: "exact", head: true })
-        ]);
-
-      if (!restErr && !itemErr && restCount > 0 && itemCount > 0) {
-        await FC.refreshCatalogFromSupabase({ silent: true });
-      } else {
-        console.warn("Supabase catalog is empty. Using local JSON seed.");
+  async function seedSafe() {
+    try {
+      if (typeof FC.seed === "function") {
+        await FC.seed();
       }
+    } catch (err) {
+      console.error("kiosk.js: seed failed", err);
     }
-  } catch (err) {
-    console.warn("Supabase catalog check failed. Using local JSON seed.", err);
   }
 
-  await FC.fetchAllOrders().catch(() => {});
+  async function getOrderSafe(orderId) {
+    if (!orderId) return null;
+    try {
+      return await Promise.resolve(FC.getOrder(orderId));
+    } catch (err) {
+      console.error("kiosk.js: getOrder failed", err);
+      return null;
+    }
+  }
 
-  FC.startRealtimeSync();
-  FC._emitStateChanged();
-};
+  async function createOrderSafe(payload) {
+    return await Promise.resolve(FC.createOrder(payload));
+  }
 
-// ---------- IDs ----------
-FC.uid = function (prefix = "ORD") {
-  return (
-    prefix +
-    "-" +
-    Math.random().toString(16).slice(2, 8).toUpperCase() +
-    "-" +
-    Date.now().toString().slice(-5)
-  );
-};
+  async function updateOrderSafe(orderId, patch) {
+    return await Promise.resolve(FC.updateOrder(orderId, patch));
+  }
 
-// ---------- Order Normalization ----------
-FC._normalizeOrder = function (order) {
-  if (!order) return null;
+  async function fetchAllOrdersSafe() {
+    try {
+      if (typeof FC.fetchAllOrders === "function") {
+        return await FC.fetchAllOrders();
+      }
+    } catch (err) {
+      console.warn("kiosk.js: fetchAllOrders failed, falling back to local state", err);
+    }
 
-  if ("restaurant_id" in order || "order_items" in order) {
-    const serviceType = FC._normalizeServiceType(order.service_type || order.serviceType || "");
-    const tableNumber = FC._normalizeTableNumber(serviceType, order.table_number || order.tableNumber || "");
-    const payment = FC._safeObject(order.payment);
+    const s = safeState();
+    return safeArray(s.orders);
+  }
+
+  function nowISO() {
+    try {
+      if (typeof FC.nowISO === "function") return FC.nowISO();
+    } catch {}
+    return new Date().toISOString();
+  }
+
+  function money(value) {
+    try {
+      if (typeof FC.money === "function") return FC.money(value);
+    } catch {}
+    return String(value ?? 0);
+  }
+
+  function computeTotals(items) {
+    try {
+      if (typeof FC.computeTotals === "function") return FC.computeTotals(items);
+    } catch {}
+    const subtotal = safeArray(items).reduce((sum, it) => sum + (Number(it.price || 0) * Number(it.qty || 0)), 0);
+    const tax = Math.round(subtotal * 0.13);
+    return { subtotal, tax, total: subtotal + tax };
+  }
+
+  function trackAdImpressionSafe(adId) {
+    try {
+      if (typeof FC.trackAdImpression === "function") {
+        FC.trackAdImpression(adId);
+      }
+    } catch (err) {
+      console.error("kiosk.js: trackAdImpression failed", err);
+    }
+  }
+
+  function simulateGatewayVerifySafe(success) {
+    try {
+      if (typeof FC.simulateGatewayVerify === "function") {
+        FC.simulateGatewayVerify(success);
+      }
+    } catch (err) {
+      console.error("kiosk.js: simulateGatewayVerify failed", err);
+    }
+  }
+
+  function simulatePrinterPaperUseSafe() {
+    try {
+      if (typeof FC.simulatePrinterPaperUse === "function") {
+        FC.simulatePrinterPaperUse();
+      }
+    } catch (err) {
+      console.error("kiosk.js: simulatePrinterPaperUse failed", err);
+    }
+  }
+
+  async function createStripeCheckoutSession(order) {
+    const res = await fetch("/api/stripe/create-checkout-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ order })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.ok || !data.url || !data.sessionId) {
+      throw new Error(data.error || `Stripe session creation failed. HTTP ${res.status}`);
+    }
+
+    return data;
+  }
+
+  async function verifyStripeSession(sessionId) {
+    const res = await fetch(`/api/stripe/session?session_id=${encodeURIComponent(sessionId)}`, {
+      method: "GET"
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `Stripe verification failed. HTTP ${res.status}`);
+    }
+
+    return data;
+  }
+
+  function showStripeQr(checkoutUrl) {
+    if (!qrBox) return;
+
+    qrBox.innerHTML = "";
+    qrBox.style.cursor = "pointer";
+
+    try {
+      new QRCode(qrBox, {
+        text: checkoutUrl,
+        width: 220,
+        height: 220
+      });
+    } catch (err) {
+      console.error("kiosk.js: Stripe QR render failed", err);
+      qrBox.innerHTML = `
+        <div class="text-xs text-slate-900 break-all p-3">
+          ${escapeHtml(checkoutUrl)}
+        </div>
+      `;
+    }
+
+    qrBox.onclick = () => {
+      window.location.href = checkoutUrl;
+    };
+  }
+
+  async function finalizeStripePaidOrder(orderId, stripeSessionData) {
+    const order = await getOrderSafe(orderId);
+
+    if (!order) {
+      throw new Error("Order not found after Stripe payment.");
+    }
+
+    if (["paid", "preparing", "ready", "completed"].includes(order.status)) {
+      if (payInterval) clearInterval(payInterval);
+      payInterval = null;
+      if (paymentModal) paymentModal.classList.add("hidden");
+      currentPayOrderId = null;
+      currentStripeCheckoutUrl = "";
+      awaitingOrderId = order.id;
+      saveSession();
+      await openReceipt(order.id);
+      return;
+    }
+
+    const payment = {
+      ...safeObject(order.payment),
+      success: true,
+      method: "Stripe Checkout",
+      provider: "Stripe",
+      stripeSessionId: stripeSessionData.sessionId || "",
+      stripePaymentStatus: stripeSessionData.paymentStatus || "",
+      stripeStatus: stripeSessionData.status || "",
+      stripeCustomerEmail: stripeSessionData.customerEmail || "",
+      verifiedAt: nowISO()
+    };
+
+    await updateOrderSafe(order.id, {
+      status: "paid",
+      paidAt: nowISO(),
+      payment
+    });
+
+    simulateGatewayVerifySafe(true);
+    logSafe(`Stripe payment verified for ${order.id}.`);
+
+    awaitingOrderId = order.id;
+    saveSession();
+
+    if (payInterval) clearInterval(payInterval);
+    payInterval = null;
+
+    if (paymentModal) paymentModal.classList.add("hidden");
+    currentPayOrderId = null;
+    currentStripeCheckoutUrl = "";
+
+    await openReceipt(order.id);
+  }
+
+  function startStripePolling(orderId, sessionId) {
+    if (payInterval) clearInterval(payInterval);
+
+    let pollCount = 0;
+
+    payInterval = setInterval(async () => {
+      pollCount += 1;
+
+      try {
+        const stripeSession = await verifyStripeSession(sessionId);
+
+        if (payStatus) {
+          payStatus.textContent = `Stripe status: ${stripeSession.paymentStatus || "checking"}...`;
+        }
+
+        if (stripeSession.paymentStatus === "paid" && stripeSession.status === "complete") {
+          clearInterval(payInterval);
+          payInterval = null;
+          await finalizeStripePaidOrder(orderId, stripeSession);
+          return;
+        }
+
+        if (pollCount >= 120) {
+          clearInterval(payInterval);
+          payInterval = null;
+
+          if (payStatus) {
+            payStatus.textContent = "Payment is not completed yet. Scan the QR again or open Stripe Checkout.";
+          }
+        }
+      } catch (err) {
+        console.warn("kiosk.js: Stripe polling failed", err);
+      }
+    }, 3000);
+  }
+
+  async function handleStripeReturn() {
+    if (stripeReturnHandled) return false;
+    stripeReturnHandled = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const stripeSuccess = params.get("stripe_success");
+    const stripeCancel = params.get("stripe_cancel");
+    const orderId = params.get("order_id");
+    const sessionId = params.get("session_id");
+
+    if (!stripeSuccess && !stripeCancel) return false;
+
+    window.history.replaceState({}, document.title, window.location.pathname);
+
+    if (stripeCancel) {
+      if (orderId) {
+        awaitingOrderId = orderId;
+        autoStripeStartedForOrderId = null;
+        saveSession();
+
+        const order = await getOrderSafe(orderId);
+        if (order) {
+          await updateOrderSafe(orderId, { status: "awaiting_payment" });
+          renderFlow({ ...order, status: "awaiting_payment" });
+        }
+      }
+
+      alertSafe("Stripe payment was cancelled. Please try again.");
+      return true;
+    }
+
+    if (!orderId || !sessionId) {
+      alertSafe("Stripe return is missing order/session information.");
+      return true;
+    }
+
+    try {
+      const stripeSession = await verifyStripeSession(sessionId);
+
+      if (stripeSession.paymentStatus === "paid" && stripeSession.status === "complete") {
+        await finalizeStripePaidOrder(orderId, stripeSession);
+      } else {
+        awaitingOrderId = orderId;
+        autoStripeStartedForOrderId = null;
+        saveSession();
+        alertSafe("Stripe payment is not completed yet.");
+      }
+    } catch (err) {
+      console.error("kiosk.js: Stripe return verification failed", err);
+      alertSafe(`Stripe verification failed: ${err.message || err}`);
+    }
+
+    return true;
+  }
+
+  const elTabs = $("restaurantTabs");
+  const elMenu = $("menuGrid");
+  const elCart = $("cartItems");
+  const elSubtotal = $("subtotal");
+  const elTax = $("tax");
+  const elTotal = $("total");
+  const elCheckout = $("checkoutBtn");
+  const elClearCart = $("clearCartBtn");
+  const elReset = $("resetBtn");
+
+  const servicePanel = $("servicePanel");
+  const serviceModeDineIn = $("serviceModeDineIn");
+  const serviceModeTakeaway = $("serviceModeTakeaway");
+  const dineInOption = $("dineInOption");
+  const takeawayOption = $("takeawayOption");
+  const tableNumberWrap = $("tableNumberWrap");
+  const tableNumberInput = $("tableNumberInput");
+  const serviceSummary = $("serviceSummary");
+  const serviceError = $("serviceError");
+
+  const elActiveName = $("activeRestaurantName");
+  const elActiveTagline = $("activeRestaurantTagline");
+  const elTaxRateLabel = $("taxRateLabel");
+  const elQueueCount = $("queueCount");
+
+  const elSearch = $("searchInput");
+  const elCategory = $("categorySelect");
+  const elFlowPanel = $("flowPanel");
+
+  const paymentModal = $("paymentModal");
+  const qrBox = $("qrBox");
+  const payAmount = $("payAmount");
+  const payCountdown = $("payCountdown");
+  const payStatus = $("payStatus");
+  const closePaymentBtn = $("closePaymentBtn");
+  const simulatePayBtn = $("simulatePayBtn");
+  const simulateFailBtn = $("simulateFailBtn");
+
+  const receiptModal = $("receiptModal");
+  const printArea = $("printArea");
+  const receiptHint = $("receiptHint");
+  const closeReceiptBtn = $("closeReceiptBtn");
+  const printBtn = $("printBtn");
+  const doneBtn = $("doneBtn");
+
+  const adsOverlay = $("adsOverlay");
+  const adTitle = $("adTitle");
+  const adSubtitle = $("adSubtitle");
+  const fullscreenBtn = $("fullscreenBtn");
+  const kioskTopBar = $("kioskTopBar");
+  const kioskLockOverlay = $("kioskLockOverlay");
+  const kioskUnlockTitle = $("kioskUnlockTitle");
+  const kioskUnlockMessage = $("kioskUnlockMessage");
+  const kioskLockActions = $("kioskLockActions");
+  const kioskPinInput = $("kioskPinInput");
+  const kioskPinError = $("kioskPinError");
+  const kioskUnlockBtn = $("kioskUnlockBtn");
+
+  let kioskFullscreenStarted = false;
+  let kioskExitLocked = false;
+
+  function injectKioskFullscreenStyles() {
+    if (document.getElementById("kioskFullscreenStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "kioskFullscreenStyles";
+    style.textContent = `
+      body.kiosk-fullscreen-mode #kioskTopBar {
+        display: none !important;
+      }
+
+      body.kiosk-fullscreen-mode main {
+        padding-top: 1.5rem !important;
+      }
+
+      body.kiosk-exit-locked {
+        overflow: hidden !important;
+      }
+
+      body.kiosk-exit-locked #kioskLockOverlay {
+        display: block !important;
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+
+  function getFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
+  }
+
+  async function requestKioskFullscreen() {
+    const el = document.documentElement;
+
+    if (el.requestFullscreen) return await el.requestFullscreen();
+    if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+    if (el.msRequestFullscreen) return el.msRequestFullscreen();
+
+    throw new Error("Fullscreen API is not supported in this browser.");
+  }
+
+  function getKioskPassword() {
+    const s = safeState();
+
+    const candidates = [
+      s.settings?.kioskPin,
+      s.settings?.kioskPassword,
+      s.settings?.adminPin,
+      s.kioskPin,
+      s.kioskPassword,
+      localStorage.getItem("fc_kiosk_pin"),
+      localStorage.getItem("kioskPin"),
+      localStorage.getItem("kiosk_password")
+    ];
+
+    const found = candidates.find((x) => String(x || "").trim());
+
+    return String(found || "1234").trim();
+  }
+
+  function setKioskDeviceLockState(locked) {
+    try {
+      if (typeof FC.setDevice === "function") {
+        FC.setDevice("kioskDisplay", { locked: !!locked });
+      }
+    } catch (err) {
+      console.warn("kiosk.js: kiosk display lock state update failed", err);
+    }
+  }
+
+  function applyKioskFullscreenUi(active) {
+    document.body.classList.toggle("kiosk-fullscreen-mode", !!active);
+
+    if (kioskTopBar) {
+      kioskTopBar.classList.toggle("hidden", !!active);
+    }
+
+    if (fullscreenBtn) {
+      fullscreenBtn.textContent = active ? "Full Screen Active" : "Full Screen";
+      fullscreenBtn.disabled = !!active;
+      fullscreenBtn.classList.toggle("opacity-60", !!active);
+      fullscreenBtn.classList.toggle("cursor-not-allowed", !!active);
+    }
+  }
+
+  function showKioskExitLock() {
+    kioskExitLocked = true;
+    document.body.classList.add("kiosk-exit-locked");
+    setKioskDeviceLockState(true);
+
+    if (kioskLockOverlay) {
+      kioskLockOverlay.classList.remove("hidden");
+    }
+
+    if (kioskUnlockTitle) {
+      kioskUnlockTitle.textContent = "Admin Password Required";
+    }
+
+    if (kioskUnlockMessage) {
+      kioskUnlockMessage.textContent = "Fullscreen was exited. Enter kiosk password to continue.";
+    }
+
+    if (kioskLockActions) {
+      kioskLockActions.classList.remove("hidden");
+    }
+
+    if (kioskPinError) {
+      kioskPinError.textContent = "Incorrect password.";
+      kioskPinError.classList.add("hidden");
+    }
+
+    if (kioskPinInput) {
+      kioskPinInput.value = "";
+      setTimeout(() => kioskPinInput.focus(), 80);
+    }
+  }
+
+  function hideKioskExitLock() {
+    kioskExitLocked = false;
+    document.body.classList.remove("kiosk-exit-locked");
+    setKioskDeviceLockState(false);
+
+    if (kioskLockOverlay) {
+      kioskLockOverlay.classList.add("hidden");
+    }
+
+    if (kioskPinInput) {
+      kioskPinInput.value = "";
+    }
+
+    if (kioskPinError) {
+      kioskPinError.classList.add("hidden");
+    }
+  }
+
+  async function enterCustomerFullscreen() {
+    try {
+      kioskFullscreenStarted = true;
+      await requestKioskFullscreen();
+      applyKioskFullscreenUi(true);
+      hideKioskExitLock();
+    } catch (err) {
+      console.error("kiosk.js: fullscreen failed", err);
+      alertSafe("Fullscreen could not start. Please allow fullscreen in browser settings.");
+    }
+  }
+
+  function handleFullscreenChange() {
+    const active = !!getFullscreenElement();
+
+    applyKioskFullscreenUi(active);
+
+    if (!active && kioskFullscreenStarted) {
+      showKioskExitLock();
+    }
+  }
+
+  injectKioskFullscreenStyles();
+
+  if (fullscreenBtn) {
+    fullscreenBtn.onclick = async () => {
+      await enterCustomerFullscreen();
+    };
+  }
+
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+  document.addEventListener("msfullscreenchange", handleFullscreenChange);
+
+  if (kioskUnlockBtn) {
+    kioskUnlockBtn.onclick = () => {
+      const entered = String(kioskPinInput?.value || "").trim();
+      const expected = getKioskPassword();
+
+      if (entered === expected) {
+        hideKioskExitLock();
+        return;
+      }
+
+      if (kioskPinError) {
+        kioskPinError.classList.remove("hidden");
+      }
+
+      if (kioskPinInput) {
+        kioskPinInput.value = "";
+        kioskPinInput.focus();
+      }
+    };
+  }
+
+  if (kioskPinInput) {
+    kioskPinInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && kioskUnlockBtn) {
+        kioskUnlockBtn.click();
+      }
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (!kioskExitLocked) return;
+
+    if (e.key === "Escape" || e.key === "Tab" || e.key === "Backspace") {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+  const sessionKey = "fc_session";
+  const session = safeSessionRead(sessionKey, {});
+  let activeRestaurantId = session.activeRestaurantId || "r1";
+  let cart = safeArray(session.cart);
+  let awaitingOrderId = session.awaitingOrderId || null;
+  let serviceType = session.serviceType || "";
+  let tableNumber = String(session.tableNumber || "");
+
+  let payInterval = null;
+  let paySecondsLeft = 0;
+  let currentPayOrderId = null;
+  let currentReceiptOrderId = null;
+  let currentStripeCheckoutUrl = "";
+  let autoStripeStartedForOrderId = null;
+  let stripeReturnHandled = false;
+
+  let idleSeconds = 0;
+  let adsIdx = 0;
+  let adTimer = null;
+
+  let renderBusy = false;
+  let rerenderRequested = false;
+
+  function saveSession() {
+    localStorage.setItem(
+      sessionKey,
+      JSON.stringify({
+        activeRestaurantId,
+        cart,
+        awaitingOrderId,
+        serviceType,
+        tableNumber
+      })
+    );
+  }
+
+  function serviceLabel(type = serviceType) {
+    if (type === "dine_in") return "Dine In";
+    if (type === "takeaway") return "Takeaway";
+    return "Not selected";
+  }
+
+  function serviceText(order = {}) {
+    const type = order.serviceType || order.service_type || order.orderType || "";
+    const table = String(order.tableNumber || order.table_number || "").trim();
+
+    if (type === "dine_in") {
+      return table ? `Dine In â€¢ Table ${table}` : "Dine In";
+    }
+
+    if (type === "takeaway") return "Takeaway";
+
+    return "Order type not selected";
+  }
+
+  function setServiceType(type) {
+    serviceType = type;
+    if (type !== "dine_in") {
+      tableNumber = "";
+      if (tableNumberInput) tableNumberInput.value = "";
+    }
+    saveSession();
+    renderServicePanel();
+    renderCart();
+  }
+
+  function getServiceSelection() {
+    const type = serviceType;
+    const table = String(tableNumberInput?.value ?? tableNumber ?? "").trim();
+
+    if (!type) {
+      return {
+        ok: false,
+        message: "Please select Dine In or Takeaway before checkout."
+      };
+    }
+
+    if (type === "dine_in" && !table) {
+      return {
+        ok: false,
+        message: "Please enter table number for Dine In order."
+      };
+    }
 
     return {
-      id: order.id,
-      restaurantId: order.restaurant_id,
-      status: order.status || "pending_approval",
-      serviceType,
-      tableNumber,
-      subtotal: Number(order.subtotal || 0),
-      tax: Number(order.tax || 0),
-      total: Number(order.total || 0),
-      currency: order.currency || "PKR",
-      rejectReason: order.reject_reason || null,
-      createdAt: order.created_at || null,
-      approvedAt: order.approved_at || null,
-      paidAt: order.paid_at || null,
-      payment,
-      paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.payment_method || "online"),
-      trackingUrl: FC.orderTrackingUrl(order.id),
-      cashConfirmUrl: payment.cashToken ? FC.cashConfirmUrl(order.id, payment.cashToken) : "",
-      items: FC._safeArray(order.order_items).map((it) => ({
-        itemId: it.menu_item_id ?? null,
-        name: it.name || "",
-        price: Number(it.price || 0),
-        qty: Number(it.qty || 0),
-        fast: !!it.fast
-      }))
+      ok: true,
+      serviceType: type,
+      tableNumber: type === "dine_in" ? table : "",
+      label: type === "dine_in" ? `Dine In â€¢ Table ${table}` : "Takeaway"
     };
   }
 
-  const serviceType = FC._normalizeServiceType(order.serviceType || order.service_type || order.orderType || "");
-  const tableNumber = FC._normalizeTableNumber(serviceType, order.tableNumber || order.table_number || order.tableNo || "");
-  const payment = FC._safeObject(order.payment);
+  function renderServicePanel() {
+    if (!servicePanel) return;
 
-  return {
-    id: order.id,
-    restaurantId: order.restaurantId,
-    status: order.status || "pending_approval",
-    serviceType,
-    tableNumber,
-    subtotal: Number(order.subtotal || 0),
-    tax: Number(order.tax || 0),
-    total: Number(order.total || 0),
-    currency: order.currency || "PKR",
-    rejectReason: order.rejectReason || null,
-    createdAt: order.createdAt || null,
-    approvedAt: order.approvedAt || null,
-    paidAt: order.paidAt || null,
-    payment,
-    paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.paymentMethod || "online"),
-    trackingUrl: FC.orderTrackingUrl(order.id),
-    cashConfirmUrl: payment.cashToken ? FC.cashConfirmUrl(order.id, payment.cashToken) : "",
-    items: FC._safeArray(order.items).map((it) => ({
-      itemId: it.itemId ?? null,
-      name: it.name || "",
-      price: Number(it.price || 0),
-      qty: Number(it.qty || 0),
-      fast: !!it.fast
-    }))
-  };
-};
+    const tableValue = String(tableNumberInput?.value ?? tableNumber ?? "").trim();
 
-FC._cacheOrders = function (orders, silent = true) {
-  const s = FC.getState();
-  s.orders = FC._safeArray(orders).map(FC._normalizeOrder).filter(Boolean);
-  FC.setState(s, { silent });
-};
+    if (serviceModeDineIn) serviceModeDineIn.checked = serviceType === "dine_in";
+    if (serviceModeTakeaway) serviceModeTakeaway.checked = serviceType === "takeaway";
 
-// ---------- Orders ----------
-FC.fetchAllOrders = async function () {
-  const db = FC._db();
-
-  if (db) {
-    const { data, error } = await db
-      .from("orders")
-      .select(`
-        *,
-        order_items (
-          menu_item_id,
-          name,
-          price,
-          qty,
-          fast
-        )
-      `)
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    const orders = FC._safeArray(data).map(FC._normalizeOrder).filter(Boolean);
-    FC._cacheOrders(orders, true);
-    return orders;
-  }
-
-  const s = FC.getState();
-  return FC._safeArray(s.orders).map(FC._normalizeOrder).filter(Boolean);
-};
-
-FC.fetchOrdersForRestaurant = async function (restaurantId) {
-  const db = FC._db();
-
-  if (db) {
-    const { data, error } = await db
-      .from("orders")
-      .select(`
-        *,
-        order_items (
-          menu_item_id,
-          name,
-          price,
-          qty,
-          fast
-        )
-      `)
-      .eq("restaurant_id", restaurantId)
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    const orders = FC._safeArray(data).map(FC._normalizeOrder).filter(Boolean);
-    return orders;
-  }
-
-  const s = FC.getState();
-  return FC._safeArray(s.orders)
-    .map(FC._normalizeOrder)
-    .filter((o) => o && o.restaurantId === restaurantId);
-};
-
-FC.ordersForRestaurant = async function (restaurantId) {
-  return await FC.fetchOrdersForRestaurant(restaurantId);
-};
-
-FC.getOrder = async function (orderId) {
-  const db = FC._db();
-
-  if (db) {
-    const { data, error } = await db
-      .from("orders")
-      .select(`
-        *,
-        order_items (
-          menu_item_id,
-          name,
-          price,
-          qty,
-          fast
-        )
-      `)
-      .eq("id", orderId)
-      .maybeSingle();
-
-    if (error) throw error;
-    if (!data) return null;
-
-    const order = FC._normalizeOrder(data);
-
-    const s = FC.getState();
-    const idx = s.orders.findIndex((x) => x.id === order.id);
-    if (idx === -1) s.orders.unshift(order);
-    else s.orders[idx] = order;
-    FC.setState(s, { silent: true });
-
-    return order;
-  }
-
-  const s = FC.getState();
-  const found = FC._safeArray(s.orders).find((o) => o.id === orderId);
-  return found ? FC._normalizeOrder(found) : null;
-};
-
-FC.createOrder = async function ({
-  restaurantId,
-  items,
-  totals,
-  serviceType,
-  tableNumber,
-  paymentMethod = "online"
-}) {
-  const normalizedServiceType = FC._normalizeServiceType(serviceType);
-  const normalizedTableNumber = FC._normalizeTableNumber(normalizedServiceType, tableNumber);
-  const normalizedPaymentMethod = FC._normalizePaymentMethod(paymentMethod);
-
-  const orderId = FC.uid("ORD");
-  const trackingToken = FC.uid("TRK");
-  const cashToken = normalizedPaymentMethod === "cash" ? FC.uid("CASH") : null;
-
-  const payment = {
-    attemptCount: 0,
-    success: false,
-    method: normalizedPaymentMethod,
-    paymentMethod: normalizedPaymentMethod,
-    provider: normalizedPaymentMethod === "cash" ? "Cash Counter" : "Stripe",
-    qrPayload: null,
-    trackingToken,
-    trackingUrl: FC.orderTrackingUrl(orderId),
-    cashToken,
-    cashConfirmUrl: cashToken ? FC.cashConfirmUrl(orderId, cashToken) : "",
-    cashConfirmedAt: null,
-    cashConfirmedBy: null
-  };
-
-  const order = {
-    id: orderId,
-    restaurantId,
-    status: "pending_approval",
-    serviceType: normalizedServiceType,
-    tableNumber: normalizedTableNumber,
-    subtotal: Number(totals?.subtotal || 0),
-    tax: Number(totals?.tax || 0),
-    total: Number(totals?.total || 0),
-    currency: "PKR",
-    rejectReason: null,
-    createdAt: FC.nowISO(),
-    approvedAt: null,
-    paidAt: null,
-    payment,
-    paymentMethod: normalizedPaymentMethod,
-    trackingUrl: payment.trackingUrl,
-    cashConfirmUrl: payment.cashConfirmUrl,
-    items: FC._safeArray(items).map((it) => ({
-      itemId: it.itemId ?? null,
-      name: it.name || "",
-      price: Number(it.price || 0),
-      qty: Number(it.qty || 0),
-      fast: !!it.fast
-    }))
-  };
-
-  const db = FC._db();
-
-  if (db) {
-    const { error: orderError } = await db.from("orders").insert({
-      id: order.id,
-      restaurant_id: order.restaurantId,
-      status: order.status,
-      service_type: order.serviceType,
-      table_number: order.tableNumber,
-      subtotal: order.subtotal,
-      tax: order.tax,
-      total: order.total,
-      currency: order.currency,
-      reject_reason: order.rejectReason,
-      created_at: order.createdAt,
-      approved_at: order.approvedAt,
-      paid_at: order.paidAt,
-      payment: order.payment
-    });
-
-    if (orderError) throw orderError;
-
-    const itemRows = order.items.map((it) => ({
-      order_id: order.id,
-      menu_item_id: it.itemId,
-      name: it.name,
-      price: it.price,
-      qty: it.qty,
-      fast: it.fast
-    }));
-
-    const { error: itemError } = await db.from("order_items").insert(itemRows);
-
-    if (itemError) {
-      try {
-        await db.from("orders").delete().eq("id", order.id);
-      } catch {}
-      throw itemError;
+    if (tableNumberWrap) {
+      tableNumberWrap.classList.toggle("hidden", serviceType !== "dine_in");
     }
 
-    const full = await FC.getOrder(order.id);
-    await FC.fetchAllOrders().catch(() => {});
-    FC._emitStateChanged();
-    return full;
-  }
-
-  const s = FC.getState();
-  s.orders.unshift(order);
-  FC.setState(s);
-  return order;
-};
-
-FC.updateOrder = async function (orderId, patch) {
-  const db = FC._db();
-
-  if (db) {
-    const dbPatch = {};
-
-    if ("status" in patch) dbPatch.status = patch.status;
-    if ("rejectReason" in patch) dbPatch.reject_reason = patch.rejectReason;
-    if ("approvedAt" in patch) dbPatch.approved_at = patch.approvedAt;
-    if ("paidAt" in patch) dbPatch.paid_at = patch.paidAt;
-    if ("payment" in patch) dbPatch.payment = patch.payment;
-
-    if ("serviceType" in patch) {
-      dbPatch.service_type = FC._normalizeServiceType(patch.serviceType);
+    if (tableNumberInput && tableNumberInput.value !== tableNumber) {
+      tableNumberInput.value = tableNumber;
     }
 
-    if ("tableNumber" in patch) {
-      const serviceForTable = FC._normalizeServiceType(patch.serviceType || patch.service_type || "");
-      dbPatch.table_number = FC._normalizeTableNumber(serviceForTable || "dine_in", patch.tableNumber);
+    const selectedClasses = ["border-indigo-400/70", "bg-indigo-500/15", "ring-1", "ring-indigo-400/40"];
+    const normalClasses = ["border-white/10", "bg-white/5"];
+
+    const applyOptionState = (el, selected) => {
+      if (!el) return;
+      el.classList.remove(...selectedClasses, ...normalClasses);
+      if (selected) {
+        el.classList.add(...selectedClasses);
+      } else {
+        el.classList.add(...normalClasses);
+      }
+    };
+
+    applyOptionState(dineInOption, serviceType === "dine_in");
+    applyOptionState(takeawayOption, serviceType === "takeaway");
+
+    if (serviceSummary) {
+      serviceSummary.textContent =
+        serviceType === "dine_in"
+          ? (tableValue ? `Dine In â€¢ Table ${tableValue}` : "Dine In")
+          : serviceLabel();
     }
 
-    const { error } = await db
-      .from("orders")
-      .update(dbPatch)
-      .eq("id", orderId);
-
-    if (error) throw error;
-
-    const full = await FC.getOrder(orderId);
-    await FC.fetchAllOrders().catch(() => {});
-    FC._emitStateChanged();
-    return full;
-  }
-
-  const s = FC.getState();
-  const idx = s.orders.findIndex((o) => o.id === orderId);
-  if (idx === -1) return null;
-
-  const current = FC._normalizeOrder(s.orders[idx]);
-  const nextServiceType = FC._normalizeServiceType(
-    patch.serviceType ?? patch.service_type ?? current.serviceType
-  );
-  const nextTableNumber = FC._normalizeTableNumber(
-    nextServiceType,
-    patch.tableNumber ?? patch.table_number ?? current.tableNumber
-  );
-
-  const next = {
-    ...current,
-    ...patch,
-    serviceType: nextServiceType,
-    tableNumber: nextTableNumber,
-    payment: {
-      ...FC._safeObject(current.payment),
-      ...FC._safeObject(patch.payment)
+    if (serviceError) {
+      const check = getServiceSelection();
+      serviceError.textContent = check.message || "";
+      serviceError.classList.toggle("hidden", check.ok || !cart.length);
     }
-  };
-
-  s.orders[idx] = next;
-  FC.setState(s);
-  return next;
-};
-
-FC.confirmCashPayment = async function (orderId, options = {}) {
-  const order = await FC.getOrder(orderId);
-
-  if (!order) {
-    throw new Error("Order not found.");
   }
 
-  const enteredPin = String(options.staffPin || "").trim();
-  if (!FC.verifyStaffPin(enteredPin)) {
-    throw new Error("Invalid staff PIN.");
+  function resetServiceSelection() {
+    serviceType = "";
+    tableNumber = "";
+    if (tableNumberInput) tableNumberInput.value = "";
+    if (serviceModeDineIn) serviceModeDineIn.checked = false;
+    if (serviceModeTakeaway) serviceModeTakeaway.checked = false;
+    renderServicePanel();
   }
 
-  const expectedToken = String(order.payment?.cashToken || "").trim();
-  const providedToken = String(options.cashToken || "").trim();
-
-  if (expectedToken && providedToken && expectedToken !== providedToken) {
-    throw new Error("Invalid cash confirmation token.");
+  function getRestaurants() {
+    return safeArray(safeState().restaurants);
   }
 
-  const payment = {
-    ...FC._safeObject(order.payment),
-    success: true,
-    method: "cash",
-    paymentMethod: "cash",
-    provider: "Cash Counter",
-    cashConfirmedAt: FC.nowISO(),
-    cashConfirmedBy: String(options.staffName || "Staff").trim() || "Staff",
-    verifiedAt: FC.nowISO()
-  };
+  function getRestaurant() {
+    const restaurants = getRestaurants();
+    if (!restaurants.length) return null;
+    return restaurants.find((r) => r.id === activeRestaurantId) || restaurants[0];
+  }
 
-  const updated = await FC.updateOrder(order.id, {
-    status: "paid",
-    paidAt: FC.nowISO(),
-    payment
+  function getRestaurantById(id) {
+    return getRestaurants().find((r) => r.id === id) || null;
+  }
+
+  function uniqueCategories(menu) {
+    const cats = ["All"];
+    for (const m of safeArray(menu)) {
+      if (m?.category && !cats.includes(m.category)) cats.push(m.category);
+    }
+    return cats;
+  }
+
+  function resetIdle() {
+    idleSeconds = 0;
+    if (adsOverlay && !adsOverlay.classList.contains("hidden")) {
+      hideAds();
+    }
+  }
+
+  function hideAds() {
+    if (adsOverlay) adsOverlay.classList.add("hidden");
+    if (adTimer) clearInterval(adTimer);
+    adTimer = null;
+  }
+
+  function showAds() {
+    const s = safeState();
+    const enabledAds = safeArray(s.ads).filter((a) => a && a.enabled);
+
+    if (!enabledAds.length || !adsOverlay || !adTitle || !adSubtitle) return;
+
+    const renderAd = () => {
+      const ad = enabledAds[adsIdx % enabledAds.length];
+      if (!ad) return;
+      adTitle.textContent = ad.title || "";
+      adSubtitle.textContent = ad.subtitle || "";
+      trackAdImpressionSafe(ad.id);
+    };
+
+    adsOverlay.classList.remove("hidden");
+    renderAd();
+
+    if (adTimer) clearInterval(adTimer);
+    adTimer = setInterval(() => {
+      adsIdx = (adsIdx + 1) % enabledAds.length;
+      renderAd();
+    }, 5000);
+  }
+
+  ["mousemove", "mousedown", "touchstart", "keydown", "scroll"].forEach((evt) => {
+    window.addEventListener(evt, resetIdle, { passive: true });
   });
 
-  FC.simulateGatewayVerify(true);
-  FC.log(`Cash payment confirmed for ${order.id}.`);
+  if (adsOverlay) {
+    adsOverlay.addEventListener("click", resetIdle);
+  }
 
-  return updated;
-};
+  setInterval(() => {
+    const s = safeState();
+    const afterSeconds = Number(s.settings?.idleAdsAfterSeconds || 240);
+    idleSeconds += 1;
+    if (idleSeconds >= afterSeconds) {
+      showAds();
+    }
+  }, 1000);
 
-// ---------- Catalog Sync (restaurants + menu_items) ----------
-FC.refreshCatalogFromSupabase = async function (options = {}) {
-  const db = FC._db();
-  if (!db) return null;
+  function addToCart(restaurantId, menuItem) {
+    if (!menuItem) return;
 
-  try {
-    const [{ data: restaurants, error: restError }, { data: items, error: itemsError }] =
-      await Promise.all([
-        db.from("restaurants").select("*").order("name", { ascending: true }),
-        db.from("menu_items").select("*").order("name", { ascending: true })
-      ]);
-
-    if (restError || itemsError) {
-      throw restError || itemsError;
+    if (cart.length && cart[0].restaurantId !== restaurantId) {
+      alertSafe("Cart contains items from another restaurant. Clear cart to switch restaurants.");
+      return;
     }
 
-    const grouped = {};
-    FC._safeArray(restaurants).forEach((r) => {
-      grouped[r.id] = {
-        id: r.id,
-        name: r.name,
-        tagline: r.tagline || "",
-        online: !!r.online,
-        prepTimeMins: Number(r.prep_time_mins || 15),
-        menu: []
+    const found = cart.find((x) => x.itemId === menuItem.id);
+    if (found) {
+      found.qty += 1;
+    } else {
+      cart.push({
+        restaurantId,
+        itemId: menuItem.id,
+        name: menuItem.name,
+        price: Number(menuItem.price || 0),
+        qty: 1
+      });
+    }
+
+    saveSession();
+    renderCart();
+  }
+
+  function updateQty(itemId, delta) {
+    const it = cart.find((x) => x.itemId === itemId);
+    if (!it) return;
+
+    it.qty += delta;
+
+    if (it.qty <= 0) {
+      cart = cart.filter((x) => x.itemId !== itemId);
+    }
+
+    saveSession();
+    renderCart();
+  }
+
+  function clearCart() {
+    cart = [];
+    resetServiceSelection();
+    saveSession();
+    renderCart();
+  }
+
+  async function refreshQueueCount() {
+    if (!elQueueCount) return;
+
+    const orders = await fetchAllOrdersSafe();
+    const count = safeArray(orders).filter((o) =>
+      ["paid", "preparing", "ready"].includes(o.status)
+    ).length;
+
+    elQueueCount.textContent = String(count);
+  }
+
+  function renderTabs() {
+    if (!elTabs) return;
+
+    const restaurants = getRestaurants();
+    const current = getRestaurant();
+    if (current) activeRestaurantId = current.id;
+
+    elTabs.innerHTML = "";
+
+    restaurants.forEach((r) => {
+      const btn = document.createElement("button");
+      btn.className =
+        "px-4 py-2 rounded-2xl border border-white/10 text-sm " +
+        (r.id === activeRestaurantId ? "bg-white/10" : "bg-white/5 hover:bg-white/10");
+
+      btn.innerHTML = `
+        <div class="font-semibold">${r.name || "Restaurant"}</div>
+        <div class="text-xs text-slate-400">${r.online ? "Online" : "Offline"}</div>
+      `;
+
+      btn.onclick = async () => {
+        activeRestaurantId = r.id;
+        saveSession();
+        await renderAll();
       };
+
+      elTabs.appendChild(btn);
     });
-
-    FC._safeArray(items).forEach((m) => {
-      const r = grouped[m.restaurant_id];
-      if (!r) return;
-
-      r.menu.push({
-        id: m.id,
-        name: m.name,
-        price: Number(m.price || 0),
-        category: m.category || "General",
-        available: !!m.available,
-        fast: !!m.fast
-      });
-    });
-
-    const s = FC.getState();
-    s.restaurants = Object.values(grouped);
-    FC.setState(s, { silent: !!options.silent });
-    return s.restaurants;
-  } catch (err) {
-    console.warn("Catalog sync skipped/failed:", err);
-    return null;
   }
-};
 
-// ---------- Restaurant Settings ----------
-FC.toggleRestaurantOnline = async function (restaurantId) {
-  const s = FC.getState();
-  const i = s.restaurants.findIndex((r) => r.id === restaurantId);
-  if (i === -1) return null;
+  function renderCategorySelect() {
+    if (!elCategory) return;
 
-  const nextOnline = !s.restaurants[i].online;
-  const db = FC._db();
+    const r = getRestaurant();
+    const cats = uniqueCategories(r?.menu || []);
+    const current = elCategory.value || "All";
 
-  if (db) {
-    try {
-      const { error } = await db
-        .from("restaurants")
-        .update({ online: nextOnline })
-        .eq("id", restaurantId);
+    elCategory.innerHTML = "";
 
-      if (error) throw error;
-    } catch (err) {
-      console.warn("Restaurant cloud update failed, local only:", err);
+    cats.forEach((c) => {
+      const o = document.createElement("option");
+      o.value = c;
+      o.textContent = c;
+      elCategory.appendChild(o);
+    });
+
+    elCategory.value = cats.includes(current) ? current : "All";
+  }
+
+  async function renderMenu() {
+    if (!elMenu) return;
+
+    const s = safeState();
+    const r = getRestaurant();
+
+    if (!r) {
+      elMenu.innerHTML = `<div class="text-sm text-slate-400">No restaurants loaded.</div>`;
+      if (elActiveName) elActiveName.textContent = "Restaurant";
+      if (elActiveTagline) elActiveTagline.textContent = "Tagline";
+      return;
+    }
+
+    if (elActiveName) elActiveName.textContent = r.name || "Restaurant";
+    if (elActiveTagline) elActiveTagline.textContent = r.tagline || "Tagline";
+    if (elTaxRateLabel) {
+      elTaxRateLabel.textContent = Math.round((Number(s.settings?.taxRate || 0.13)) * 100) + "%";
+    }
+
+    await refreshQueueCount();
+
+    const search = (elSearch?.value || "").toLowerCase().trim();
+    const cat = elCategory?.value || "All";
+
+    const filtered = safeArray(r.menu).filter((m) => {
+      if (cat !== "All" && m.category !== cat) return false;
+      if (search && !String(m.name || "").toLowerCase().includes(search)) return false;
+      return true;
+    });
+
+    elMenu.innerHTML = "";
+
+    if (!filtered.length) {
+      elMenu.innerHTML = `<div class="text-sm text-slate-400">No matching items found.</div>`;
+      return;
+    }
+
+    filtered.forEach((m) => {
+      const card = document.createElement("div");
+      card.className = "card p-4";
+
+      const available = !!(r.online && m.available);
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="font-semibold">${m.name || ""}</div>
+            <div class="text-xs text-slate-400 mt-1">${m.category || "General"} â€¢ ${m.fast ? "Fast item" : "Standard"}</div>
+          </div>
+          <div class="text-sm font-semibold">${money(Number(m.price || 0))}</div>
+        </div>
+        <div class="mt-4 flex items-center justify-between">
+          <div class="text-xs ${available ? "text-emerald-300" : "text-rose-300"}">
+            ${available ? "Available" : (r.online ? "Out of stock" : "Restaurant offline")}
+          </div>
+          <button class="${available ? "btn-primary" : "btn-ghost opacity-40 cursor-not-allowed"} text-sm" ${available ? "" : "disabled"}>
+            Add
+          </button>
+        </div>
+      `;
+
+      const btn = card.querySelector("button");
+      btn.onclick = () => {
+        if (!available) return;
+        addToCart(r.id, m);
+      };
+
+      elMenu.appendChild(card);
+    });
+  }
+
+  function renderCart() {
+    if (!elCart || !elSubtotal || !elTax || !elTotal || !elCheckout) return;
+
+    elCart.innerHTML = "";
+
+    if (!cart.length) {
+      elCart.innerHTML = `<div class="text-sm text-slate-400">Cart is empty. Add items to proceed.</div>`;
+    } else {
+      cart.forEach((it) => {
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/5 border border-white/10";
+
+        row.innerHTML = `
+          <div class="min-w-0">
+            <div class="font-semibold truncate">${it.name || ""}</div>
+            <div class="text-xs text-slate-400 mt-1">${money(Number(it.price || 0))} â€¢ Qty ${Number(it.qty || 0)}</div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <button class="btn-ghost text-sm px-3 py-2">-</button>
+            <button class="btn-ghost text-sm px-3 py-2">+</button>
+          </div>
+        `;
+
+        const [minus, plus] = row.querySelectorAll("button");
+        minus.onclick = () => updateQty(it.itemId, -1);
+        plus.onclick = () => updateQty(it.itemId, +1);
+
+        elCart.appendChild(row);
+      });
+    }
+
+    const totals = computeTotals(cart);
+    elSubtotal.textContent = money(totals.subtotal);
+    elTax.textContent = money(totals.tax);
+    elTotal.textContent = money(totals.total);
+
+    renderServicePanel();
+
+    const serviceReady = getServiceSelection().ok;
+    const disabled = cart.length === 0 || !serviceReady;
+    elCheckout.disabled = disabled;
+    elCheckout.classList.toggle("opacity-50", disabled);
+  }
+
+  function hideFlow() {
+    if (elFlowPanel) elFlowPanel.classList.add("hidden");
+  }
+
+  function renderFlow(order) {
+    if (!elFlowPanel || !order) return;
+
+    elFlowPanel.classList.remove("hidden");
+    elFlowPanel.className = "mt-6 glass p-5 rounded-3xl";
+
+    const r = getRestaurantById(order.restaurantId) || getRestaurant();
+    const items = safeArray(order.items);
+    const svcText = serviceText(order);
+
+    if (order.status === "pending_approval") {
+      elFlowPanel.innerHTML = `
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">Order Sent</div>
+            <div class="text-xl font-semibold mt-1">Waiting for Approval</div>
+            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> sent to <span class="pill">${r?.name || "Restaurant"}</span> â€¢ <span class="pill">${svcText}</span></div>
+          </div>
+          <div class="pill badge-yellow">Pending</div>
+        </div>
+        <div class="mt-4 text-sm text-slate-400">Restaurant will approve/reject based on availability.</div>
+      `;
+      return;
+    }
+
+    if (order.status === "rejected") {
+      elFlowPanel.innerHTML = `
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">Rejected</div>
+            <div class="text-xl font-semibold mt-1">Order Not Available</div>
+            <div class="text-sm text-slate-300 mt-2">Reason: <span class="pill">${order.rejectReason || "Not specified"}</span></div>
+          </div>
+          <div class="pill badge-red">Rejected</div>
+        </div>
+        <div class="mt-5 flex gap-2">
+          <button id="tryAgainBtn" class="btn-primary">Modify & Try Again</button>
+          <button id="cancelBtn" class="btn-ghost">Cancel</button>
+        </div>
+      `;
+
+      const tryAgainBtn = elFlowPanel.querySelector("#tryAgainBtn");
+      const cancelBtn = elFlowPanel.querySelector("#cancelBtn");
+
+      if (tryAgainBtn) {
+        tryAgainBtn.onclick = () => {
+          awaitingOrderId = null;
+          saveSession();
+          hideFlow();
+        };
+      }
+
+      if (cancelBtn) {
+        cancelBtn.onclick = () => {
+          awaitingOrderId = null;
+          cart = [];
+          saveSession();
+          renderCart();
+          hideFlow();
+        };
+      }
+
+      return;
+    }
+
+    if (order.status === "approved" || order.status === "awaiting_payment") {
+      elFlowPanel.innerHTML = `
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">Approved</div>
+            <div class="text-xl font-semibold mt-1">Stripe Payment Starting</div>
+            <div class="text-sm text-slate-300 mt-2">
+              Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span>
+              â€¢ <span class="pill">${svcText}</span>
+              â€¢ Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span>
+            </div>
+            <div class="text-sm text-slate-400 mt-3">
+              Payment QR will open automatically. Scan it to pay through Stripe sandbox.
+            </div>
+          </div>
+          <div class="pill badge-green">Approved</div>
+        </div>
+      `;
+
+      if (autoStripeStartedForOrderId !== order.id) {
+        autoStripeStartedForOrderId = order.id;
+        setTimeout(async () => {
+          await openPayment(order.id);
+        }, 500);
+      }
+
+      return;
+    }
+
+    if (["paid", "preparing", "ready", "completed"].includes(order.status)) {
+      elFlowPanel.innerHTML = `
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">In Queue</div>
+            <div class="text-xl font-semibold mt-1">Order Confirmed</div>
+            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> is now in preparation queue. <span class="pill">${svcText}</span></div>
+          </div>
+          <div class="pill badge-green">${String(order.status).toUpperCase()}</div>
+        </div>
+        <div class="mt-4 text-sm text-slate-400">You can show this screen as proof of payment.</div>
+      `;
     }
   }
 
-  s.restaurants[i].online = nextOnline;
-  FC.setState(s);
-  FC.log(`Restaurant ${s.restaurants[i].name} online=${s.restaurants[i].online}`);
-  return s.restaurants[i];
-};
+  async function refreshFlowPanel() {
+    if (!awaitingOrderId) {
+      hideFlow();
+      return;
+    }
 
-FC.toggleMenuItem = async function (restaurantId, menuItemId) {
-  const s = FC.getState();
-  const r = s.restaurants.find((x) => x.id === restaurantId);
-  if (!r) return null;
+    const o = await getOrderSafe(awaitingOrderId);
+    if (o) renderFlow(o);
+    else hideFlow();
+  }
 
-  const m = FC._safeArray(r.menu).find((x) => x.id === menuItemId);
-  if (!m) return null;
+  async function openPayment(orderId) {
+    const order = await getOrderSafe(orderId);
+    if (!order) return;
 
-  const nextAvailable = !m.available;
-  const db = FC._db();
+    currentPayOrderId = orderId;
+    currentStripeCheckoutUrl = "";
 
-  if (db) {
+    if (paymentModal) paymentModal.classList.remove("hidden");
+
+    if (qrBox) {
+      qrBox.innerHTML = `
+        <div class="text-slate-900 text-sm p-4 text-center">
+          Creating Stripe checkout...
+        </div>
+      `;
+      qrBox.onclick = null;
+    }
+
+    if (payAmount) {
+      payAmount.textContent = `Amount: ${money(order.total)} (${order.currency || "PKR"})`;
+    }
+
+    if (payCountdown) {
+      payCountdown.textContent = "Stripe";
+    }
+
+    if (payStatus) {
+      payStatus.textContent = "Creating secure Stripe payment session...";
+    }
+
+    if (simulateFailBtn) {
+      simulateFailBtn.classList.add("hidden");
+    }
+
+    if (simulatePayBtn) {
+      simulatePayBtn.classList.remove("hidden");
+      simulatePayBtn.disabled = true;
+      simulatePayBtn.textContent = "Preparing Stripe...";
+    }
+
+    if (payInterval) clearInterval(payInterval);
+    payInterval = null;
+
+    const payment = {
+      ...safeObject(order.payment),
+      attemptCount: Number(order.payment?.attemptCount || 0) + 1,
+      success: false,
+      method: "Stripe Checkout",
+      provider: "Stripe",
+      createdAt: nowISO()
+    };
+
+    await updateOrderSafe(orderId, {
+      status: "awaiting_payment",
+      payment
+    });
+
     try {
-      const { error } = await db
-        .from("menu_items")
-        .update({ available: nextAvailable })
-        .eq("id", menuItemId);
+      const restaurant = getRestaurantById(order.restaurantId);
 
-      if (error) throw error;
+      const payload = {
+        ...order,
+        restaurantName: restaurant?.name || "Restaurant",
+        serviceType: order.serviceType || order.service_type || "",
+        tableNumber: order.tableNumber || order.table_number || "",
+        currency: order.currency || "PKR"
+      };
+
+      const stripeSession = await createStripeCheckoutSession(payload);
+      currentStripeCheckoutUrl = stripeSession.url;
+
+      const updatedPayment = {
+        ...payment,
+        stripeSessionId: stripeSession.sessionId,
+        stripeCheckoutUrl: stripeSession.url
+      };
+
+      await updateOrderSafe(orderId, {
+        status: "awaiting_payment",
+        payment: updatedPayment
+      });
+
+      showStripeQr(stripeSession.url);
+
+      if (payStatus) {
+        payStatus.textContent = "Scan this QR code to pay with Stripe sandbox, or tap Open Stripe Checkout.";
+      }
+
+      if (simulatePayBtn) {
+        simulatePayBtn.disabled = false;
+        simulatePayBtn.textContent = "Open Stripe Checkout";
+        simulatePayBtn.onclick = () => {
+          window.location.href = stripeSession.url;
+        };
+      }
+
+      startStripePolling(orderId, stripeSession.sessionId);
     } catch (err) {
-      console.warn("Menu item cloud update failed, local only:", err);
+      console.error("kiosk.js: Stripe checkout failed", err);
+
+      if (payStatus) {
+        payStatus.textContent = `Stripe checkout failed: ${err.message || err}`;
+      }
+
+      if (simulatePayBtn) {
+        simulatePayBtn.disabled = false;
+        simulatePayBtn.textContent = "Retry Stripe Payment";
+        simulatePayBtn.onclick = async () => {
+          currentStripeCheckoutUrl = "";
+          await openPayment(orderId);
+        };
+      }
+    }
+
+    await refreshFlowPanel();
+  }
+
+  async function closePayment() {
+    if (paymentModal) paymentModal.classList.add("hidden");
+    if (payInterval) clearInterval(payInterval);
+    payInterval = null;
+    if (qrBox) {
+      qrBox.innerHTML = "";
+      qrBox.onclick = null;
+      qrBox.style.cursor = "";
+    }
+    currentPayOrderId = null;
+    currentStripeCheckoutUrl = "";
+    await refreshFlowPanel();
+  }
+
+  if (closePaymentBtn) {
+    closePaymentBtn.onclick = async () => {
+      await closePayment();
+    };
+  }
+
+  if (simulateFailBtn) {
+    simulateFailBtn.classList.add("hidden");
+  }
+
+  if (simulatePayBtn) {
+    simulatePayBtn.textContent = "Open Stripe Checkout";
+    simulatePayBtn.onclick = () => {
+      if (!currentStripeCheckoutUrl) {
+        if (payStatus) payStatus.textContent = "Stripe Checkout is still loading...";
+        return;
+      }
+
+      window.location.href = currentStripeCheckoutUrl;
+    };
+  }
+
+  function escapeHtml(value = "") {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function getReceiptCss() {
+    return `
+    @page {
+      size: 80mm;
+      margin: 0;
+    }
+
+    html {
+      margin: 0;
+      padding: 0;
+      width: 80mm;
+      background: #ffffff;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      width: 80mm;
+      background: #ffffff;
+      color: #000000;
+      font-family: Arial, Helvetica, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+
+    .print-shell {
+      width: 80mm;
+      box-sizing: border-box;
+      padding: 2mm 3mm 2mm 3mm;
+      background: #fff;
+      display: inline-block;
+    }
+
+    .print-root {
+      width: 74mm;
+      margin: 0 auto;
+      background: #fff;
+      font-size: 12px;
+      line-height: 1.28;
+    }
+
+    .slip {
+      margin: 0;
+      padding: 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .copy-badge {
+      text-align: center;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      margin: 0 0 5px 0;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 700;
+      text-align: center;
+      margin: 0;
+    }
+
+    .sub-title {
+      font-size: 12px;
+      text-align: center;
+      margin-top: 3px;
+    }
+
+    .meta {
+      font-size: 11px;
+      text-align: center;
+      margin-top: 4px;
+    }
+
+    .divider {
+      border: 0;
+      border-top: 1px dashed #000;
+      margin: 7px 0;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .row + .row {
+      margin-top: 3px;
+    }
+
+    .label {
+      font-size: 12px;
+    }
+
+    .value {
+      font-size: 12px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+
+    th, td {
+      padding: 4px 0;
+      vertical-align: top;
+    }
+
+    th {
+      font-weight: 700;
+      border-bottom: 1px solid #000;
+    }
+
+    td.item {
+      width: 62%;
+      padding-right: 6px;
+      word-break: break-word;
+    }
+
+    td.qty, th.qty {
+      width: 14%;
+      text-align: center;
+    }
+
+    td.amount, th.amount {
+      width: 24%;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .kitchen-items td.item,
+    .kitchen-items th.item {
+      width: 86%;
+      text-align: left;
+      padding-right: 6px;
+      word-break: break-word;
+    }
+
+    .kitchen-items td.qty,
+    .kitchen-items th.qty {
+      width: 14%;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .totals {
+      margin-top: 7px;
+    }
+
+    .grand-total {
+      margin-top: 5px;
+      padding-top: 5px;
+      border-top: 1px solid #000;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .footer {
+      margin-top: 9px;
+      text-align: center;
+      font-size: 11px;
+    }
+
+    .tear-separator {
+      margin: 4mm 0 3mm 0;
+      text-align: center;
+    }
+
+    .tear-separator .line {
+      border-top: 1px dashed #000;
+      height: 0;
+    }
+
+    .tear-separator .text {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      margin: 2px 0;
+    }
+
+    .kitchen-note {
+      margin-top: 9px;
+      border: 1px dashed #000;
+      padding: 6px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .prep-note {
+      margin-top: 7px;
+      text-align: center;
+      font-size: 11px;
+    }
+
+    @media screen {
+      html, body {
+        width: auto;
+        overflow: auto;
+        background: transparent;
+      }
+
+      .print-shell {
+        width: auto;
+        max-width: 340px;
+        padding: 10px;
+        border-radius: 12px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      }
+
+      .print-root {
+        width: 100%;
+      }
+    }
+  `;
+  }
+
+  function buildCustomerSlip(order) {
+    const restaurant = getRestaurantById(order.restaurantId);
+    const receiptDate = order.paidAt || order.createdAt || nowISO();
+
+    const itemRows = safeArray(order.items).map((item) => {
+      const qty = Number(item.qty || 0);
+      const unitPrice = Number(item.price || 0);
+      const lineTotal = qty * unitPrice;
+
+      return `
+      <tr>
+        <td class="item">${escapeHtml(item.name)}</td>
+        <td class="qty">${qty}</td>
+        <td class="amount">${escapeHtml(money(lineTotal))}</td>
+      </tr>
+    `;
+    }).join("");
+
+    return `
+    <section class="slip">
+      <div class="copy-badge">CUSTOMER COPY</div>
+      <div class="title">Food Court Kiosk</div>
+      <div class="sub-title">${escapeHtml(restaurant?.name || "")}</div>
+      <div class="meta">Receipt â€¢ ${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
+
+      <hr class="divider" />
+
+      <div class="row">
+        <div class="label">Order ID</div>
+        <div class="value"><b>${escapeHtml(order.id)}</b></div>
+      </div>
+      <div class="row">
+        <div class="label">Order Type</div>
+        <div class="value"><b>${escapeHtml(serviceText(order))}</b></div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th align="left">Item</th>
+            <th class="qty">Qty</th>
+            <th class="amount">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemRows}
+        </tbody>
+      </table>
+
+      <hr class="divider" />
+
+      <div class="totals">
+        <div class="row">
+          <div class="label">Subtotal</div>
+          <div class="value">${escapeHtml(money(order.subtotal || 0))}</div>
+        </div>
+        <div class="row">
+          <div class="label">Tax</div>
+          <div class="value">${escapeHtml(money(order.tax || 0))}</div>
+        </div>
+        <div class="row grand-total">
+          <div>Total</div>
+          <div>${escapeHtml(money(order.total || 0))}</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        Thank you<br>
+        Please wait for your order
+      </div>
+    </section>
+  `;
+  }
+
+  function buildRestaurantSlip(order) {
+    const restaurant = getRestaurantById(order.restaurantId);
+    const receiptDate = order.paidAt || order.createdAt || nowISO();
+
+    const itemRows = safeArray(order.items).map((item) => {
+      const qty = Number(item.qty || 0);
+
+      return `
+      <tr>
+        <td class="item">${escapeHtml(item.name)}</td>
+        <td class="qty">${qty}</td>
+      </tr>
+    `;
+    }).join("");
+
+    return `
+    <section class="slip">
+      <div class="copy-badge">RESTAURANT COPY</div>
+      <div class="title">${escapeHtml(restaurant?.name || "Restaurant")}</div>
+      <div class="meta">Order â€¢ ${escapeHtml(order.id)}</div>
+      <div class="meta">${escapeHtml(serviceText(order))}</div>
+      <div class="meta">${escapeHtml(new Date(receiptDate).toLocaleString())}</div>
+
+      <hr class="divider" />
+
+      <table class="kitchen-items">
+        <thead>
+          <tr>
+            <th class="item">Item</th>
+            <th class="qty">Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemRows}
+        </tbody>
+      </table>
+
+      <div class="kitchen-note">PAID ORDER â€¢ START PREPARATION</div>
+      <div class="prep-note">Give this slip to the waiter / restaurant</div>
+    </section>
+  `;
+  }
+
+  function buildTearSeparator() {
+    return `
+    <div class="tear-separator">
+      <div class="line"></div>
+      <div class="text">TEAR HERE</div>
+      <div class="line"></div>
+    </div>
+  `;
+  }
+
+  function buildFullReceiptMarkup(order) {
+    return `
+    <div class="print-shell">
+      <div class="print-root">
+        ${buildCustomerSlip(order)}
+        ${buildTearSeparator()}
+        ${buildRestaurantSlip(order)}
+      </div>
+    </div>
+  `;
+  }
+
+  async function renderReceiptPreview(orderId) {
+    const order = await getOrderSafe(orderId);
+    if (!order || !receiptModal || !printArea || !receiptHint) return;
+
+    currentReceiptOrderId = orderId;
+    receiptModal.classList.remove("hidden");
+    receiptHint.textContent = `Show/print this receipt. Order ID: ${order.id}`;
+
+    printArea.style.maxHeight = "calc(100vh - 250px)";
+    printArea.style.overflowY = "auto";
+    printArea.style.overflowX = "hidden";
+    printArea.style.paddingRight = "6px";
+    printArea.style.scrollBehavior = "smooth";
+
+    printArea.innerHTML = `
+    <style>${getReceiptCss()}</style>
+    ${buildFullReceiptMarkup(order)}
+  `;
+
+    printArea.scrollTop = 0;
+  }
+
+  async function openReceipt(orderId) {
+    await renderReceiptPreview(orderId);
+  }
+
+  async function printReceiptOnly(orderId) {
+    const order = await getOrderSafe(orderId);
+    if (!order) return false;
+
+    const restaurant = getRestaurantById(order.restaurantId);
+    const payload = {
+      ...order,
+      restaurantName: restaurant?.name || "Restaurant",
+      serviceType: order.serviceType || order.service_type || "",
+      tableNumber: order.tableNumber || order.table_number || ""
+    };
+
+    if (typeof FC.printReceiptSilently === "function") {
+      const oldPrintText = printBtn ? printBtn.textContent : "Print Receipt";
+      const oldDoneText = doneBtn ? doneBtn.textContent : "Done";
+
+      try {
+        if (printBtn) {
+          printBtn.disabled = true;
+          printBtn.classList.add("opacity-50");
+          printBtn.textContent = "Printing...";
+        }
+
+        if (doneBtn) {
+          doneBtn.disabled = true;
+          doneBtn.classList.add("opacity-50");
+          doneBtn.textContent = "Please wait...";
+        }
+
+        if (receiptHint) {
+          receiptHint.textContent = `Printing receipt for Order ID: ${order.id}...`;
+        }
+
+        await FC.printReceiptSilently(payload);
+        simulatePrinterPaperUseSafe();
+
+        if (receiptHint) {
+          receiptHint.textContent = `Receipt printed successfully. Order ID: ${order.id}`;
+        }
+
+        return true;
+      } catch (err) {
+        console.error("kiosk.js: silent print failed", err);
+        if (receiptHint) {
+          receiptHint.textContent = `Printing failed for Order ID: ${order.id}`;
+        }
+        alertSafe(`Printing failed: ${err.message || err}`);
+        return false;
+      } finally {
+        if (printBtn) {
+          printBtn.disabled = false;
+          printBtn.classList.remove("opacity-50");
+          printBtn.textContent = oldPrintText;
+        }
+
+        if (doneBtn) {
+          doneBtn.disabled = false;
+          doneBtn.classList.remove("opacity-50");
+          doneBtn.textContent = oldDoneText;
+        }
+      }
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0";
+    iframe.setAttribute("aria-hidden", "true");
+
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Receipt ${escapeHtml(order.id)}</title>
+        <style>${getReceiptCss()}</style>
+      </head>
+      <body>
+        ${buildFullReceiptMarkup(order)}
+      </body>
+    </html>
+  `);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } finally {
+        const cleanup = () => {
+          setTimeout(() => {
+            iframe.remove();
+          }, 500);
+        };
+
+        if ("onafterprint" in iframe.contentWindow) {
+          iframe.contentWindow.onafterprint = cleanup;
+        } else {
+          cleanup();
+        }
+      }
+    }, 350);
+
+    simulatePrinterPaperUseSafe();
+    return true;
+  }
+
+  async function closeReceipt() {
+    if (receiptModal) receiptModal.classList.add("hidden");
+
+    if (printArea) {
+      printArea.scrollTop = 0;
+      printArea.style.maxHeight = "";
+      printArea.style.overflowY = "";
+      printArea.style.overflowX = "";
+      printArea.style.paddingRight = "";
+      printArea.style.scrollBehavior = "";
+    }
+
+    if (awaitingOrderId) {
+      const o = await getOrderSafe(awaitingOrderId);
+      if (o && o.status === "paid") {
+        await updateOrderSafe(o.id, { status: "preparing" });
+      }
+    }
+
+    awaitingOrderId = null;
+    currentReceiptOrderId = null;
+    cart = [];
+    resetServiceSelection();
+    saveSession();
+    renderCart();
+    hideFlow();
+    await renderAll();
+  }
+
+  if (closeReceiptBtn) {
+    closeReceiptBtn.onclick = async () => {
+      await closeReceipt();
+    };
+  }
+
+  if (doneBtn) {
+    doneBtn.onclick = async () => {
+      await closeReceipt();
+    };
+  }
+
+  if (printBtn) {
+    printBtn.onclick = async () => {
+      if (!currentReceiptOrderId) return;
+      await printReceiptOnly(currentReceiptOrderId);
+    };
+  }
+
+  if (serviceModeDineIn) {
+    serviceModeDineIn.addEventListener("change", () => {
+      setServiceType("dine_in");
+      if (tableNumberInput) {
+        setTimeout(() => tableNumberInput.focus(), 30);
+      }
+    });
+  }
+
+  if (serviceModeTakeaway) {
+    serviceModeTakeaway.addEventListener("change", () => {
+      setServiceType("takeaway");
+    });
+  }
+
+  if (dineInOption) {
+    dineInOption.addEventListener("click", () => {
+      if (serviceModeDineIn) serviceModeDineIn.checked = true;
+      setServiceType("dine_in");
+      if (tableNumberInput) {
+        setTimeout(() => tableNumberInput.focus(), 30);
+      }
+    });
+  }
+
+  if (takeawayOption) {
+    takeawayOption.addEventListener("click", () => {
+      if (serviceModeTakeaway) serviceModeTakeaway.checked = true;
+      setServiceType("takeaway");
+    });
+  }
+
+  if (tableNumberInput) {
+    tableNumberInput.addEventListener("input", () => {
+      tableNumber = String(tableNumberInput.value || "").trim();
+      saveSession();
+      renderServicePanel();
+      renderCart();
+    });
+  }
+
+  if (elCheckout) {
+    elCheckout.onclick = async () => {
+      if (!cart.length) return;
+
+      const serviceSelection = getServiceSelection();
+      if (!serviceSelection.ok) {
+        if (serviceError) {
+          serviceError.textContent = serviceSelection.message;
+          serviceError.classList.remove("hidden");
+        }
+        return;
+      }
+
+      serviceType = serviceSelection.serviceType;
+      tableNumber = serviceSelection.tableNumber;
+      saveSession();
+      renderServicePanel();
+
+      const r = getRestaurant();
+      if (!r) {
+        alertSafe("No restaurant loaded.");
+        return;
+      }
+
+      if (!r.online) {
+        alertSafe("Restaurant is offline right now.");
+        return;
+      }
+
+      const allAvailable = cart.every((ci) => {
+        const mi = safeArray(r.menu).find((x) => x.id === ci.itemId);
+        return mi && mi.available;
+      });
+
+      const totals = computeTotals(cart);
+
+      try {
+        const order = await createOrderSafe({
+          restaurantId: r.id,
+          serviceType: serviceSelection.serviceType,
+          tableNumber: serviceSelection.tableNumber,
+          items: cart.map((x) => ({
+            ...x,
+            fast: !!safeArray(r.menu).find((m) => m.id === x.itemId)?.fast
+          })),
+          totals
+        });
+
+        awaitingOrderId = order.id;
+        saveSession();
+        renderFlow(order);
+        await refreshQueueCount();
+
+        if (allAvailable && r.online) {
+          setTimeout(async () => {
+            const o = await getOrderSafe(order.id);
+            if (o && o.status === "pending_approval") {
+              await updateOrderSafe(order.id, {
+                status: "approved",
+                approvedAt: nowISO()
+              });
+              logSafe(`Order ${order.id} auto-approved (restaurant online + items available).`);
+            }
+          }, 900);
+        }
+      } catch (err) {
+        console.error("Checkout failed:", err);
+        alertSafe(`Checkout failed: ${err.message || err}`);
+      }
+    };
+  }
+
+  if (elClearCart) {
+    elClearCart.onclick = () => {
+      clearCart();
+    };
+  }
+
+  if (elReset) {
+    elReset.onclick = async () => {
+      if (confirm("Reset demo state? This clears all orders and settings.")) {
+        try {
+          await FC.reset();
+        } catch (err) {
+          console.error("kiosk.js: reset failed", err);
+        }
+        location.reload();
+      }
+    };
+  }
+
+  if (elSearch) {
+    elSearch.addEventListener("input", () => {
+      renderMenu();
+    });
+  }
+
+  if (elCategory) {
+    elCategory.addEventListener("change", () => {
+      renderMenu();
+    });
+  }
+
+  setInterval(async () => {
+    if (!awaitingOrderId) return;
+    const o = await getOrderSafe(awaitingOrderId);
+    if (!o) return;
+    renderFlow(o);
+    await refreshQueueCount();
+  }, 900);
+
+  async function renderAll() {
+    if (renderBusy) {
+      rerenderRequested = true;
+      return;
+    }
+
+    renderBusy = true;
+
+    try {
+      renderTabs();
+      renderCategorySelect();
+      await renderMenu();
+      renderCart();
+      await refreshFlowPanel();
+    } catch (err) {
+      console.error("kiosk.js: renderAll failed", err);
+    } finally {
+      renderBusy = false;
+      if (rerenderRequested) {
+        rerenderRequested = false;
+        renderAll();
+      }
     }
   }
 
-  m.available = nextAvailable;
-  FC.setState(s);
-  FC.log(`Menu item ${m.name} available=${m.available}`);
-  return m;
-};
+  await seedSafe();
+  await handleStripeReturn();
+  await renderAll();
 
-// ---------- Ads ----------
-FC.trackAdImpression = function (adId) {
-  const s = FC.getState();
-  s.adMetrics.impressions[adId] = (s.adMetrics.impressions[adId] || 0) + 1;
-  FC.setState(s);
-};
+  window.addEventListener("fc:state-changed", async () => {
+    await renderAll();
+    if (awaitingOrderId) {
+      const o = await getOrderSafe(awaitingOrderId);
+      if (o) renderFlow(o);
+    }
+  });
 
-FC.resetAdMetrics = function () {
-  const s = FC.getState();
-  s.adMetrics = { impressions: {}, totalSeconds: 0 };
-  FC.setState(s);
-  FC.log("Ad metrics reset.");
-};
-
-// ---------- Hardware Layer (Simulated) ----------
-FC.getDevices = function () {
-  const s = FC.getState();
-  return s.devices || {};
-};
-
-FC.deviceLog = function (message, level = "INFO") {
-  const s = FC.getState();
-  s.deviceLogs = s.deviceLogs || [];
-  s.deviceLogs.unshift({ at: FC.nowISO(), level, message });
-  s.deviceLogs = s.deviceLogs.slice(0, 50);
-  FC.setState(s);
-};
-
-FC.setDevice = function (deviceKey, patch) {
-  const s = FC.getState();
-  s.devices = s.devices || {};
-  s.devices[deviceKey] = { ...(s.devices[deviceKey] || {}), ...patch };
-  FC.setState(s);
-  FC.deviceLog(`${deviceKey} updated: ${JSON.stringify(patch)}`);
-  return s.devices[deviceKey];
-};
-
-FC.toggleDeviceOnline = function (deviceKey) {
-  const d = FC.getDevices()[deviceKey];
-  if (!d) return null;
-  return FC.setDevice(deviceKey, { online: !d.online });
-};
-
-FC.simulateLatency = function () {
-  const ms = 20 + Math.floor(Math.random() * 180);
-  FC.setDevice("network", { latencyMs: ms });
-  return ms;
-};
-
-FC.simulatePrinterPaperUse = function () {
-  const d = FC.getDevices().printer || { paper: 100 };
-  const next = Math.max(0, (d.paper || 0) - (2 + Math.floor(Math.random() * 6)));
-  FC.setDevice("printer", { paper: next, lastPrintAt: FC.nowISO() });
-  if (next <= 10) FC.deviceLog("Printer paper low.", "WARN");
-  if (next === 0) FC.deviceLog("Printer out of paper.", "ERROR");
-};
-
-FC.simulateGatewayVerify = function (success = true) {
-  FC.setDevice("paymentGateway", { lastVerifyAt: FC.nowISO() });
-  FC.deviceLog(
-    success ? "Payment verified by gateway." : "Payment failed at gateway.",
-    success ? "INFO" : "ERROR"
-  );
-};
-
-FC.hardwareHealth = function () {
-  const d = FC.getDevices();
-  const issues = [];
-
-  if (!d.network?.online) issues.push("Network offline");
-  if ((d.network?.latencyMs || 0) > 150) issues.push("High network latency");
-  if (!d.printer?.online) issues.push("Printer offline");
-  if ((d.printer?.paper ?? 100) <= 10) issues.push("Printer paper low");
-  if (!d.paymentGateway?.online) issues.push("Payment gateway offline");
-  if (!d.kioskDisplay?.online) issues.push("Kiosk display offline");
-  if (d.kioskDisplay?.locked) issues.push("Kiosk is locked");
-
-  return { ok: issues.length === 0, issues };
-};
-
-// ---------- Realtime ----------
-FC.startRealtimeSync = function () {
-  if (FC._realtimeStarted) return;
-  const db = FC._db();
-  if (!db || typeof db.channel !== "function") return;
-
-  FC._realtimeStarted = true;
-
-  try {
-    FC._realtimeChannel = db
-      .channel("fc-live-sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        async () => {
-          try {
-            await FC.fetchAllOrders();
-          } catch (err) {
-            console.warn("Realtime orders refresh failed:", err);
-          }
-          FC._emitStateChanged();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "restaurants" },
-        async () => {
-          try {
-            await FC.refreshCatalogFromSupabase({ silent: true });
-          } catch (err) {
-            console.warn("Realtime restaurants refresh failed:", err);
-          }
-          FC._emitStateChanged();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "menu_items" },
-        async () => {
-          try {
-            await FC.refreshCatalogFromSupabase({ silent: true });
-          } catch (err) {
-            console.warn("Realtime menu refresh failed:", err);
-          }
-          FC._emitStateChanged();
-        }
-      )
-      .subscribe((status) => {
-        console.log("Realtime status:", status);
-      });
-  } catch (err) {
-    console.warn("Realtime sync could not start:", err);
-  }
-};
+  window.addEventListener("focus", () => {
+    renderAll();
+  });
+})();
