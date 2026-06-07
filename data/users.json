@@ -8,19 +8,54 @@
   ],
   "restaurants": [
     {
-      "username": "spicehub",
+      "username": "burgerjeez",
       "password": "1234",
       "restaurantId": "r1"
     },
     {
-      "username": "pastaco",
+      "username": "widewaypizza",
       "password": "1234",
       "restaurantId": "r2"
     },
     {
-      "username": "greenbowl",
+      "username": "icecreamfrio",
       "password": "1234",
       "restaurantId": "r3"
+    },
+    {
+      "username": "anonymousshinwari",
+      "password": "1234",
+      "restaurantId": "r4"
+    },
+    {
+      "username": "scholarbiryani",
+      "password": "1234",
+      "restaurantId": "r5"
+    },
+    {
+      "username": "chinsoywok",
+      "password": "1234",
+      "restaurantId": "r6"
+    },
+    {
+      "username": "tikkatalk",
+      "password": "1234",
+      "restaurantId": "r7"
+    },
+    {
+      "username": "pastavista",
+      "password": "1234",
+      "restaurantId": "r8"
+    },
+    {
+      "username": "donerdonner",
+      "password": "1234",
+      "restaurantId": "r9"
+    },
+    {
+      "username": "chaishaicafe",
+      "password": "1234",
+      "restaurantId": "r10"
     }
   ],
   "kiosk": {
