@@ -1,1055 +1,1785 @@
-window.FC = window.FC || {};
+(async function () {
+  window.FC = window.FC || {};
 
-FC.KEY = "fc_state_v3";
-FC._realtimeStarted = false;
-FC._realtimeChannel = null;
+  const safeArr = (v) => Array.isArray(v) ? v : [];
+  const safeObj = (v) => (v && typeof v === "object" ? v : {});
+  const setText = (el, value) => { if (el) el.textContent = String(value ?? ""); };
 
-// ---------- Helpers ----------
-FC.nowISO = () => new Date().toISOString();
-
-FC._safeArray = function (v) {
-  return Array.isArray(v) ? v : [];
-};
-
-FC._safeObject = function (v) {
-  return v && typeof v === "object" ? v : {};
-};
-
-FC._clone = function (v) {
   try {
-    return JSON.parse(JSON.stringify(v));
-  } catch {
-    return v;
+    if (typeof FC.seed === "function") {
+      await FC.seed();
+    }
+  } catch (err) {
+    console.error("admin.js: seed failed", err);
   }
-};
 
-FC._db = function () {
-  return FC.supabase || window.DB || null;
-};
+  const loginBox = document.getElementById("loginBox");
+  const appBox = document.getElementById("appBox");
+  const logoutBtn = document.getElementById("logoutBtn");
 
-FC._hasDb = function () {
-  const db = FC._db();
-  return !!(db && typeof db.from === "function");
-};
+  const userInput = document.getElementById("userInput");
+  const passInput = document.getElementById("passInput");
+  const loginBtn = document.getElementById("loginBtn");
+  const loginErr = document.getElementById("loginErr");
 
-FC._emitStateChanged = function () {
-  window.dispatchEvent(new CustomEvent("fc:state-changed"));
-};
+  const mRevenue = document.getElementById("mRevenue");
+  const mOrders = document.getElementById("mOrders");
+  const mPeak = document.getElementById("mPeak");
+  const mPayRate = document.getElementById("mPayRate");
 
-FC._normalizeServiceType = function (value) {
-  const v = String(value || "").trim().toLowerCase();
+  const restaurantsPanel = document.getElementById("restaurantsPanel");
+  const analyticsPanel = document.getElementById("analyticsPanel");
+  const adsPanel = document.getElementById("adsPanel");
+  const logPanel = document.getElementById("logPanel");
 
-  if (v === "dine_in" || v === "dine-in" || v === "dine in") return "dine_in";
-  if (v === "takeaway" || v === "take_away" || v === "take-away" || v === "take away") return "takeaway";
+  const exportAllBtn = document.getElementById("exportAllBtn");
+  const resetAdsBtn = document.getElementById("resetAdsBtn");
 
-  return "";
-};
+  const sessKey = "fc_admin_session";
+  let loggedIn = false;
+  let isRendering = false;
+  let rerenderRequested = false;
 
-FC._normalizeTableNumber = function (serviceType, value) {
-  const table = String(value || "").trim();
-  return serviceType === "dine_in" ? table : "";
-};
+  try {
+    const sess = JSON.parse(localStorage.getItem(sessKey) || "{}");
+    loggedIn = !!sess.loggedIn;
+  } catch {
+    loggedIn = false;
+  }
 
-FC._normalizePaymentMethod = function (value) {
-  const v = String(value || "").trim().toLowerCase();
+  function getStateSafe() {
+    try {
+      return typeof FC.getState === "function" ? (FC.getState() || {}) : {};
+    } catch {
+      return {};
+    }
+  }
 
-  if (v === "cash" || v === "cod" || v === "counter") return "cash";
-  if (v === "online" || v === "stripe" || v === "card" || v === "qr") return "online";
+  function saveStateSafe(state) {
+    try {
+      if (typeof FC.setState === "function") {
+        FC.setState(state);
+      } else if (FC.KEY) {
+        localStorage.setItem(FC.KEY, JSON.stringify(state));
+      }
+    } catch (err) {
+      console.error("admin.js: failed to save state", err);
+    }
+  }
 
-  return "online";
-};
+  function money(amount) {
+    const n = Number(amount || 0);
+    try {
+      if (typeof FC.money === "function") return FC.money(n);
+    } catch {}
+    return new Intl.NumberFormat("en-PK", {
+      style: "currency",
+      currency: "PKR",
+      maximumFractionDigits: 0
+    }).format(n);
+  }
 
-FC._normalizeItemAddons = function (addons) {
-  return FC._safeArray(addons)
-    .map((addon) => {
-      const a = FC._safeObject(addon);
-      const name = String(a.name || a.title || "").trim();
+  function isToday(iso) {
+    try {
+      if (typeof FC.isToday === "function") return FC.isToday(iso);
+    } catch {}
+    if (!iso) return false;
+    const d = new Date(iso);
+    const n = new Date();
+    return (
+      d.getFullYear() === n.getFullYear() &&
+      d.getMonth() === n.getMonth() &&
+      d.getDate() === n.getDate()
+    );
+  }
 
-      if (!name) return null;
+  function nowISO() {
+    try {
+      if (typeof FC.nowISO === "function") return FC.nowISO();
+    } catch {}
+    return new Date().toISOString();
+  }
+
+  function logSafe(message) {
+    try {
+      if (typeof FC.log === "function") FC.log(message);
+    } catch (err) {
+      console.error("admin.js log failed:", err);
+    }
+  }
+
+  function normalizeServiceType(value) {
+    const v = String(value || "").trim().toLowerCase();
+
+    if (v === "dine_in" || v === "dine-in" || v === "dine in") return "dine_in";
+    if (v === "takeaway" || v === "take_away" || v === "take-away" || v === "take away") return "takeaway";
+
+    return "";
+  }
+
+  function normalizeTableNumber(serviceType, value) {
+    const table = String(value || "").trim();
+    return serviceType === "dine_in" ? table : "";
+  }
+
+  function serviceTypeLabel(order) {
+    const type = normalizeServiceType(
+      order?.serviceType ||
+      order?.service_type ||
+      order?.orderType ||
+      order?.order_type ||
+      ""
+    );
+
+    if (type === "dine_in") return "Dine In";
+    if (type === "takeaway") return "Takeaway";
+
+    return "Not selected";
+  }
+
+  function tableNumberOf(order) {
+    const type = normalizeServiceType(
+      order?.serviceType ||
+      order?.service_type ||
+      order?.orderType ||
+      order?.order_type ||
+      ""
+    );
+
+    return normalizeTableNumber(
+      type,
+      order?.tableNumber ||
+      order?.table_number ||
+      order?.tableNo ||
+      order?.table_no ||
+      ""
+    );
+  }
+
+  function serviceSummary(order) {
+    const type = normalizeServiceType(
+      order?.serviceType ||
+      order?.service_type ||
+      order?.orderType ||
+      order?.order_type ||
+      ""
+    );
+
+    const table = tableNumberOf(order);
+
+    if (type === "dine_in") {
+      return table ? `Dine In • Table ${table}` : "Dine In";
+    }
+
+    if (type === "takeaway") return "Takeaway";
+
+    return "Not selected";
+  }
+
+  function normalizeOrder(order) {
+    if (!order) return null;
+
+    // Supabase row shape
+    if ("restaurant_id" in order || "order_items" in order) {
+      const serviceType = normalizeServiceType(order.service_type || order.serviceType || "");
+      const tableNumber = normalizeTableNumber(serviceType, order.table_number || order.tableNumber || "");
 
       return {
-        id: String(a.id || a.addonId || a.key || name).trim(),
-        name,
-        price: Number(a.price || 0),
-        qty: Math.max(1, Number(a.qty || a.quantity || 1))
+        id: order.id,
+        restaurantId: order.restaurant_id,
+        serviceType,
+        tableNumber,
+        items: safeArr(order.order_items).map((it) => ({
+          itemId: it.menu_item_id ?? null,
+          name: it.name,
+          price: Number(it.price || 0),
+          qty: Number(it.qty || 0),
+          fast: !!it.fast
+        })),
+        subtotal: Number(order.subtotal || 0),
+        tax: Number(order.tax || 0),
+        total: Number(order.total || 0),
+        currency: order.currency || "PKR",
+        status: order.status || "pending_approval",
+        rejectReason: order.reject_reason || null,
+        createdAt: order.created_at || null,
+        approvedAt: order.approved_at || null,
+        paidAt: order.paid_at || null,
+        payment: safeObj(order.payment)
       };
-    })
-    .filter(Boolean);
-};
-
-FC._addonsTotal = function (addons) {
-  return FC._normalizeItemAddons(addons).reduce((sum, addon) => {
-    return sum + Number(addon.price || 0) * Number(addon.qty || 1);
-  }, 0);
-};
-
-FC._itemNameWithAddons = function (name, addons) {
-  const baseName = String(name || "Item").trim();
-  const normalizedAddons = FC._normalizeItemAddons(addons);
-
-  if (!normalizedAddons.length) return baseName;
-
-  const addonText = normalizedAddons
-    .map((addon) => {
-      const qty = Number(addon.qty || 1);
-      return qty > 1 ? `${addon.name} x${qty}` : addon.name;
-    })
-    .join(", ");
-
-  return `${baseName} (+ ${addonText})`;
-};
-
-FC._normalizeOrderItem = function (item) {
-  const it = FC._safeObject(item);
-  const addons = FC._normalizeItemAddons(it.addons || it.selectedAddons || it.selected_addons || it.options || []);
-  const addonTotalFromAddons = FC._addonsTotal(addons);
-  const addonTotal = addonTotalFromAddons || Number(it.addonTotal || it.addon_total || 0);
-  const qty = Math.max(1, Number(it.qty || it.quantity || 1));
-
-  const basePrice =
-    "basePrice" in it
-      ? Number(it.basePrice || 0)
-      : "base_price" in it
-        ? Number(it.base_price || 0)
-        : Math.max(0, Number(it.price || 0) - addonTotal);
-
-  const price =
-    "price" in it
-      ? Number(it.price || 0)
-      : basePrice + addonTotal;
-
-  const originalName = String(it.originalName || it.baseName || it.name || "Item").trim();
-  const displayName = String(it.displayName || it.display_name || FC._itemNameWithAddons(originalName, addons)).trim();
-
-  return {
-    itemId: it.itemId ?? it.menu_item_id ?? it.id ?? null,
-    name: displayName,
-    originalName,
-    price,
-    basePrice,
-    addonTotal,
-    addons,
-    qty,
-    fast: !!it.fast,
-    image: String(it.image || it.imageUrl || it.image_url || "").trim(),
-    description: String(it.description || "").trim()
-  };
-};
-
-
-FC._absoluteUrl = function (path, params = {}) {
-  const url = new URL(path, window.location.origin);
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && String(value).trim() !== "") {
-      url.searchParams.set(key, String(value));
     }
-  });
 
-  return url.toString();
-};
-
-FC.getStaffPin = function () {
-  const s = FC.getState();
-
-  const candidates = [
-    s.settings?.staffPin,
-    s.settings?.cashierPin,
-    s.settings?.adminPin,
-    localStorage.getItem("fc_staff_pin"),
-    localStorage.getItem("staffPin"),
-    localStorage.getItem("cashierPin")
-  ];
-
-  const found = candidates.find((x) => String(x || "").trim());
-  return String(found || "1234").trim();
-};
-
-FC.verifyStaffPin = function (pin) {
-  return String(pin || "").trim() === FC.getStaffPin();
-};
-
-FC.orderTrackingUrl = function (orderId) {
-  return FC._absoluteUrl("/order-track.html", {
-    order_id: orderId
-  });
-};
-
-FC.cashConfirmUrl = function (orderId, cashToken) {
-  return FC._absoluteUrl("/cash-confirm.html", {
-    order_id: orderId,
-    cash_token: cashToken || ""
-  });
-};
-
-// ---------- Default State ----------
-FC.defaultState = function () {
-  return {
-    seededAt: null,
-    restaurants: [],
-    settings: {
-      currency: "PKR",
-      taxRate: 0.13,
-      idleAdsAfterSeconds: 240,
-      paymentTimeoutSeconds: 180,
-      kioskPin: "1234",
-      staffPin: "1234"
-    },
-    ads: [],
-    orders: [],
-    adMetrics: { impressions: {}, totalSeconds: 0 },
-    devices: {
-      network: { online: true, latencyMs: 42 },
-      printer: { online: true, paper: 85, lastPrintAt: null },
-      paymentGateway: { online: true, provider: "Stripe / Cash Counter", lastVerifyAt: null },
-      kioskDisplay: { online: true, brightness: 75, locked: false },
-      localCache: { enabled: true, queuedOrders: 0 }
-    },
-    deviceLogs: [],
-    logs: []
-  };
-};
-
-FC._normalizeState = function (raw) {
-  const base = FC.defaultState();
-  const s = FC._safeObject(raw);
-
-  return {
-    ...base,
-    ...s,
-    settings: {
-      ...base.settings,
-      ...FC._safeObject(s.settings)
-    },
-    adMetrics: {
-      ...base.adMetrics,
-      ...FC._safeObject(s.adMetrics),
-      impressions: {
-        ...base.adMetrics.impressions,
-        ...FC._safeObject(s.adMetrics?.impressions)
-      }
-    },
-    devices: {
-      ...base.devices,
-      ...FC._safeObject(s.devices),
-      network: {
-        ...base.devices.network,
-        ...FC._safeObject(s.devices?.network)
-      },
-      printer: {
-        ...base.devices.printer,
-        ...FC._safeObject(s.devices?.printer)
-      },
-      paymentGateway: {
-        ...base.devices.paymentGateway,
-        ...FC._safeObject(s.devices?.paymentGateway)
-      },
-      kioskDisplay: {
-        ...base.devices.kioskDisplay,
-        ...FC._safeObject(s.devices?.kioskDisplay)
-      },
-      localCache: {
-        ...base.devices.localCache,
-        ...FC._safeObject(s.devices?.localCache)
-      }
-    },
-    restaurants: FC._safeArray(s.restaurants),
-    ads: FC._safeArray(s.ads),
-    orders: FC._safeArray(s.orders).map(FC._normalizeOrder).filter(Boolean),
-    deviceLogs: FC._safeArray(s.deviceLogs),
-    logs: FC._safeArray(s.logs)
-  };
-};
-
-// ---------- Local State ----------
-FC.readLocalState = function () {
-  const raw = localStorage.getItem(FC.KEY);
-  if (!raw) return FC.defaultState();
-
-  try {
-    return FC._normalizeState(JSON.parse(raw));
-  } catch {
-    return FC.defaultState();
-  }
-};
-
-FC.writeLocalState = function (state) {
-  localStorage.setItem(FC.KEY, JSON.stringify(FC._normalizeState(state)));
-};
-
-FC.getState = function () {
-  return FC.readLocalState();
-};
-
-FC.setState = function (state, options = {}) {
-  const prevJson = localStorage.getItem(FC.KEY) || "";
-  const nextState = FC._normalizeState(state);
-  const nextJson = JSON.stringify(nextState);
-
-  FC.writeLocalState(nextState);
-
-  if (!options.silent && prevJson !== nextJson) {
-    FC._emitStateChanged();
-  }
-
-  return nextState;
-};
-
-// ---------- Logs ----------
-FC.log = function (message) {
-  const s = FC.getState();
-  s.logs.unshift({ at: FC.nowISO(), message });
-  s.logs = s.logs.slice(0, 30);
-  FC.setState(s);
-};
-
-// ---------- Seed / Reset ----------
-FC.buildSeedState = async function () {
-  const state = FC.defaultState();
-
-  try {
-    const [rRes, aRes] = await Promise.all([
-      fetch("data/restaurants.json", { cache: "no-store" }),
-      fetch("data/ads.json", { cache: "no-store" })
-    ]);
-
-    if (!rRes.ok) throw new Error(`restaurants.json HTTP ${rRes.status}`);
-    if (!aRes.ok) throw new Error(`ads.json HTTP ${aRes.status}`);
-
-    const r = await rRes.json();
-    const a = await aRes.json();
-
-    state.seededAt = FC.nowISO();
-    state.restaurants = FC._safeArray(r.restaurants);
-    state.settings = {
-      ...state.settings,
-      ...FC._safeObject(r.settings)
-    };
-    state.ads = FC._safeArray(a.ads);
-  } catch (err) {
-    console.error("FC.buildSeedState failed:", err);
-    state.seededAt = FC.nowISO();
-  }
-
-  return FC._normalizeState(state);
-};
-
-FC._clearSessions = function () {
-  localStorage.removeItem("fc_session");
-  localStorage.removeItem("fc_restaurant_session");
-  localStorage.removeItem("fc_admin_session");
-};
-
-FC.reset = async function () {
-  FC._clearSessions();
-  localStorage.removeItem(FC.KEY);
-
-  const db = FC._db();
-  if (db) {
-    try {
-      await db.from("orders").delete().not("id", "is", null);
-    } catch (err) {
-      console.warn("Cloud order reset skipped/failed:", err);
-    }
-  }
-
-  const seeded = await FC.buildSeedState();
-  FC.setState(seeded);
-  FC.log("System reset.");
-};
-
-FC.seed = async function () {
-  let state = FC.readLocalState();
-
-  if (!state.seededAt || !state.restaurants.length) {
-    state = await FC.buildSeedState();
-    FC.setState(state, { silent: true });
-  }
-
-  try {
-    const db = FC._db();
-
-    if (db) {
-      const [{ count: restCount, error: restErr }, { count: itemCount, error: itemErr }] =
-        await Promise.all([
-          db.from("restaurants").select("*", { count: "exact", head: true }),
-          db.from("menu_items").select("*", { count: "exact", head: true })
-        ]);
-
-      if (!restErr && !itemErr && restCount > 0 && itemCount > 0) {
-        await FC.refreshCatalogFromSupabase({ silent: true });
-      } else {
-        console.warn("Supabase catalog is empty. Using local JSON seed.");
-      }
-    }
-  } catch (err) {
-    console.warn("Supabase catalog check failed. Using local JSON seed.", err);
-  }
-
-  await FC.fetchAllOrders().catch(() => {});
-
-  FC.startRealtimeSync();
-  FC._emitStateChanged();
-};
-
-// ---------- IDs ----------
-FC.uid = function (prefix = "ORD") {
-  return (
-    prefix +
-    "-" +
-    Math.random().toString(16).slice(2, 8).toUpperCase() +
-    "-" +
-    Date.now().toString().slice(-5)
-  );
-};
-
-// ---------- Order Normalization ----------
-FC._normalizeOrder = function (order) {
-  if (!order) return null;
-
-  if ("restaurant_id" in order || "order_items" in order) {
-    const serviceType = FC._normalizeServiceType(order.service_type || order.serviceType || "");
-    const tableNumber = FC._normalizeTableNumber(serviceType, order.table_number || order.tableNumber || "");
-    const payment = FC._safeObject(order.payment);
+    // Local/demo shape
+    const serviceType = normalizeServiceType(order.serviceType || order.service_type || order.orderType || "");
+    const tableNumber = normalizeTableNumber(serviceType, order.tableNumber || order.table_number || order.tableNo || "");
 
     return {
       id: order.id,
-      restaurantId: order.restaurant_id,
-      status: order.status || "pending_approval",
+      restaurantId: order.restaurantId,
       serviceType,
       tableNumber,
+      items: safeArr(order.items),
       subtotal: Number(order.subtotal || 0),
       tax: Number(order.tax || 0),
       total: Number(order.total || 0),
       currency: order.currency || "PKR",
-      rejectReason: order.reject_reason || null,
-      createdAt: order.created_at || null,
-      approvedAt: order.approved_at || null,
-      paidAt: order.paid_at || null,
-      payment,
-      paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.payment_method || "online"),
-      trackingUrl: FC.orderTrackingUrl(order.id),
-      cashConfirmUrl: payment.cashToken ? FC.cashConfirmUrl(order.id, payment.cashToken) : "",
-      items: FC._safeArray(order.order_items).map((it) =>
-        FC._normalizeOrderItem({
-          itemId: it.menu_item_id ?? null,
-          name: it.name || "",
-          originalName: it.original_name || it.originalName || it.base_name || "",
-          price: Number(it.price || 0),
-          basePrice: Number(it.base_price || it.basePrice || it.price || 0),
-          addonTotal: Number(it.addon_total || it.addonTotal || 0),
-          qty: Number(it.qty || 0),
-          fast: !!it.fast,
-          addons: it.addons || it.selected_addons || it.options || [],
-          image: it.image || it.image_url || "",
-          description: it.description || ""
-        })
-      )
+      status: order.status || "pending_approval",
+      rejectReason: order.rejectReason || null,
+      createdAt: order.createdAt || null,
+      approvedAt: order.approvedAt || null,
+      paidAt: order.paidAt || null,
+      payment: safeObj(order.payment)
     };
   }
 
-  const serviceType = FC._normalizeServiceType(order.serviceType || order.service_type || order.orderType || "");
-  const tableNumber = FC._normalizeTableNumber(serviceType, order.tableNumber || order.table_number || order.tableNo || "");
-  const payment = FC._safeObject(order.payment);
+  async function fetchOrdersFromSupabase() {
+    if (!FC.supabase || typeof FC.supabase.from !== "function") {
+      return null;
+    }
 
-  return {
-    id: order.id,
-    restaurantId: order.restaurantId,
-    status: order.status || "pending_approval",
-    serviceType,
-    tableNumber,
-    subtotal: Number(order.subtotal || 0),
-    tax: Number(order.tax || 0),
-    total: Number(order.total || 0),
-    currency: order.currency || "PKR",
-    rejectReason: order.rejectReason || null,
-    createdAt: order.createdAt || null,
-    approvedAt: order.approvedAt || null,
-    paidAt: order.paidAt || null,
-    payment,
-    paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.paymentMethod || "online"),
-    trackingUrl: FC.orderTrackingUrl(order.id),
-    cashConfirmUrl: payment.cashToken ? FC.cashConfirmUrl(order.id, payment.cashToken) : "",
-    items: FC._safeArray(order.items).map((it) => FC._normalizeOrderItem(it))
-  };
-};
+    try {
+      const { data, error } = await FC.supabase
+        .from("orders")
+        .select(`
+          *,
+          order_items (
+            menu_item_id,
+            name,
+            price,
+            qty,
+            fast
+          )
+        `)
+        .order("created_at", { ascending: false });
 
-FC._cacheOrders = function (orders, silent = true) {
-  const s = FC.getState();
-  s.orders = FC._safeArray(orders).map(FC._normalizeOrder).filter(Boolean);
-  FC.setState(s, { silent });
-};
+      if (error) throw error;
 
-// ---------- Orders ----------
-FC.fetchAllOrders = async function () {
-  const db = FC._db();
-
-  if (db) {
-    const { data, error } = await db
-      .from("orders")
-      .select(`
-        *,
-        order_items (*)
-      `)
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    const orders = FC._safeArray(data).map(FC._normalizeOrder).filter(Boolean);
-    FC._cacheOrders(orders, true);
-    return orders;
+      return safeArr(data).map(normalizeOrder).filter(Boolean);
+    } catch (err) {
+      console.warn("admin.js: Supabase orders fetch failed, falling back to local state.", err);
+      return null;
+    }
   }
 
-  const s = FC.getState();
-  return FC._safeArray(s.orders).map(FC._normalizeOrder).filter(Boolean);
-};
+  async function getDashboardData() {
+    const state = getStateSafe();
 
-FC.fetchOrdersForRestaurant = async function (restaurantId) {
-  const db = FC._db();
+    let orders = await fetchOrdersFromSupabase();
+    if (!orders) {
+      orders = safeArr(state.orders).map(normalizeOrder).filter(Boolean);
+    }
 
-  if (db) {
-    const { data, error } = await db
-      .from("orders")
-      .select(`
-        *,
-        order_items (*)
-      `)
-      .eq("restaurant_id", restaurantId)
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    const orders = FC._safeArray(data).map(FC._normalizeOrder).filter(Boolean);
-    return orders;
+    return {
+      state,
+      restaurants: safeArr(state.restaurants),
+      ads: safeArr(state.ads),
+      logs: safeArr(state.logs),
+      adMetrics: safeObj(state.adMetrics),
+      orders
+    };
   }
 
-  const s = FC.getState();
-  return FC._safeArray(s.orders)
-    .map(FC._normalizeOrder)
-    .filter((o) => o && o.restaurantId === restaurantId);
-};
+  function computeMetrics(data) {
+    const ordersToday = safeArr(data.orders).filter((o) => isToday(o.createdAt));
+    const paidStatuses = new Set(["paid", "preparing", "ready", "completed"]);
+    const paidToday = ordersToday.filter((o) => paidStatuses.has(o.status));
 
-FC.ordersForRestaurant = async function (restaurantId) {
-  return await FC.fetchOrdersForRestaurant(restaurantId);
-};
+    const revenue = paidToday.reduce((sum, o) => sum + Number(o.total || 0), 0);
 
-FC.getOrder = async function (orderId) {
-  const db = FC._db();
+    const byHour = {};
+    for (const o of paidToday) {
+      const dt = new Date(o.paidAt || o.createdAt || Date.now());
+      const h = dt.getHours();
+      byHour[h] = (byHour[h] || 0) + 1;
+    }
 
-  if (db) {
-    const { data, error } = await db
-      .from("orders")
-      .select(`
-        *,
-        order_items (*)
-      `)
-      .eq("id", orderId)
-      .maybeSingle();
-
-    if (error) throw error;
-    if (!data) return null;
-
-    const order = FC._normalizeOrder(data);
-
-    const s = FC.getState();
-    const idx = s.orders.findIndex((x) => x.id === order.id);
-    if (idx === -1) s.orders.unshift(order);
-    else s.orders[idx] = order;
-    FC.setState(s, { silent: true });
-
-    return order;
-  }
-
-  const s = FC.getState();
-  const found = FC._safeArray(s.orders).find((o) => o.id === orderId);
-  return found ? FC._normalizeOrder(found) : null;
-};
-
-FC.createOrder = async function ({
-  restaurantId,
-  items,
-  totals,
-  serviceType,
-  tableNumber,
-  paymentMethod = "online"
-}) {
-  const normalizedServiceType = FC._normalizeServiceType(serviceType);
-  const normalizedTableNumber = FC._normalizeTableNumber(normalizedServiceType, tableNumber);
-  const normalizedPaymentMethod = FC._normalizePaymentMethod(paymentMethod);
-
-  const orderId = FC.uid("ORD");
-  const trackingToken = FC.uid("TRK");
-  const cashToken = normalizedPaymentMethod === "cash" ? FC.uid("CASH") : null;
-
-  const payment = {
-    attemptCount: 0,
-    success: false,
-    method: normalizedPaymentMethod,
-    paymentMethod: normalizedPaymentMethod,
-    provider: normalizedPaymentMethod === "cash" ? "Cash Counter" : "Stripe",
-    qrPayload: null,
-    trackingToken,
-    trackingUrl: FC.orderTrackingUrl(orderId),
-    cashToken,
-    cashConfirmUrl: cashToken ? FC.cashConfirmUrl(orderId, cashToken) : "",
-    cashConfirmedAt: null,
-    cashConfirmedBy: null
-  };
-
-  const order = {
-    id: orderId,
-    restaurantId,
-    status: "pending_approval",
-    serviceType: normalizedServiceType,
-    tableNumber: normalizedTableNumber,
-    subtotal: Number(totals?.subtotal || 0),
-    tax: Number(totals?.tax || 0),
-    total: Number(totals?.total || 0),
-    currency: "PKR",
-    rejectReason: null,
-    createdAt: FC.nowISO(),
-    approvedAt: null,
-    paidAt: null,
-    payment,
-    paymentMethod: normalizedPaymentMethod,
-    trackingUrl: payment.trackingUrl,
-    cashConfirmUrl: payment.cashConfirmUrl,
-    items: FC._safeArray(items).map((it) => FC._normalizeOrderItem(it))
-  };
-
-  const db = FC._db();
-
-  if (db) {
-    const { error: orderError } = await db.from("orders").insert({
-      id: order.id,
-      restaurant_id: order.restaurantId,
-      status: order.status,
-      service_type: order.serviceType,
-      table_number: order.tableNumber,
-      subtotal: order.subtotal,
-      tax: order.tax,
-      total: order.total,
-      currency: order.currency,
-      reject_reason: order.rejectReason,
-      created_at: order.createdAt,
-      approved_at: order.approvedAt,
-      paid_at: order.paidAt,
-      payment: order.payment
+    let peakHour = "—";
+    let peakCount = -1;
+    Object.keys(byHour).forEach((h) => {
+      if (byHour[h] > peakCount) {
+        peakCount = byHour[h];
+        peakHour = `${String(h).padStart(2, "0")}:00`;
+      }
     });
 
-    if (orderError) throw orderError;
+    let attempts = 0;
+    let successes = 0;
+    for (const o of ordersToday) {
+      attempts += Number(o.payment?.attemptCount || 0);
+      if (o.payment?.success) successes += 1;
+    }
 
-    const itemRows = order.items.map((it) => ({
-      order_id: order.id,
-      menu_item_id: it.itemId,
-      name: it.name,
-      original_name: it.originalName || it.name,
-      price: it.price,
-      base_price: it.basePrice,
-      addon_total: it.addonTotal,
-      qty: it.qty,
-      fast: it.fast,
-      addons: FC._normalizeItemAddons(it.addons),
-      image: it.image || "",
-      description: it.description || ""
-    }));
+    const payRate = attempts > 0 ? Math.round((successes / attempts) * 100) : 0;
 
-    const fallbackItemRows = order.items.map((it) => ({
-      order_id: order.id,
-      menu_item_id: it.itemId,
-      name: it.name,
-      price: it.price,
-      qty: it.qty,
-      fast: it.fast
-    }));
+    const dineInCount = paidToday.filter((o) => o.serviceType === "dine_in").length;
+    const takeawayCount = paidToday.filter((o) => o.serviceType === "takeaway").length;
 
-    let { error: itemError } = await db.from("order_items").insert(itemRows);
+    return {
+      revenue,
+      ordersTodayCount: ordersToday.length,
+      peakHour,
+      payRate,
+      dineInCount,
+      takeawayCount
+    };
+  }
 
-    if (itemError) {
-      const msg = String(itemError.message || "").toLowerCase();
-      const canRetryWithoutAddonColumns =
-        msg.includes("column") ||
-        msg.includes("schema") ||
-        msg.includes("base_price") ||
-        msg.includes("addon_total") ||
-        msg.includes("addons") ||
-        msg.includes("original_name");
+  async function loadUsers() {
+    try {
+      const res = await fetch("data/users.json", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      console.error("admin.js: users.json load failed", err);
+      return { admins: [] };
+    }
+  }
 
-      if (canRetryWithoutAddonColumns) {
-        console.warn("order_items add-on columns missing. Retrying base insert only:", itemError.message);
-        const retry = await db.from("order_items").insert(fallbackItemRows);
-        itemError = retry.error;
+  async function showApp() {
+    loginBox?.classList.add("hidden");
+    appBox?.classList.remove("hidden");
+    logoutBtn?.classList.remove("hidden");
+    await renderAll();
+  }
+
+  function showLogin() {
+    loginBox?.classList.remove("hidden");
+    appBox?.classList.add("hidden");
+    logoutBtn?.classList.add("hidden");
+  }
+
+  function renderMetrics(data) {
+    const a = computeMetrics(data);
+    setText(mRevenue, money(a.revenue));
+    setText(mOrders, a.ordersTodayCount);
+    setText(mPeak, a.peakHour);
+    setText(mPayRate, `${a.payRate}%`);
+  }
+
+  async function renderRestaurants(data) {
+    if (!restaurantsPanel) return;
+
+    restaurantsPanel.innerHTML = "";
+
+    if (!data.restaurants.length) {
+      restaurantsPanel.innerHTML = `<div class="text-sm text-slate-400">No restaurants loaded.</div>`;
+      return;
+    }
+
+    for (const r of data.restaurants) {
+      const restOrdersToday = data.orders.filter((o) =>
+        o.restaurantId === r.id &&
+        isToday(o.createdAt) &&
+        !["pending_approval", "rejected", "awaiting_payment"].includes(o.status)
+      );
+
+      const sold = restOrdersToday.reduce((sum, o) => sum + Number(o.total || 0), 0);
+      const dineInCount = restOrdersToday.filter((o) => o.serviceType === "dine_in").length;
+      const takeawayCount = restOrdersToday.filter((o) => o.serviceType === "takeaway").length;
+
+      const menu = safeArr(r.menu);
+
+      const div = document.createElement("div");
+      div.className = "p-4 rounded-2xl bg-white/5 border border-white/10";
+      div.innerHTML = `
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="font-semibold">${r.name || "Restaurant"}</div>
+            <div class="text-xs text-slate-400 mt-1">${r.tagline || ""}</div>
+            <div class="text-sm text-slate-300 mt-2">
+              Sales today: <span class="pill">${money(sold)}</span>
+            </div>
+            <div class="text-xs text-slate-400 mt-2">
+              Dine In: <span class="text-slate-200">${dineInCount}</span>
+              • Takeaway: <span class="text-slate-200">${takeawayCount}</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="pill ${r.online ? "badge-green" : "badge-red"}">
+              ${r.online ? "ONLINE" : "OFFLINE"}
+            </span>
+            <button class="btn-ghost text-sm" data-toggle>Toggle</button>
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <div class="text-xs text-slate-400 uppercase tracking-widest">Availability</div>
+          <div class="mt-2 grid sm:grid-cols-2 gap-2">
+            ${menu.slice(0, 6).map((m) => `
+              <div class="flex items-center justify-between gap-2 p-2 rounded-xl bg-white/5 border border-white/10">
+                <div class="text-xs min-w-0 truncate">${m.name}</div>
+                <button class="${m.available ? "btn-ghost" : "btn-primary"} text-xs px-3 py-1.5" data-item="${m.id}">
+                  ${m.available ? "Disable" : "Enable"}
+                </button>
+              </div>
+            `).join("")}
+          </div>
+          <div class="text-xs text-slate-400 mt-2">Showing 6 items for demo.</div>
+        </div>
+      `;
+
+      const toggleBtn = div.querySelector("[data-toggle]");
+      if (toggleBtn) {
+        toggleBtn.onclick = async () => {
+          try {
+            if (typeof FC.toggleRestaurantOnline === "function") {
+              await Promise.resolve(FC.toggleRestaurantOnline(r.id));
+            }
+          } catch (err) {
+            console.error("admin.js: toggle restaurant failed", err);
+          }
+          await renderAll();
+        };
+      }
+
+      div.querySelectorAll("[data-item]").forEach((btn) => {
+        btn.onclick = async () => {
+          try {
+            if (typeof FC.toggleMenuItem === "function") {
+              await Promise.resolve(FC.toggleMenuItem(r.id, btn.getAttribute("data-item")));
+            }
+          } catch (err) {
+            console.error("admin.js: toggle menu item failed", err);
+          }
+          await renderAll();
+        };
+      });
+
+      restaurantsPanel.appendChild(div);
+    }
+  }
+
+  function renderAnalytics(data) {
+    if (!analyticsPanel) return;
+
+    const paidToday = data.orders.filter((o) =>
+      isToday(o.createdAt) &&
+      !["pending_approval", "rejected", "awaiting_payment"].includes(o.status)
+    );
+
+    const dineInCount = paidToday.filter((o) => o.serviceType === "dine_in").length;
+    const takeawayCount = paidToday.filter((o) => o.serviceType === "takeaway").length;
+    const unknownTypeCount = paidToday.filter((o) => !o.serviceType).length;
+
+    const byRest = {};
+    paidToday.forEach((o) => {
+      byRest[o.restaurantId] = (byRest[o.restaurantId] || 0) + Number(o.total || 0);
+    });
+
+    const ranking = Object.entries(byRest)
+      .sort((a, b) => b[1] - a[1])
+      .map(([rid, rev]) => {
+        const rn = data.restaurants.find((r) => r.id === rid)?.name || rid;
+        return { restaurant: rn, revenue: rev };
+      });
+
+    const itemCounts = {};
+    paidToday.forEach((o) => {
+      safeArr(o.items).forEach((it) => {
+        itemCounts[it.name] = (itemCounts[it.name] || 0) + Number(it.qty || 0);
+      });
+    });
+
+    const topItems = Object.entries(itemCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, qty]) => ({ item: name, qty }));
+
+    const impressions = safeObj(data.adMetrics.impressions);
+    const adImpressions = Object.entries(impressions)
+      .map(([adId, count]) => {
+        const ad = data.ads.find((x) => x.id === adId);
+        return { ad: ad?.title || adId, impressions: count };
+      })
+      .sort((a, b) => b.impressions - a.impressions);
+
+    analyticsPanel.innerHTML = `
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-sm font-semibold">Restaurant Ranking (Revenue)</div>
+          <div class="mt-3 space-y-2 text-sm">
+            ${
+              ranking.length
+                ? ranking.map((x) => `
+                    <div class="flex justify-between text-slate-300">
+                      <span>${x.restaurant}</span>
+                      <span>${money(x.revenue)}</span>
+                    </div>
+                  `).join("")
+                : `<div class="text-slate-400 text-sm">No paid orders today.</div>`
+            }
+          </div>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-sm font-semibold">Top Items (Qty)</div>
+          <div class="mt-3 space-y-2 text-sm">
+            ${
+              topItems.length
+                ? topItems.map((x) => `
+                    <div class="flex justify-between text-slate-300">
+                      <span>${x.item}</span>
+                      <span>${x.qty}</span>
+                    </div>
+                  `).join("")
+                : `<div class="text-slate-400 text-sm">No sales yet.</div>`
+            }
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 grid sm:grid-cols-3 gap-4">
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Dine In</div>
+          <div class="text-2xl font-semibold mt-2">${dineInCount}</div>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Takeaway</div>
+          <div class="text-2xl font-semibold mt-2">${takeawayCount}</div>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Not Marked</div>
+          <div class="text-2xl font-semibold mt-2">${unknownTypeCount}</div>
+        </div>
+      </div>
+
+      <div class="mt-4 p-4 rounded-2xl bg-white/5 border border-white/10">
+        <div class="text-sm font-semibold">Ad Impressions</div>
+        <div class="mt-3 space-y-2 text-sm">
+          ${
+            adImpressions.length
+              ? adImpressions.map((x) => `
+                  <div class="flex justify-between text-slate-300">
+                    <span>${x.ad}</span>
+                    <span>${x.impressions}</span>
+                  </div>
+                `).join("")
+              : `<div class="text-slate-400 text-sm">No impressions tracked yet.</div>`
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAds(data) {
+    if (!adsPanel) return;
+
+    adsPanel.innerHTML = "";
+
+    if (!data.ads.length) {
+      adsPanel.innerHTML = `<div class="text-sm text-slate-400">No ads loaded.</div>`;
+      return;
+    }
+
+    for (const ad of data.ads) {
+      const count = Number(data.adMetrics?.impressions?.[ad.id] || 0);
+      const rest = ad.restaurantId
+        ? (data.restaurants.find((r) => r.id === ad.restaurantId)?.name || ad.restaurantId)
+        : "All";
+
+      const div = document.createElement("div");
+      div.className = "p-3 rounded-2xl bg-white/5 border border-white/10";
+      div.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="font-semibold truncate">${ad.title || "Ad"}</div>
+            <div class="text-xs text-slate-400 mt-1">${rest} • ${ad.enabled ? "Enabled" : "Disabled"}</div>
+            <div class="text-xs text-slate-300 mt-2">Impressions: <span class="pill">${count}</span></div>
+          </div>
+          <button class="${ad.enabled ? "btn-ghost" : "btn-primary"} text-xs px-3 py-2" data-toggle>
+            ${ad.enabled ? "Disable" : "Enable"}
+          </button>
+        </div>
+      `;
+
+      const btn = div.querySelector("[data-toggle]");
+      if (btn) {
+        btn.onclick = async () => {
+          const st = getStateSafe();
+          st.ads = safeArr(st.ads);
+
+          const i = st.ads.findIndex((x) => x.id === ad.id);
+          if (i === -1) return;
+
+          st.ads[i].enabled = !st.ads[i].enabled;
+          saveStateSafe(st);
+          logSafe(`Ad ${ad.id} enabled=${st.ads[i].enabled}`);
+          await renderAll();
+        };
+      }
+
+      adsPanel.appendChild(div);
+    }
+  }
+
+  function renderLogs(data) {
+    if (!logPanel) return;
+
+    logPanel.innerHTML = "";
+
+    const logs = safeArr(data.logs);
+    if (!logs.length) {
+      logPanel.innerHTML = `<div class="text-sm text-slate-400">No log entries yet.</div>`;
+      return;
+    }
+
+    logs.forEach((l) => {
+      const div = document.createElement("div");
+      div.className = "p-3 rounded-2xl bg-white/5 border border-white/10 text-xs text-slate-300";
+      div.innerHTML = `
+        <div class="text-slate-400">${new Date(l.at || Date.now()).toLocaleTimeString()}</div>
+        <div class="mt-1">${l.message || ""}</div>
+      `;
+      logPanel.appendChild(div);
+    });
+  }
+
+  // ---------- Professional Admin Excel Report ----------
+  function validDate(value) {
+    const d = new Date(value || "");
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function dateOnly(value) {
+    const d = validDate(value);
+    if (!d) return "";
+    return d.toISOString().slice(0, 10);
+  }
+
+  function timeOnly(value) {
+    const d = validDate(value);
+    if (!d) return "";
+    return d.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+  }
+
+  function monthTitle(value) {
+    const d = validDate(value) || new Date();
+    return d.toLocaleString("en-US", {
+      month: "long",
+      year: "numeric"
+    });
+  }
+
+  function isSameMonth(value, baseDate) {
+    const d = validDate(value);
+    if (!d) return false;
+
+    return (
+      d.getFullYear() === baseDate.getFullYear() &&
+      d.getMonth() === baseDate.getMonth()
+    );
+  }
+
+  function reportNumber(value) {
+    return Number(value || 0);
+  }
+
+  function paidReportStatus(status) {
+    return ["paid", "preparing", "ready", "completed"].includes(status);
+  }
+
+  function prepMinutes(order) {
+    const start = validDate(order.approvedAt || order.createdAt);
+    const end = validDate(order.readyAt || order.completedAt || order.paidAt);
+
+    if (!start || !end) return "";
+
+    const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
+    return minutes >= 0 ? minutes : "";
+  }
+
+  function itemsSummary(order) {
+    return safeArr(order.items)
+      .map((it) => `${it.name || "Item"} x${Number(it.qty || 0)}`)
+      .join(" | ");
+  }
+
+  function totalDishQty(order) {
+    return safeArr(order.items).reduce((sum, it) => sum + Number(it.qty || 0), 0);
+  }
+
+  function uniqueDishCount(order) {
+    return new Set(safeArr(order.items).map((it) => it.name || it.itemId || "Item")).size;
+  }
+
+  function safeSheetName(name) {
+    return String(name || "Sheet")
+      .replace(/[\\/?*\[\]:]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 31) || "Sheet";
+  }
+
+  function createSheet(rows, widths, autoFilterRef) {
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = widths.map((wch) => ({ wch }));
+
+    if (autoFilterRef) {
+      ws["!autofilter"] = { ref: autoFilterRef };
+    }
+
+    return ws;
+  }
+
+  function addMerge(ws, startRow, startCol, endRow, endCol) {
+    ws["!merges"] = ws["!merges"] || [];
+    ws["!merges"].push({
+      s: { r: startRow, c: startCol },
+      e: { r: endRow, c: endCol }
+    });
+  }
+
+  function restaurantNameById(restaurants, restaurantId) {
+    return safeArr(restaurants).find((r) => r.id === restaurantId)?.name || restaurantId || "Unknown";
+  }
+
+  function buildRestaurantReportRows(restaurants, orders) {
+    const rows = [
+      [
+        "Restaurant",
+        "Online",
+        "Total Orders",
+        "Paid / Active Orders",
+        "Dine In",
+        "Takeaway",
+        "Not Marked",
+        "Subtotal",
+        "Tax",
+        "Revenue",
+        "Best Seller"
+      ]
+    ];
+
+    safeArr(restaurants).forEach((r) => {
+      const restOrders = safeArr(orders).filter((o) => o.restaurantId === r.id);
+      const paid = restOrders.filter((o) => paidReportStatus(o.status));
+
+      const itemCounts = {};
+      paid.forEach((o) => {
+        safeArr(o.items).forEach((it) => {
+          const name = it.name || "Unknown";
+          itemCounts[name] = (itemCounts[name] || 0) + Number(it.qty || 0);
+        });
+      });
+
+      const bestSeller =
+        Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
+
+      rows.push([
+        r.name || r.id,
+        r.online ? "Online" : "Offline",
+        restOrders.length,
+        paid.length,
+        paid.filter((o) => o.serviceType === "dine_in").length,
+        paid.filter((o) => o.serviceType === "takeaway").length,
+        paid.filter((o) => !o.serviceType).length,
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.subtotal || 0), 0)),
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.tax || 0), 0)),
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.total || 0), 0)),
+        bestSeller
+      ]);
+    });
+
+    return rows;
+  }
+
+  function buildItemSummaryRows(restaurants, orders) {
+    const stats = {};
+
+    safeArr(orders).forEach((order) => {
+      safeArr(order.items).forEach((item) => {
+        const name = item.name || "Unknown";
+        const restaurantName = restaurantNameById(restaurants, order.restaurantId);
+        const key = `${restaurantName}__${name}`;
+        const qty = Number(item.qty || 0);
+        const unitPrice = Number(item.price || 0);
+        const lineTotal = qty * unitPrice;
+
+        if (!stats[key]) {
+          stats[key] = {
+            restaurant: restaurantName,
+            item: name,
+            total_qty: 0,
+            total_sales: 0,
+            order_lines: 0
+          };
+        }
+
+        stats[key].total_qty += qty;
+        stats[key].total_sales += lineTotal;
+        stats[key].order_lines += 1;
+      });
+    });
+
+    const rows = [
+      ["Restaurant", "Item", "Total Qty Sold", "Total Sales", "Order Lines"]
+    ];
+
+    Object.values(stats)
+      .sort((a, b) => b.total_sales - a.total_sales)
+      .forEach((it) => {
+        rows.push([
+          it.restaurant,
+          it.item,
+          it.total_qty,
+          reportNumber(it.total_sales),
+          it.order_lines
+        ]);
+      });
+
+    return rows;
+  }
+
+  function buildOrderRows(restaurants, orders) {
+    const rows = [
+      [
+        "Order ID",
+        "Restaurant",
+        "Status",
+        "Service Type",
+        "Table Number",
+        "Order Type",
+        "Order Date",
+        "Order Placed",
+        "Approved At",
+        "Paid At",
+        "Prep Time (min)",
+        "Subtotal",
+        "Tax",
+        "Total",
+        "Items Summary",
+        "Total Dish Qty",
+        "Unique Dishes"
+      ]
+    ];
+
+    safeArr(orders).forEach((o) => {
+      rows.push([
+        o.id,
+        restaurantNameById(restaurants, o.restaurantId),
+        o.status || "",
+        serviceTypeLabel(o),
+        tableNumberOf(o),
+        serviceSummary(o),
+        dateOnly(o.createdAt),
+        timeOnly(o.createdAt),
+        timeOnly(o.approvedAt),
+        timeOnly(o.paidAt),
+        prepMinutes(o),
+        reportNumber(o.subtotal),
+        reportNumber(o.tax),
+        reportNumber(o.total),
+        itemsSummary(o),
+        totalDishQty(o),
+        uniqueDishCount(o)
+      ]);
+    });
+
+    return rows;
+  }
+
+  function buildOrderLineRows(restaurants, orders) {
+    const rows = [
+      [
+        "Order ID",
+        "Restaurant",
+        "Status",
+        "Service Type",
+        "Table Number",
+        "Order Type",
+        "Order Date",
+        "Placed At",
+        "Paid At",
+        "Dish",
+        "Qty",
+        "Unit Price",
+        "Line Total"
+      ]
+    ];
+
+    safeArr(orders).forEach((o) => {
+      safeArr(o.items).forEach((it) => {
+        const qty = Number(it.qty || 0);
+        const unitPrice = Number(it.price || 0);
+
+        rows.push([
+          o.id,
+          restaurantNameById(restaurants, o.restaurantId),
+          o.status || "",
+          serviceTypeLabel(o),
+          tableNumberOf(o),
+          serviceSummary(o),
+          dateOnly(o.createdAt),
+          timeOnly(o.createdAt),
+          timeOnly(o.paidAt),
+          it.name || "Item",
+          qty,
+          reportNumber(unitPrice),
+          reportNumber(qty * unitPrice)
+        ]);
+      });
+    });
+
+    return rows;
+  }
+
+  function buildAdRows(data) {
+    const rows = [
+      ["Ad ID", "Title", "Restaurant", "Enabled", "Impressions"]
+    ];
+
+    const impressions = safeObj(data.adMetrics?.impressions);
+
+    safeArr(data.ads).forEach((ad) => {
+      rows.push([
+        ad.id || "",
+        ad.title || "",
+        ad.restaurantId
+          ? restaurantNameById(data.restaurants, ad.restaurantId)
+          : "All Restaurants",
+        ad.enabled ? "Yes" : "No",
+        Number(impressions[ad.id] || 0)
+      ]);
+    });
+
+    return rows;
+  }
+
+  function buildLogRows(data) {
+    const rows = [
+      ["Time", "Message"]
+    ];
+
+    safeArr(data.logs).forEach((log) => {
+      rows.push([
+        log.at ? new Date(log.at).toLocaleString() : "",
+        log.message || ""
+      ]);
+    });
+
+    return rows;
+  }
+
+  function exportAdminReport(data) {
+    if (typeof XLSX === "undefined") {
+      alert("XLSX library is not loaded.");
+      return false;
+    }
+
+    const now = new Date();
+    const monthOrders = safeArr(data.orders).filter((o) => isSameMonth(o.createdAt, now));
+    const paidOrders = monthOrders.filter((o) => paidReportStatus(o.status));
+
+    const totalRevenue = paidOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+    const totalSubtotal = paidOrders.reduce((sum, o) => sum + Number(o.subtotal || 0), 0);
+    const totalTax = paidOrders.reduce((sum, o) => sum + Number(o.tax || 0), 0);
+
+    const dineInCount = paidOrders.filter((o) => o.serviceType === "dine_in").length;
+    const takeawayCount = paidOrders.filter((o) => o.serviceType === "takeaway").length;
+    const notMarkedCount = paidOrders.filter((o) => !o.serviceType).length;
+
+    const itemSummaryRows = buildItemSummaryRows(data.restaurants, paidOrders);
+    const bestSeller = itemSummaryRows[1]?.[1] || "—";
+
+    const summaryRows = [
+      ["Food Court Admin Monthly Report"],
+      [`Month: ${monthTitle(now)}`],
+      [`Generated: ${new Date().toLocaleString()}`],
+      [],
+      ["Executive Summary"],
+      ["Total Restaurants", safeArr(data.restaurants).length],
+      ["Total Orders This Month", monthOrders.length],
+      ["Paid / Active Orders", paidOrders.length],
+      ["Total Subtotal", reportNumber(totalSubtotal)],
+      ["Total Tax", reportNumber(totalTax)],
+      ["Total Revenue", reportNumber(totalRevenue)],
+      ["Dine In Orders", dineInCount],
+      ["Takeaway Orders", takeawayCount],
+      ["Not Marked Orders", notMarkedCount],
+      ["Best Seller", bestSeller],
+      [],
+      ["Restaurant Ranking"],
+      ["Restaurant", "Revenue", "Paid Orders", "Dine In", "Takeaway"]
+    ];
+
+    const ranking = safeArr(data.restaurants).map((r) => {
+      const restPaid = paidOrders.filter((o) => o.restaurantId === r.id);
+      return {
+        restaurant: r.name || r.id,
+        revenue: restPaid.reduce((sum, o) => sum + Number(o.total || 0), 0),
+        orders: restPaid.length,
+        dine_in: restPaid.filter((o) => o.serviceType === "dine_in").length,
+        takeaway: restPaid.filter((o) => o.serviceType === "takeaway").length
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    ranking.forEach((r) => {
+      summaryRows.push([
+        r.restaurant,
+        reportNumber(r.revenue),
+        r.orders,
+        r.dine_in,
+        r.takeaway
+      ]);
+    });
+
+    const restaurantRows = buildRestaurantReportRows(data.restaurants, monthOrders);
+    const orderRows = buildOrderRows(data.restaurants, monthOrders);
+    const orderLineRows = buildOrderLineRows(data.restaurants, monthOrders);
+    const adRows = buildAdRows(data);
+    const logRows = buildLogRows(data);
+
+    const wb = XLSX.utils.book_new();
+
+    const summarySheet = createSheet(
+      summaryRows,
+      [28, 18, 18, 16, 16, 16, 16, 16, 16, 16],
+      ranking.length ? `A18:E${17 + ranking.length}` : undefined
+    );
+    addMerge(summarySheet, 0, 0, 0, 9);
+    addMerge(summarySheet, 1, 0, 1, 9);
+    addMerge(summarySheet, 2, 0, 2, 9);
+
+    const restaurantSheet = createSheet(
+      restaurantRows,
+      [22, 12, 14, 18, 12, 12, 12, 14, 14, 14, 28],
+      `A1:K${restaurantRows.length}`
+    );
+
+    const ordersSheet = createSheet(
+      orderRows,
+      [22, 20, 16, 15, 14, 22, 14, 14, 14, 14, 16, 12, 12, 12, 50, 14, 14],
+      `A1:Q${orderRows.length}`
+    );
+
+    const orderLinesSheet = createSheet(
+      orderLineRows,
+      [22, 20, 16, 15, 14, 22, 14, 14, 14, 28, 8, 12, 12],
+      `A1:M${orderLineRows.length}`
+    );
+
+    const itemSheet = createSheet(
+      itemSummaryRows,
+      [20, 28, 14, 14, 14],
+      `A1:E${itemSummaryRows.length}`
+    );
+
+    const adSheet = createSheet(
+      adRows,
+      [16, 30, 22, 12, 14],
+      `A1:E${adRows.length}`
+    );
+
+    const logSheet = createSheet(
+      logRows,
+      [24, 80],
+      `A1:B${logRows.length}`
+    );
+
+    XLSX.utils.book_append_sheet(wb, summarySheet, "Executive Summary");
+    XLSX.utils.book_append_sheet(wb, restaurantSheet, "Restaurant Summary");
+    XLSX.utils.book_append_sheet(wb, ordersSheet, "All Orders");
+    XLSX.utils.book_append_sheet(wb, orderLinesSheet, "Order Lines");
+    XLSX.utils.book_append_sheet(wb, itemSheet, "Item Summary");
+    XLSX.utils.book_append_sheet(wb, adSheet, "Ad Metrics");
+    XLSX.utils.book_append_sheet(wb, logSheet, "System Logs");
+
+    XLSX.writeFile(wb, `FoodCourt_Admin_Monthly_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+    return true;
+  }
+
+  // ---------- Upgraded Admin Excel Report v2: payment, cash/online, dine-in/takeaway, add-ons ----------
+  function advNormalizePaymentMethod(value) {
+    const v = String(value || "").trim().toLowerCase();
+
+    if (v === "cash" || v === "cod" || v === "counter" || v.includes("cash")) return "cash";
+    if (v === "online" || v === "stripe" || v === "card" || v === "qr" || v.includes("stripe")) return "online";
+
+    return "online";
+  }
+
+  function advPaymentMethodOf(order) {
+    const payment = safeObj(order?.payment);
+    return advNormalizePaymentMethod(
+      order?.paymentMethod ||
+      order?.payment_method ||
+      payment.paymentMethod ||
+      payment.method ||
+      payment.provider ||
+      "online"
+    );
+  }
+
+  function advPaymentMethodLabel(order) {
+    const method = advPaymentMethodOf(order);
+    if (method === "cash") return "Cash";
+    if (method === "online") return "Online / Stripe";
+    return "Not selected";
+  }
+
+  function advPaymentStatusLabel(order) {
+    const status = String(order?.status || "").toLowerCase();
+    const payment = safeObj(order?.payment);
+    const method = advPaymentMethodOf(order);
+
+    if (payment.success || paidReportStatus(status)) return "Paid";
+    if (status === "awaiting_payment") return method === "cash" ? "Cash Pending" : "Online Pending";
+    if (status === "pending_approval") return "Pending Approval";
+    if (status === "approved") return "Approved - Payment Pending";
+    if (status === "rejected") return "Rejected";
+
+    return status || "Unknown";
+  }
+
+  function advItemBaseName(item) {
+    const raw = String(item?.originalName || item?.baseName || item?.name || "Item").trim();
+    return raw.replace(/\s*\(\+\s*[^)]+\)\s*$/i, "").trim() || raw;
+  }
+
+  function advAddonListFromItem(item) {
+    const explicit = safeArr(item?.addons || item?.selectedAddons || item?.selected_addons || item?.options)
+      .map((addon) => {
+        const a = safeObj(addon);
+        const name = String(a.name || a.title || a.label || "").trim();
+        if (!name) return null;
+        return {
+          name,
+          price: Number(a.price || 0),
+          qty: Math.max(1, Number(a.qty || a.quantity || 1))
+        };
+      })
+      .filter(Boolean);
+
+    if (explicit.length) return explicit;
+
+    const name = String(item?.name || "");
+    const match = name.match(/\(\+\s*([^)]+)\)/i);
+    if (!match) return [];
+
+    return match[1]
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map((name) => ({ name, price: 0, qty: 1 }));
+  }
+
+  function advItemAddonSummary(item) {
+    const addons = advAddonListFromItem(item);
+    if (!addons.length) return "";
+
+    return addons
+      .map((addon) => {
+        const qty = Number(addon.qty || 1);
+        const price = Number(addon.price || 0);
+        const qtyText = qty > 1 ? ` x${qty}` : "";
+        const priceText = price > 0 ? ` (${reportNumber(price)})` : "";
+        return `${addon.name}${qtyText}${priceText}`;
+      })
+      .join(", ");
+  }
+
+  function advOrderAddonSummary(order) {
+    const rows = [];
+
+    safeArr(order?.items).forEach((item) => {
+      const addText = advItemAddonSummary(item);
+      if (addText) rows.push(`${advItemBaseName(item)}: ${addText}`);
+    });
+
+    return rows.join(" | ");
+  }
+
+  function advItemsSummary(order) {
+    return safeArr(order?.items)
+      .map((it) => {
+        const qty = Number(it.qty || 0);
+        const addText = advItemAddonSummary(it);
+        return `${advItemBaseName(it)}${addText ? ` (+ ${addText})` : ""} x${qty}`;
+      })
+      .join(" | ");
+  }
+
+  function advBuildPaymentSummaryRows(orders) {
+    const groups = {
+      cash: { method: "Cash", orders: 0, subtotal: 0, tax: 0, revenue: 0 },
+      online: { method: "Online / Stripe", orders: 0, subtotal: 0, tax: 0, revenue: 0 }
+    };
+
+    safeArr(orders).forEach((order) => {
+      const key = advPaymentMethodOf(order) === "cash" ? "cash" : "online";
+      groups[key].orders += 1;
+      groups[key].subtotal += Number(order.subtotal || 0);
+      groups[key].tax += Number(order.tax || 0);
+      groups[key].revenue += Number(order.total || 0);
+    });
+
+    const rows = [["Payment Method", "Orders", "Subtotal", "Tax", "Revenue"]];
+    Object.values(groups).forEach((g) => {
+      rows.push([g.method, g.orders, reportNumber(g.subtotal), reportNumber(g.tax), reportNumber(g.revenue)]);
+    });
+
+    return rows;
+  }
+
+  function advBuildStatusSummaryRows(orders) {
+    const stats = {};
+
+    safeArr(orders).forEach((order) => {
+      const status = String(order.status || "unknown");
+      if (!stats[status]) {
+        stats[status] = { status, orders: 0, revenue: 0 };
+      }
+
+      stats[status].orders += 1;
+      stats[status].revenue += Number(order.total || 0);
+    });
+
+    const rows = [["Status", "Orders", "Total Amount"]];
+    Object.values(stats)
+      .sort((a, b) => b.orders - a.orders)
+      .forEach((s) => rows.push([s.status, s.orders, reportNumber(s.revenue)]));
+
+    return rows;
+  }
+
+  function advBuildDailyRows(orders) {
+    const stats = {};
+
+    safeArr(orders).forEach((order) => {
+      const day = dateOnly(order.createdAt);
+      if (!day) return;
+
+      if (!stats[day]) {
+        stats[day] = {
+          date: day,
+          orders: 0,
+          paid: 0,
+          cash: 0,
+          online: 0,
+          dine_in: 0,
+          takeaway: 0,
+          tax: 0,
+          revenue: 0
+        };
+      }
+
+      const s = stats[day];
+      s.orders += 1;
+      if (paidReportStatus(order.status)) s.paid += 1;
+      if (advPaymentMethodOf(order) === "cash") s.cash += 1;
+      else s.online += 1;
+      if (order.serviceType === "dine_in") s.dine_in += 1;
+      if (order.serviceType === "takeaway") s.takeaway += 1;
+      s.tax += Number(order.tax || 0);
+      s.revenue += Number(order.total || 0);
+    });
+
+    const rows = [["Date", "Orders", "Paid / Active", "Cash", "Online", "Dine In", "Takeaway", "Tax", "Revenue"]];
+    Object.values(stats)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .forEach((d) => {
+        rows.push([
+          d.date,
+          d.orders,
+          d.paid,
+          d.cash,
+          d.online,
+          d.dine_in,
+          d.takeaway,
+          reportNumber(d.tax),
+          reportNumber(d.revenue)
+        ]);
+      });
+
+    return rows;
+  }
+
+  function advBuildAddonRows(restaurants, orders) {
+    const stats = {};
+
+    safeArr(orders).forEach((order) => {
+      const restaurant = restaurantNameById(restaurants, order.restaurantId);
+
+      safeArr(order.items).forEach((item) => {
+        const addons = advAddonListFromItem(item);
+        if (!addons.length) return;
+
+        addons.forEach((addon) => {
+          const key = `${restaurant}__${addon.name}`;
+          const itemQty = Number(item.qty || 0);
+          const addonQty = Number(addon.qty || 1) * itemQty;
+          const relatedSales = Number(item.price || 0) * itemQty;
+
+          if (!stats[key]) {
+            stats[key] = {
+              restaurant,
+              addon: addon.name,
+              addon_qty: 0,
+              order_lines: 0,
+              related_sales: 0
+            };
+          }
+
+          stats[key].addon_qty += addonQty;
+          stats[key].order_lines += 1;
+          stats[key].related_sales += relatedSales;
+        });
+      });
+    });
+
+    const rows = [["Restaurant", "Add-on", "Addon Qty", "Order Lines", "Related Item Sales"]];
+    Object.values(stats)
+      .sort((a, b) => b.addon_qty - a.addon_qty)
+      .forEach((x) => {
+        rows.push([
+          x.restaurant,
+          x.addon,
+          x.addon_qty,
+          x.order_lines,
+          reportNumber(x.related_sales)
+        ]);
+      });
+
+    return rows;
+  }
+
+  function advBuildRestaurantRows(restaurants, orders) {
+    const rows = [[
+      "Restaurant",
+      "Online",
+      "Total Orders",
+      "Paid / Active Orders",
+      "Cash Orders",
+      "Online Orders",
+      "Dine In",
+      "Takeaway",
+      "Not Marked",
+      "Subtotal",
+      "Tax",
+      "Revenue",
+      "Best Seller"
+    ]];
+
+    safeArr(restaurants).forEach((r) => {
+      const restOrders = safeArr(orders).filter((o) => o.restaurantId === r.id);
+      const paid = restOrders.filter((o) => paidReportStatus(o.status));
+
+      const itemCounts = {};
+      paid.forEach((o) => {
+        safeArr(o.items).forEach((it) => {
+          const name = advItemBaseName(it) || "Unknown";
+          itemCounts[name] = (itemCounts[name] || 0) + Number(it.qty || 0);
+        });
+      });
+
+      const bestSeller = Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
+
+      rows.push([
+        r.name || r.id,
+        r.online ? "Online" : "Offline",
+        restOrders.length,
+        paid.length,
+        paid.filter((o) => advPaymentMethodOf(o) === "cash").length,
+        paid.filter((o) => advPaymentMethodOf(o) !== "cash").length,
+        paid.filter((o) => o.serviceType === "dine_in").length,
+        paid.filter((o) => o.serviceType === "takeaway").length,
+        paid.filter((o) => !o.serviceType).length,
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.subtotal || 0), 0)),
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.tax || 0), 0)),
+        reportNumber(paid.reduce((sum, o) => sum + Number(o.total || 0), 0)),
+        bestSeller
+      ]);
+    });
+
+    return rows;
+  }
+
+  function advBuildItemRows(restaurants, orders) {
+    const stats = {};
+
+    safeArr(orders).forEach((order) => {
+      safeArr(order.items).forEach((item) => {
+        const restaurant = restaurantNameById(restaurants, order.restaurantId);
+        const itemName = advItemBaseName(item);
+        const key = `${restaurant}__${itemName}`;
+        const qty = Number(item.qty || 0);
+        const unitPrice = Number(item.price || 0);
+        const lineTotal = qty * unitPrice;
+
+        if (!stats[key]) {
+          stats[key] = {
+            restaurant,
+            item: itemName,
+            total_qty: 0,
+            total_sales: 0,
+            order_lines: 0
+          };
+        }
+
+        stats[key].total_qty += qty;
+        stats[key].total_sales += lineTotal;
+        stats[key].order_lines += 1;
+      });
+    });
+
+    const rows = [["Restaurant", "Item", "Total Qty Sold", "Total Sales", "Order Lines"]];
+    Object.values(stats)
+      .sort((a, b) => b.total_sales - a.total_sales)
+      .forEach((it) => rows.push([it.restaurant, it.item, it.total_qty, reportNumber(it.total_sales), it.order_lines]));
+
+    return rows;
+  }
+
+  function advBuildOrderRows(restaurants, orders) {
+    const rows = [[
+      "Order ID",
+      "Restaurant",
+      "Status",
+      "Payment Method",
+      "Payment Status",
+      "Service Type",
+      "Table Number",
+      "Order Type",
+      "Order Date",
+      "Order Placed",
+      "Approved At",
+      "Paid At",
+      "Prep Time (min)",
+      "Subtotal",
+      "Tax",
+      "Total",
+      "Items Summary",
+      "Add-ons Summary",
+      "Total Dish Qty",
+      "Unique Dishes"
+    ]];
+
+    safeArr(orders).forEach((o) => {
+      rows.push([
+        o.id,
+        restaurantNameById(restaurants, o.restaurantId),
+        o.status || "",
+        advPaymentMethodLabel(o),
+        advPaymentStatusLabel(o),
+        serviceTypeLabel(o),
+        tableNumberOf(o),
+        serviceSummary(o),
+        dateOnly(o.createdAt),
+        timeOnly(o.createdAt),
+        timeOnly(o.approvedAt),
+        timeOnly(o.paidAt),
+        prepMinutes(o),
+        reportNumber(o.subtotal),
+        reportNumber(o.tax),
+        reportNumber(o.total),
+        advItemsSummary(o),
+        advOrderAddonSummary(o),
+        totalDishQty(o),
+        uniqueDishCount(o)
+      ]);
+    });
+
+    return rows;
+  }
+
+  function advBuildOrderLineRows(restaurants, orders) {
+    const rows = [[
+      "Order ID",
+      "Restaurant",
+      "Status",
+      "Payment Method",
+      "Payment Status",
+      "Service Type",
+      "Table Number",
+      "Order Type",
+      "Order Date",
+      "Placed At",
+      "Paid At",
+      "Base Dish",
+      "Dish Display Name",
+      "Add-ons",
+      "Qty",
+      "Unit Price",
+      "Line Total"
+    ]];
+
+    safeArr(orders).forEach((o) => {
+      safeArr(o.items).forEach((it) => {
+        const qty = Number(it.qty || 0);
+        const unitPrice = Number(it.price || 0);
+
+        rows.push([
+          o.id,
+          restaurantNameById(restaurants, o.restaurantId),
+          o.status || "",
+          advPaymentMethodLabel(o),
+          advPaymentStatusLabel(o),
+          serviceTypeLabel(o),
+          tableNumberOf(o),
+          serviceSummary(o),
+          dateOnly(o.createdAt),
+          timeOnly(o.createdAt),
+          timeOnly(o.paidAt),
+          advItemBaseName(it),
+          it.name || "Item",
+          advItemAddonSummary(it),
+          qty,
+          reportNumber(unitPrice),
+          reportNumber(qty * unitPrice)
+        ]);
+      });
+    });
+
+    return rows;
+  }
+
+  function exportAdminReport(data) {
+    if (typeof XLSX === "undefined") {
+      alert("XLSX library is not loaded.");
+      return false;
+    }
+
+    const now = new Date();
+    const monthOrders = safeArr(data.orders).filter((o) => isSameMonth(o.createdAt, now));
+    const paidOrders = monthOrders.filter((o) => paidReportStatus(o.status));
+
+    const totalRevenue = paidOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+    const totalSubtotal = paidOrders.reduce((sum, o) => sum + Number(o.subtotal || 0), 0);
+    const totalTax = paidOrders.reduce((sum, o) => sum + Number(o.tax || 0), 0);
+
+    const cashOrders = paidOrders.filter((o) => advPaymentMethodOf(o) === "cash");
+    const onlineOrders = paidOrders.filter((o) => advPaymentMethodOf(o) !== "cash");
+    const dineInCount = paidOrders.filter((o) => o.serviceType === "dine_in").length;
+    const takeawayCount = paidOrders.filter((o) => o.serviceType === "takeaway").length;
+    const notMarkedCount = paidOrders.filter((o) => !o.serviceType).length;
+
+    const itemRowsForBest = advBuildItemRows(data.restaurants, paidOrders);
+    const bestSeller = itemRowsForBest[1]?.[1] || "—";
+
+    const summaryRows = [
+      ["Food Court Admin Monthly Report"],
+      [`Month: ${monthTitle(now)}`],
+      [`Generated: ${new Date().toLocaleString()}`],
+      [],
+      ["Executive Summary"],
+      ["Total Restaurants", safeArr(data.restaurants).length],
+      ["Total Orders This Month", monthOrders.length],
+      ["Paid / Active Orders", paidOrders.length],
+      ["Cash Orders", cashOrders.length],
+      ["Online Orders", onlineOrders.length],
+      ["Total Subtotal", reportNumber(totalSubtotal)],
+      ["Total Tax", reportNumber(totalTax)],
+      ["Total Revenue", reportNumber(totalRevenue)],
+      ["Cash Revenue", reportNumber(cashOrders.reduce((sum, o) => sum + Number(o.total || 0), 0))],
+      ["Online Revenue", reportNumber(onlineOrders.reduce((sum, o) => sum + Number(o.total || 0), 0))],
+      ["Dine In Orders", dineInCount],
+      ["Takeaway Orders", takeawayCount],
+      ["Not Marked Orders", notMarkedCount],
+      ["Best Seller", bestSeller],
+      [],
+      ["Restaurant Ranking"],
+      ["Restaurant", "Revenue", "Paid Orders", "Cash", "Online", "Dine In", "Takeaway"]
+    ];
+
+    const ranking = safeArr(data.restaurants).map((r) => {
+      const restPaid = paidOrders.filter((o) => o.restaurantId === r.id);
+      return {
+        restaurant: r.name || r.id,
+        revenue: restPaid.reduce((sum, o) => sum + Number(o.total || 0), 0),
+        orders: restPaid.length,
+        cash: restPaid.filter((o) => advPaymentMethodOf(o) === "cash").length,
+        online: restPaid.filter((o) => advPaymentMethodOf(o) !== "cash").length,
+        dine_in: restPaid.filter((o) => o.serviceType === "dine_in").length,
+        takeaway: restPaid.filter((o) => o.serviceType === "takeaway").length
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    ranking.forEach((r) => {
+      summaryRows.push([
+        r.restaurant,
+        reportNumber(r.revenue),
+        r.orders,
+        r.cash,
+        r.online,
+        r.dine_in,
+        r.takeaway
+      ]);
+    });
+
+    const wb = XLSX.utils.book_new();
+
+    const summarySheet = createSheet(summaryRows, [28, 18, 18, 14, 14, 14, 14, 14, 14, 14], ranking.length ? `A22:G${21 + ranking.length}` : undefined);
+    addMerge(summarySheet, 0, 0, 0, 9);
+    addMerge(summarySheet, 1, 0, 1, 9);
+    addMerge(summarySheet, 2, 0, 2, 9);
+
+    const dailyRows = advBuildDailyRows(monthOrders);
+    const restaurantRows = advBuildRestaurantRows(data.restaurants, monthOrders);
+    const orderRows = advBuildOrderRows(data.restaurants, monthOrders);
+    const orderLineRows = advBuildOrderLineRows(data.restaurants, monthOrders);
+    const itemRows = advBuildItemRows(data.restaurants, paidOrders);
+    const addonRows = advBuildAddonRows(data.restaurants, paidOrders);
+    const paymentRows = advBuildPaymentSummaryRows(paidOrders);
+    const statusRows = advBuildStatusSummaryRows(monthOrders);
+    const adRows = buildAdRows(data);
+    const logRows = buildLogRows(data);
+
+    XLSX.utils.book_append_sheet(wb, summarySheet, "Executive Summary");
+    XLSX.utils.book_append_sheet(wb, createSheet(dailyRows, [14, 10, 14, 10, 10, 10, 10, 12, 14], `A1:I${dailyRows.length}`), "Daily Summary");
+    XLSX.utils.book_append_sheet(wb, createSheet(restaurantRows, [24, 12, 14, 18, 12, 12, 10, 10, 12, 14, 14, 14, 30], `A1:M${restaurantRows.length}`), "Restaurant Summary");
+    XLSX.utils.book_append_sheet(wb, createSheet(orderRows, [22, 20, 16, 16, 18, 15, 14, 22, 14, 14, 14, 14, 16, 12, 12, 12, 55, 45, 14, 14], `A1:T${orderRows.length}`), "All Orders");
+    XLSX.utils.book_append_sheet(wb, createSheet(orderLineRows, [22, 20, 16, 16, 18, 15, 14, 22, 14, 14, 14, 28, 34, 35, 8, 12, 12], `A1:Q${orderLineRows.length}`), "Order Lines");
+    XLSX.utils.book_append_sheet(wb, createSheet(itemRows, [20, 30, 14, 14, 14], `A1:E${itemRows.length}`), "Item Sales");
+    XLSX.utils.book_append_sheet(wb, createSheet(addonRows, [20, 28, 14, 14, 18], `A1:E${addonRows.length}`), "Add-ons Sales");
+    XLSX.utils.book_append_sheet(wb, createSheet(paymentRows, [20, 12, 14, 14, 14], `A1:E${paymentRows.length}`), "Payment Summary");
+    XLSX.utils.book_append_sheet(wb, createSheet(statusRows, [20, 12, 14], `A1:C${statusRows.length}`), "Status Summary");
+    XLSX.utils.book_append_sheet(wb, createSheet(adRows, [16, 30, 22, 12, 14], `A1:E${adRows.length}`), "Ad Metrics");
+    XLSX.utils.book_append_sheet(wb, createSheet(logRows, [24, 80], `A1:B${logRows.length}`), "System Logs");
+
+    XLSX.writeFile(wb, `FoodCourt_Admin_Monthly_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+    return true;
+  }
+
+  async function exportAll() {
+    const data = await getDashboardData();
+
+    try {
+      exportAdminReport(data);
+      logSafe("Admin monthly report exported (XLSX download).");
+    } catch (err) {
+      console.error("admin.js: export failed", err);
+      logSafe("Admin XLSX export failed. Check console.");
+      alert("Export failed. Check console for details.");
+    }
+  }
+
+  async function renderAll() {
+    if (!loggedIn) return;
+
+    if (isRendering) {
+      rerenderRequested = true;
+      return;
+    }
+
+    isRendering = true;
+
+    try {
+      const data = await getDashboardData();
+      renderMetrics(data);
+      await renderRestaurants(data);
+      renderAnalytics(data);
+      renderAds(data);
+      renderLogs(data);
+    } catch (err) {
+      console.error("admin.js renderAll failed", err);
+      if (logPanel) {
+        logPanel.innerHTML = `
+          <div class="p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-sm text-red-200">
+            Admin panel render failed. Check console for details.
+          </div>
+        `;
+      }
+    } finally {
+      isRendering = false;
+
+      if (rerenderRequested) {
+        rerenderRequested = false;
+        renderAll();
       }
     }
+  }
 
-    if (itemError) {
+  if (exportAllBtn) {
+    exportAllBtn.onclick = async () => {
+      await exportAll();
+    };
+  }
+
+  if (resetAdsBtn) {
+    resetAdsBtn.onclick = async () => {
       try {
-        await db.from("orders").delete().eq("id", order.id);
-      } catch {}
-      throw itemError;
-    }
+        if (typeof FC.resetAdMetrics === "function") {
+          FC.resetAdMetrics();
+        } else {
+          const st = getStateSafe();
+          st.adMetrics = { impressions: {}, totalSeconds: 0 };
+          saveStateSafe(st);
+          logSafe("Ad metrics reset.");
+        }
+      } catch (err) {
+        console.error("admin.js: reset ads failed", err);
+      }
 
-    const full = await FC.getOrder(order.id);
-    await FC.fetchAllOrders().catch(() => {});
-    FC._emitStateChanged();
-    return full;
+      await renderAll();
+    };
   }
 
-  const s = FC.getState();
-  s.orders.unshift(order);
-  FC.setState(s);
-  return order;
-};
-
-FC.updateOrder = async function (orderId, patch) {
-  const db = FC._db();
-
-  if (db) {
-    const dbPatch = {};
-
-    if ("status" in patch) dbPatch.status = patch.status;
-    if ("rejectReason" in patch) dbPatch.reject_reason = patch.rejectReason;
-    if ("approvedAt" in patch) dbPatch.approved_at = patch.approvedAt;
-    if ("paidAt" in patch) dbPatch.paid_at = patch.paidAt;
-    if ("payment" in patch) dbPatch.payment = patch.payment;
-
-    if ("serviceType" in patch) {
-      dbPatch.service_type = FC._normalizeServiceType(patch.serviceType);
-    }
-
-    if ("tableNumber" in patch) {
-      const serviceForTable = FC._normalizeServiceType(patch.serviceType || patch.service_type || "");
-      dbPatch.table_number = FC._normalizeTableNumber(serviceForTable || "dine_in", patch.tableNumber);
-    }
-
-    const { error } = await db
-      .from("orders")
-      .update(dbPatch)
-      .eq("id", orderId);
-
-    if (error) throw error;
-
-    const full = await FC.getOrder(orderId);
-    await FC.fetchAllOrders().catch(() => {});
-    FC._emitStateChanged();
-    return full;
+  if (logoutBtn) {
+    logoutBtn.onclick = () => {
+      localStorage.removeItem(sessKey);
+      loggedIn = false;
+      showLogin();
+    };
   }
 
-  const s = FC.getState();
-  const idx = s.orders.findIndex((o) => o.id === orderId);
-  if (idx === -1) return null;
+  if (loginBtn) {
+    loginBtn.onclick = async () => {
+      if (loginErr) loginErr.textContent = "";
 
-  const current = FC._normalizeOrder(s.orders[idx]);
-  const nextServiceType = FC._normalizeServiceType(
-    patch.serviceType ?? patch.service_type ?? current.serviceType
-  );
-  const nextTableNumber = FC._normalizeTableNumber(
-    nextServiceType,
-    patch.tableNumber ?? patch.table_number ?? current.tableNumber
-  );
+      const u = (userInput?.value || "").trim();
+      const p = (passInput?.value || "").trim();
 
-  const next = {
-    ...current,
-    ...patch,
-    serviceType: nextServiceType,
-    tableNumber: nextTableNumber,
-    payment: {
-      ...FC._safeObject(current.payment),
-      ...FC._safeObject(patch.payment)
-    }
-  };
+      if (!u || !p) {
+        if (loginErr) loginErr.textContent = "Enter username and password.";
+        return;
+      }
 
-  s.orders[idx] = next;
-  FC.setState(s);
-  return next;
-};
+      const users = await loadUsers();
+      const ok = safeArr(users.admins).find((x) => x.username === u && x.password === p);
 
-FC.confirmCashPayment = async function (orderId, options = {}) {
-  const order = await FC.getOrder(orderId);
+      if (!ok) {
+        if (loginErr) loginErr.textContent = "Invalid credentials.";
+        return;
+      }
 
-  if (!order) {
-    throw new Error("Order not found.");
+      loggedIn = true;
+      localStorage.setItem(sessKey, JSON.stringify({ loggedIn: true, at: nowISO() }));
+      await showApp();
+    };
   }
 
-  const enteredPin = String(options.staffPin || "").trim();
-  if (!FC.verifyStaffPin(enteredPin)) {
-    throw new Error("Invalid staff PIN.");
-  }
-
-  const expectedToken = String(order.payment?.cashToken || "").trim();
-  const providedToken = String(options.cashToken || "").trim();
-
-  if (expectedToken && providedToken && expectedToken !== providedToken) {
-    throw new Error("Invalid cash confirmation token.");
-  }
-
-  const payment = {
-    ...FC._safeObject(order.payment),
-    success: true,
-    method: "cash",
-    paymentMethod: "cash",
-    provider: "Cash Counter",
-    cashConfirmedAt: FC.nowISO(),
-    cashConfirmedBy: String(options.staffName || "Staff").trim() || "Staff",
-    verifiedAt: FC.nowISO()
-  };
-
-  const updated = await FC.updateOrder(order.id, {
-    status: "paid",
-    paidAt: FC.nowISO(),
-    payment
+  [userInput, passInput].forEach((input) => {
+    input?.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter" && loginBtn) {
+        e.preventDefault();
+        await loginBtn.onclick();
+      }
+    });
   });
 
-  FC.simulateGatewayVerify(true);
-  FC.log(`Cash payment confirmed for ${order.id}.`);
-
-  return updated;
-};
-
-// ---------- Catalog Sync (restaurants + menu_items) ----------
-FC.refreshCatalogFromSupabase = async function (options = {}) {
-  const db = FC._db();
-  if (!db) return null;
-
-  try {
-    const [{ data: restaurants, error: restError }, { data: items, error: itemsError }] =
-      await Promise.all([
-        db.from("restaurants").select("*").order("name", { ascending: true }),
-        db.from("menu_items").select("*").order("name", { ascending: true })
-      ]);
-
-    if (restError || itemsError) {
-      throw restError || itemsError;
-    }
-
-    const grouped = {};
-    FC._safeArray(restaurants).forEach((r) => {
-      grouped[r.id] = {
-        id: r.id,
-        name: r.name,
-        tagline: r.tagline || "",
-        online: !!r.online,
-        prepTimeMins: Number(r.prep_time_mins || 15),
-        menu: []
-      };
-    });
-
-    FC._safeArray(items).forEach((m) => {
-      const r = grouped[m.restaurant_id];
-      if (!r) return;
-
-      r.menu.push({
-        id: m.id,
-        name: m.name,
-        price: Number(m.price || 0),
-        category: m.category || "General",
-        available: !!m.available,
-        fast: !!m.fast,
-        image: m.image || m.image_url || "",
-        description: m.description || "",
-        addons: FC._normalizeItemAddons(m.addons || m.options || [])
-      });
-    });
-
-    const s = FC.getState();
-    s.restaurants = Object.values(grouped);
-    FC.setState(s, { silent: !!options.silent });
-    return s.restaurants;
-  } catch (err) {
-    console.warn("Catalog sync skipped/failed:", err);
-    return null;
-  }
-};
-
-// ---------- Restaurant Settings ----------
-FC.toggleRestaurantOnline = async function (restaurantId) {
-  const s = FC.getState();
-  const i = s.restaurants.findIndex((r) => r.id === restaurantId);
-  if (i === -1) return null;
-
-  const nextOnline = !s.restaurants[i].online;
-  const db = FC._db();
-
-  if (db) {
-    try {
-      const { error } = await db
-        .from("restaurants")
-        .update({ online: nextOnline })
-        .eq("id", restaurantId);
-
-      if (error) throw error;
-    } catch (err) {
-      console.warn("Restaurant cloud update failed, local only:", err);
-    }
+  if (loggedIn) {
+    await showApp();
+  } else {
+    showLogin();
   }
 
-  s.restaurants[i].online = nextOnline;
-  FC.setState(s);
-  FC.log(`Restaurant ${s.restaurants[i].name} online=${s.restaurants[i].online}`);
-  return s.restaurants[i];
-};
+  setInterval(() => {
+    if (loggedIn) renderAll();
+  }, 1400);
 
-FC.toggleMenuItem = async function (restaurantId, menuItemId) {
-  const s = FC.getState();
-  const r = s.restaurants.find((x) => x.id === restaurantId);
-  if (!r) return null;
+  window.addEventListener("focus", () => {
+    if (loggedIn) renderAll();
+  });
 
-  const m = FC._safeArray(r.menu).find((x) => x.id === menuItemId);
-  if (!m) return null;
-
-  const nextAvailable = !m.available;
-  const db = FC._db();
-
-  if (db) {
-    try {
-      const { error } = await db
-        .from("menu_items")
-        .update({ available: nextAvailable })
-        .eq("id", menuItemId);
-
-      if (error) throw error;
-    } catch (err) {
-      console.warn("Menu item cloud update failed, local only:", err);
-    }
-  }
-
-  m.available = nextAvailable;
-  FC.setState(s);
-  FC.log(`Menu item ${m.name} available=${m.available}`);
-  return m;
-};
-
-// ---------- Ads ----------
-FC.trackAdImpression = function (adId) {
-  const s = FC.getState();
-  s.adMetrics.impressions[adId] = (s.adMetrics.impressions[adId] || 0) + 1;
-  FC.setState(s);
-};
-
-FC.resetAdMetrics = function () {
-  const s = FC.getState();
-  s.adMetrics = { impressions: {}, totalSeconds: 0 };
-  FC.setState(s);
-  FC.log("Ad metrics reset.");
-};
-
-// ---------- Hardware Layer (Simulated) ----------
-FC.getDevices = function () {
-  const s = FC.getState();
-  return s.devices || {};
-};
-
-FC.deviceLog = function (message, level = "INFO") {
-  const s = FC.getState();
-  s.deviceLogs = s.deviceLogs || [];
-  s.deviceLogs.unshift({ at: FC.nowISO(), level, message });
-  s.deviceLogs = s.deviceLogs.slice(0, 50);
-  FC.setState(s);
-};
-
-FC.setDevice = function (deviceKey, patch) {
-  const s = FC.getState();
-  s.devices = s.devices || {};
-  s.devices[deviceKey] = { ...(s.devices[deviceKey] || {}), ...patch };
-  FC.setState(s);
-  FC.deviceLog(`${deviceKey} updated: ${JSON.stringify(patch)}`);
-  return s.devices[deviceKey];
-};
-
-FC.toggleDeviceOnline = function (deviceKey) {
-  const d = FC.getDevices()[deviceKey];
-  if (!d) return null;
-  return FC.setDevice(deviceKey, { online: !d.online });
-};
-
-FC.simulateLatency = function () {
-  const ms = 20 + Math.floor(Math.random() * 180);
-  FC.setDevice("network", { latencyMs: ms });
-  return ms;
-};
-
-FC.simulatePrinterPaperUse = function () {
-  const d = FC.getDevices().printer || { paper: 100 };
-  const next = Math.max(0, (d.paper || 0) - (2 + Math.floor(Math.random() * 6)));
-  FC.setDevice("printer", { paper: next, lastPrintAt: FC.nowISO() });
-  if (next <= 10) FC.deviceLog("Printer paper low.", "WARN");
-  if (next === 0) FC.deviceLog("Printer out of paper.", "ERROR");
-};
-
-FC.simulateGatewayVerify = function (success = true) {
-  FC.setDevice("paymentGateway", { lastVerifyAt: FC.nowISO() });
-  FC.deviceLog(
-    success ? "Payment verified by gateway." : "Payment failed at gateway.",
-    success ? "INFO" : "ERROR"
-  );
-};
-
-FC.hardwareHealth = function () {
-  const d = FC.getDevices();
-  const issues = [];
-
-  if (!d.network?.online) issues.push("Network offline");
-  if ((d.network?.latencyMs || 0) > 150) issues.push("High network latency");
-  if (!d.printer?.online) issues.push("Printer offline");
-  if ((d.printer?.paper ?? 100) <= 10) issues.push("Printer paper low");
-  if (!d.paymentGateway?.online) issues.push("Payment gateway offline");
-  if (!d.kioskDisplay?.online) issues.push("Kiosk display offline");
-  if (d.kioskDisplay?.locked) issues.push("Kiosk is locked");
-
-  return { ok: issues.length === 0, issues };
-};
-
-// ---------- Realtime ----------
-FC.startRealtimeSync = function () {
-  if (FC._realtimeStarted) return;
-  const db = FC._db();
-  if (!db || typeof db.channel !== "function") return;
-
-  FC._realtimeStarted = true;
-
-  try {
-    FC._realtimeChannel = db
-      .channel("fc-live-sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        async () => {
-          try {
-            await FC.fetchAllOrders();
-          } catch (err) {
-            console.warn("Realtime orders refresh failed:", err);
-          }
-          FC._emitStateChanged();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "restaurants" },
-        async () => {
-          try {
-            await FC.refreshCatalogFromSupabase({ silent: true });
-          } catch (err) {
-            console.warn("Realtime restaurants refresh failed:", err);
-          }
-          FC._emitStateChanged();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "menu_items" },
-        async () => {
-          try {
-            await FC.refreshCatalogFromSupabase({ silent: true });
-          } catch (err) {
-            console.warn("Realtime menu refresh failed:", err);
-          }
-          FC._emitStateChanged();
-        }
-      )
-      .subscribe((status) => {
-        console.log("Realtime status:", status);
-      });
-  } catch (err) {
-    console.warn("Realtime sync could not start:", err);
-  }
-};
+  window.addEventListener("fc:state-changed", () => {
+    if (loggedIn) renderAll();
+  });
+})();
