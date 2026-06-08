@@ -101,8 +101,9 @@ FC._itemNameWithAddons = function (name, addons) {
 
 FC._normalizeOrderItem = function (item) {
   const it = FC._safeObject(item);
-  const addons = FC._normalizeItemAddons(it.addons || it.selectedAddons || it.options || []);
-  const addonTotal = FC._addonsTotal(addons);
+  const addons = FC._normalizeItemAddons(it.addons || it.selectedAddons || it.selected_addons || it.options || []);
+  const addonTotalFromAddons = FC._addonsTotal(addons);
+  const addonTotal = addonTotalFromAddons || Number(it.addonTotal || it.addon_total || 0);
   const qty = Math.max(1, Number(it.qty || it.quantity || 1));
 
   const basePrice =
@@ -433,10 +434,13 @@ FC._normalizeOrder = function (order) {
         FC._normalizeOrderItem({
           itemId: it.menu_item_id ?? null,
           name: it.name || "",
+          originalName: it.original_name || it.originalName || it.base_name || "",
           price: Number(it.price || 0),
+          basePrice: Number(it.base_price || it.basePrice || it.price || 0),
+          addonTotal: Number(it.addon_total || it.addonTotal || 0),
           qty: Number(it.qty || 0),
           fast: !!it.fast,
-          addons: it.addons || it.selected_addons || [],
+          addons: it.addons || it.selected_addons || it.options || [],
           image: it.image || it.image_url || "",
           description: it.description || ""
         })
@@ -485,13 +489,7 @@ FC.fetchAllOrders = async function () {
       .from("orders")
       .select(`
         *,
-        order_items (
-          menu_item_id,
-          name,
-          price,
-          qty,
-          fast
-        )
+        order_items (*)
       `)
       .order("created_at", { ascending: false });
 
@@ -514,13 +512,7 @@ FC.fetchOrdersForRestaurant = async function (restaurantId) {
       .from("orders")
       .select(`
         *,
-        order_items (
-          menu_item_id,
-          name,
-          price,
-          qty,
-          fast
-        )
+        order_items (*)
       `)
       .eq("restaurant_id", restaurantId)
       .order("created_at", { ascending: false });
@@ -549,13 +541,7 @@ FC.getOrder = async function (orderId) {
       .from("orders")
       .select(`
         *,
-        order_items (
-          menu_item_id,
-          name,
-          price,
-          qty,
-          fast
-        )
+        order_items (*)
       `)
       .eq("id", orderId)
       .maybeSingle();
@@ -657,12 +643,44 @@ FC.createOrder = async function ({
       order_id: order.id,
       menu_item_id: it.itemId,
       name: it.name,
+      original_name: it.originalName || it.name,
+      price: it.price,
+      base_price: it.basePrice,
+      addon_total: it.addonTotal,
+      qty: it.qty,
+      fast: it.fast,
+      addons: FC._normalizeItemAddons(it.addons),
+      image: it.image || "",
+      description: it.description || ""
+    }));
+
+    const fallbackItemRows = order.items.map((it) => ({
+      order_id: order.id,
+      menu_item_id: it.itemId,
+      name: it.name,
       price: it.price,
       qty: it.qty,
       fast: it.fast
     }));
 
-    const { error: itemError } = await db.from("order_items").insert(itemRows);
+    let { error: itemError } = await db.from("order_items").insert(itemRows);
+
+    if (itemError) {
+      const msg = String(itemError.message || "").toLowerCase();
+      const canRetryWithoutAddonColumns =
+        msg.includes("column") ||
+        msg.includes("schema") ||
+        msg.includes("base_price") ||
+        msg.includes("addon_total") ||
+        msg.includes("addons") ||
+        msg.includes("original_name");
+
+      if (canRetryWithoutAddonColumns) {
+        console.warn("order_items add-on columns missing. Retrying base insert only:", itemError.message);
+        const retry = await db.from("order_items").insert(fallbackItemRows);
+        itemError = retry.error;
+      }
+    }
 
     if (itemError) {
       try {
@@ -765,25 +783,45 @@ FC.confirmCashPayment = async function (orderId, options = {}) {
     throw new Error("Invalid cash confirmation token.");
   }
 
+  const totalDue = Number(order.total || 0);
+  const amountReceivedRaw = Number(options.amountReceived ?? options.cashReceived ?? totalDue);
+  const amountReceived = Number.isFinite(amountReceivedRaw) ? amountReceivedRaw : totalDue;
+
+  if (amountReceived < totalDue) {
+    throw new Error("Amount received is less than order total.");
+  }
+
+  const changeGivenRaw = Number(options.changeGiven ?? options.cashChange ?? (amountReceived - totalDue));
+  const changeGiven = Math.max(0, Number.isFinite(changeGivenRaw) ? changeGivenRaw : amountReceived - totalDue);
+  const staffName = String(options.staffName || "Staff").trim() || "Staff";
+  const confirmedAt = FC.nowISO();
+
   const payment = {
     ...FC._safeObject(order.payment),
     success: true,
     method: "cash",
     paymentMethod: "cash",
     provider: "Cash Counter",
-    cashConfirmedAt: FC.nowISO(),
-    cashConfirmedBy: String(options.staffName || "Staff").trim() || "Staff",
-    verifiedAt: FC.nowISO()
+    cashAmountDue: totalDue,
+    cashReceived: amountReceived,
+    cashChange: changeGiven,
+    amountReceived,
+    changeGiven,
+    cashConfirmedAt: confirmedAt,
+    cashConfirmedBy: staffName,
+    paymentReceivedAt: confirmedAt,
+    paymentReceivedBy: staffName,
+    verifiedAt: confirmedAt
   };
 
   const updated = await FC.updateOrder(order.id, {
     status: "paid",
-    paidAt: FC.nowISO(),
+    paidAt: confirmedAt,
     payment
   });
 
   FC.simulateGatewayVerify(true);
-  FC.log(`Cash payment confirmed for ${order.id}.`);
+  FC.log(`Cash payment confirmed for ${order.id}. Received ${amountReceived}, change ${changeGiven}.`);
 
   return updated;
 };

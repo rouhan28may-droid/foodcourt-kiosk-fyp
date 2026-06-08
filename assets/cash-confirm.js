@@ -13,6 +13,8 @@
   const itemsList = $("itemsList");
   const staffNameInput = $("staffNameInput");
   const staffPinInput = $("staffPinInput");
+  const amountReceivedInput = $("amountReceivedInput");
+  const changeGivenLabel = $("changeGivenLabel");
   const confirmCashBtn = $("confirmCashBtn");
   const refreshBtn = $("refreshBtn");
   const confirmPanel = $("confirmPanel");
@@ -62,12 +64,8 @@
     const type = order.serviceType || order.service_type || "";
     const table = String(order.tableNumber || order.table_number || "").trim();
 
-    if (type === "dine_in") {
-      return table ? `Dine In - Table ${table}` : "Dine In";
-    }
-
+    if (type === "dine_in") return table ? `Dine In - Table ${table}` : "Dine In";
     if (type === "takeaway") return "Takeaway";
-
     return "Not selected";
   }
 
@@ -85,21 +83,24 @@
     const status = String(order.status || "").toLowerCase();
     const payment = safeObject(order.payment);
 
-    if (payment.success || ["paid", "preparing", "ready", "completed"].includes(status)) {
-      return "Paid";
-    }
-
+    if (payment.success || ["paid", "preparing", "ready", "completed"].includes(status)) return "Paid";
     if (status === "awaiting_cash_payment") return "Cash Pending";
     if (status === "awaiting_payment") return "Payment Pending";
-
     return status || "Pending";
+  }
+
+  function updateChangePreview() {
+    if (!currentOrder || !changeGivenLabel) return;
+
+    const total = Number(currentOrder.total || 0);
+    const received = Number(amountReceivedInput?.value || 0);
+    const change = Math.max(0, received - total);
+    changeGivenLabel.textContent = money(change, currentOrder.currency || "PKR");
   }
 
   async function seedSafe() {
     try {
-      if (typeof FC.seed === "function") {
-        await FC.seed();
-      }
+      if (typeof FC.seed === "function") await FC.seed();
     } catch (err) {
       console.warn("cash-confirm.js: seed failed", err);
     }
@@ -107,9 +108,7 @@
 
   async function getOrderSafe(id) {
     try {
-      if (typeof FC.getOrder === "function") {
-        return await FC.getOrder(id);
-      }
+      if (typeof FC.getOrder === "function") return await FC.getOrder(id);
     } catch (err) {
       console.error("cash-confirm.js: getOrder failed", err);
     }
@@ -133,6 +132,11 @@
     if (serviceLabel) serviceLabel.textContent = serviceText(order);
     if (statusLabel) statusLabel.textContent = paymentText(order);
     if (totalLabel) totalLabel.textContent = money(order.total || 0, order.currency || "PKR");
+
+    if (amountReceivedInput && !amountReceivedInput.value) {
+      amountReceivedInput.value = String(Math.ceil(Number(order.total || 0)));
+    }
+    updateChangePreview();
 
     if (itemsList) {
       const rows = safeArray(order.items).map((item) => {
@@ -187,9 +191,17 @@
 
     const staffName = String(staffNameInput?.value || "Staff").trim() || "Staff";
     const staffPin = String(staffPinInput?.value || "").trim();
+    const amountReceived = Number(amountReceivedInput?.value || 0);
+    const total = Number(currentOrder.total || 0);
+    const changeGiven = Math.max(0, amountReceived - total);
 
     if (!staffPin) {
       showMessage("error", "Enter staff PIN first.");
+      return;
+    }
+
+    if (amountReceived < total) {
+      showMessage("error", `Amount received is less than total due. Total due is ${money(total, currentOrder.currency || "PKR")}.`);
       return;
     }
 
@@ -207,11 +219,13 @@
       const updated = await FC.confirmCashPayment(currentOrder.id, {
         cashToken,
         staffPin,
-        staffName
+        staffName,
+        amountReceived,
+        changeGiven
       });
 
       currentOrder = updated;
-      showMessage("success", "Cash payment confirmed successfully. Order is now paid and can be prepared.");
+      showMessage("success", `Cash payment confirmed successfully. Change given: ${money(changeGiven, currentOrder.currency || "PKR")}.`);
       renderOrder(updated);
     } catch (err) {
       console.error("cash-confirm.js: cash confirmation failed", err);
@@ -220,9 +234,13 @@
       if (confirmCashBtn) {
         confirmCashBtn.disabled = false;
         confirmCashBtn.classList.remove("opacity-60");
-        confirmCashBtn.textContent = "Confirm Cash Payment";
+        confirmCashBtn.textContent = "Confirm Payment Received";
       }
     }
+  }
+
+  if (amountReceivedInput) {
+    amountReceivedInput.addEventListener("input", updateChangePreview);
   }
 
   if (confirmCashBtn) {
@@ -235,6 +253,12 @@
 
   if (staffPinInput) {
     staffPinInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") confirmCashPayment();
+    });
+  }
+
+  if (amountReceivedInput) {
+    amountReceivedInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") confirmCashPayment();
     });
   }

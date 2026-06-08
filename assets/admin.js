@@ -35,6 +35,19 @@
   const exportAllBtn = document.getElementById("exportAllBtn");
   const resetAdsBtn = document.getElementById("resetAdsBtn");
 
+  const cashCounterPanel = document.getElementById("cashCounterPanel");
+  const adminHardwareHealthLabel = document.getElementById("adminHardwareHealthLabel");
+  const adminHardwareIssues = document.getElementById("adminHardwareIssues");
+  const adminDevicesPanel = document.getElementById("adminDevicesPanel");
+  const adminDeviceLogs = document.getElementById("adminDeviceLogs");
+  const adminSimulateLatencyBtn = document.getElementById("adminSimulateLatencyBtn");
+  const adminTestPrintBtn = document.getElementById("adminTestPrintBtn");
+  const adminConsumePaperBtn = document.getElementById("adminConsumePaperBtn");
+  const adminGatewaySuccessBtn = document.getElementById("adminGatewaySuccessBtn");
+  const adminGatewayFailBtn = document.getElementById("adminGatewayFailBtn");
+  const adminLockKioskBtn = document.getElementById("adminLockKioskBtn");
+  const adminClearDeviceLogsBtn = document.getElementById("adminClearDeviceLogsBtn");
+
   const sessKey = "fc_admin_session";
   let loggedIn = false;
   let isRendering = false;
@@ -561,6 +574,288 @@
         </div>
       </div>
     `;
+  }
+
+
+  // ---------- Cash Counter + Hardware Console inside Admin ----------
+  function adminPaymentMethodOf(order) {
+    const payment = safeObj(order?.payment);
+    const raw = String(
+      order?.paymentMethod ||
+      order?.payment_method ||
+      payment.paymentMethod ||
+      payment.method ||
+      payment.provider ||
+      "online"
+    ).toLowerCase();
+
+    if (raw.includes("cash") || raw === "cod" || raw === "counter") return "cash";
+    return "online";
+  }
+
+  function adminPaymentStatus(order) {
+    const status = String(order?.status || "").toLowerCase();
+    const payment = safeObj(order?.payment);
+
+    if (payment.success || ["paid", "preparing", "ready", "completed"].includes(status)) return "Paid";
+    if (status === "awaiting_payment") return adminPaymentMethodOf(order) === "cash" ? "Cash Pending" : "Online Pending";
+    if (status === "approved") return "Approved - Payment Pending";
+    if (status === "pending_approval") return "Pending Approval";
+    if (status === "rejected") return "Rejected";
+    return status || "Unknown";
+  }
+
+  function adminCashPending(order) {
+    const status = String(order?.status || "").toLowerCase();
+    const payment = safeObj(order?.payment);
+    return (
+      adminPaymentMethodOf(order) === "cash" &&
+      !payment.success &&
+      ["approved", "awaiting_payment", "awaiting_cash_payment"].includes(status)
+    );
+  }
+
+  function adminOrderItemsText(order) {
+    const items = safeArr(order?.items);
+    if (!items.length) return "No items";
+    return items.map((it) => `${it.name || "Item"} x${Number(it.qty || 0)}`).join(" | ");
+  }
+
+  function adminCashPageUrl(order) {
+    const payment = safeObj(order?.payment);
+    const params = new URLSearchParams();
+    params.set("order_id", order?.id || "");
+    if (payment.cashToken) params.set("cash_token", payment.cashToken);
+    return `cash-confirm.html?${params.toString()}`;
+  }
+
+  function renderCashCounter(data) {
+    if (!cashCounterPanel) return;
+
+    const pendingCash = safeArr(data.orders)
+      .filter(adminCashPending)
+      .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+
+    cashCounterPanel.innerHTML = "";
+
+    if (!pendingCash.length) {
+      cashCounterPanel.innerHTML = `
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10 text-sm text-slate-400">
+          No cash payments waiting right now.
+        </div>
+      `;
+      return;
+    }
+
+    pendingCash.forEach((order) => {
+      const restaurantName = restaurantNameById(data.restaurants, order.restaurantId);
+      const total = Number(order.total || 0);
+      const currency = order.currency || "PKR";
+      const div = document.createElement("div");
+      div.className = "p-4 rounded-2xl bg-white/5 border border-white/10";
+      div.innerHTML = `
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="font-semibold">${order.id}</div>
+              <span class="pill badge-yellow">CASH PENDING</span>
+              <span class="pill">${restaurantName}</span>
+            </div>
+            <div class="text-xs text-slate-400 mt-2">${serviceSummary(order)}</div>
+            <div class="text-xs text-slate-400 mt-1 break-words">${adminOrderItemsText(order)}</div>
+            <div class="text-sm text-slate-200 mt-2">Total Due: <span class="pill">${money(total)}</span></div>
+          </div>
+          <a class="btn-ghost text-sm" target="_blank" rel="noopener" href="${adminCashPageUrl(order)}">Open QR Page</a>
+        </div>
+
+        <div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <input class="tws-input" data-cash-staff placeholder="Staff name" value="Admin" />
+          <input class="tws-input" data-cash-pin type="password" inputmode="numeric" placeholder="Staff PIN" />
+          <input class="tws-input" data-cash-received type="number" min="0" step="1" placeholder="Amount received" />
+          <div class="rounded-2xl bg-slate-950/50 border border-white/10 px-4 py-3 text-sm">
+            <div class="text-xs text-slate-400">Change Given</div>
+            <div class="font-semibold mt-1" data-cash-change>${money(0)}</div>
+          </div>
+        </div>
+
+        <button class="btn-primary w-full mt-3" data-confirm-cash>Confirm Payment Received</button>
+        <div class="text-xs text-slate-400 mt-2" data-cash-note>
+          Enter collected amount. Change is calculated automatically.
+        </div>
+      `;
+
+      const staffInput = div.querySelector("[data-cash-staff]");
+      const pinInput = div.querySelector("[data-cash-pin]");
+      const receivedInput = div.querySelector("[data-cash-received]");
+      const changeEl = div.querySelector("[data-cash-change]");
+      const confirmBtn = div.querySelector("[data-confirm-cash]");
+      const noteEl = div.querySelector("[data-cash-note]");
+
+      const updateChange = () => {
+        const received = Number(receivedInput?.value || 0);
+        const change = Math.max(0, received - total);
+        if (changeEl) changeEl.textContent = money(change);
+      };
+
+      receivedInput?.addEventListener("input", updateChange);
+
+      confirmBtn.onclick = async () => {
+        const staffName = String(staffInput?.value || "Admin").trim() || "Admin";
+        const staffPin = String(pinInput?.value || "").trim();
+        const amountReceived = Number(receivedInput?.value || 0);
+        const changeGiven = Math.max(0, amountReceived - total);
+
+        if (!staffPin) {
+          if (noteEl) noteEl.textContent = "Enter staff PIN first.";
+          return;
+        }
+
+        if (amountReceived < total) {
+          if (noteEl) noteEl.textContent = `Amount received is less than total due (${money(total)}).`;
+          return;
+        }
+
+        if (confirmBtn) {
+          confirmBtn.disabled = true;
+          confirmBtn.classList.add("opacity-60");
+          confirmBtn.textContent = "Confirming...";
+        }
+
+        try {
+          if (typeof FC.confirmCashPayment !== "function") {
+            throw new Error("FC.confirmCashPayment is missing. Update storage.js first.");
+          }
+
+          await FC.confirmCashPayment(order.id, {
+            cashToken: safeObj(order.payment).cashToken || "",
+            staffName,
+            staffPin,
+            amountReceived,
+            changeGiven
+          });
+
+          logSafe(`Admin confirmed cash payment for ${order.id}. Received ${amountReceived}, change ${changeGiven}.`);
+          await renderAll();
+        } catch (err) {
+          console.error("admin.js: cash confirmation failed", err);
+          if (noteEl) noteEl.textContent = err.message || "Cash confirmation failed.";
+          if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.classList.remove("opacity-60");
+            confirmBtn.textContent = "Confirm Payment Received";
+          }
+        }
+      };
+
+      cashCounterPanel.appendChild(div);
+    });
+  }
+
+  function adminGetDevices() {
+    try {
+      if (typeof FC.getDevices === "function") return FC.getDevices() || {};
+    } catch {}
+    return safeObj(getStateSafe().devices);
+  }
+
+  function adminDeviceHealth() {
+    try {
+      if (typeof FC.hardwareHealth === "function") return FC.hardwareHealth();
+    } catch {}
+
+    const d = adminGetDevices();
+    const issues = [];
+    if (!d.network?.online) issues.push("Network offline");
+    if (Number(d.network?.latencyMs || 0) > 150) issues.push("High network latency");
+    if (!d.printer?.online) issues.push("Printer offline");
+    if (Number(d.printer?.paper ?? 100) <= 10) issues.push("Printer paper low");
+    if (!d.paymentGateway?.online) issues.push("Payment gateway offline");
+    if (!d.kioskDisplay?.online) issues.push("Kiosk display offline");
+    if (d.kioskDisplay?.locked) issues.push("Kiosk locked");
+    return { ok: issues.length === 0, issues };
+  }
+
+  function adminSetDevice(key, patch) {
+    try {
+      if (typeof FC.setDevice === "function") return FC.setDevice(key, patch);
+    } catch (err) {
+      console.error("admin.js: setDevice failed", err);
+    }
+
+    const st = getStateSafe();
+    st.devices = safeObj(st.devices);
+    st.devices[key] = { ...safeObj(st.devices[key]), ...safeObj(patch) };
+    saveStateSafe(st);
+    return st.devices[key];
+  }
+
+  function adminToggleDevice(key) {
+    try {
+      if (typeof FC.toggleDeviceOnline === "function") return FC.toggleDeviceOnline(key);
+    } catch {}
+    const d = adminGetDevices();
+    return adminSetDevice(key, { online: !d[key]?.online });
+  }
+
+  function renderHardwareConsole(data) {
+    if (!adminHardwareHealthLabel && !adminDevicesPanel && !adminDeviceLogs) return;
+
+    const health = adminDeviceHealth();
+    if (adminHardwareHealthLabel) {
+      adminHardwareHealthLabel.innerHTML = health.ok
+        ? `All Systems Normal <span class="pill badge-green">HEALTHY</span>`
+        : `Action Required <span class="pill badge-red">DEGRADED</span>`;
+    }
+
+    if (adminHardwareIssues) {
+      adminHardwareIssues.textContent = health.ok ? "No active hardware issues detected." : `Issues: ${health.issues.join(" • ")}`;
+      adminHardwareIssues.className = health.ok ? "text-sm text-emerald-300 mt-2" : "text-sm text-rose-300 mt-2";
+    }
+
+    const d = adminGetDevices();
+    if (adminDevicesPanel) {
+      const rows = [
+        ["network", "Network", `online=${!!d.network?.online} • latency=${Number(d.network?.latencyMs || 0)}ms`, !!d.network?.online],
+        ["printer", "Printer", `online=${!!d.printer?.online} • paper=${Number(d.printer?.paper ?? 0)}%`, !!d.printer?.online],
+        ["paymentGateway", "Payment Gateway", `provider=${d.paymentGateway?.provider || "Stripe / Cash Counter"} • online=${!!d.paymentGateway?.online}`, !!d.paymentGateway?.online],
+        ["kioskDisplay", "Kiosk Display", `online=${!!d.kioskDisplay?.online} • brightness=${Number(d.kioskDisplay?.brightness || 0)}% • locked=${!!d.kioskDisplay?.locked}`, !!d.kioskDisplay?.online],
+        ["localCache", "Local Cache", `enabled=${!!d.localCache?.enabled} • queuedOrders=${Number(d.localCache?.queuedOrders || 0)}`, true]
+      ];
+
+      adminDevicesPanel.innerHTML = rows.map(([key, title, sub, online]) => `
+        <div class="p-3 rounded-2xl bg-white/5 border border-white/10">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div class="min-w-0">
+              <div class="font-semibold">${title}</div>
+              <div class="text-xs text-slate-400 mt-1">${sub}</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="pill ${online ? "badge-green" : "badge-red"}">${online ? "ONLINE" : "OFFLINE"}</span>
+              ${key !== "localCache" ? `<button class="btn-ghost text-xs px-3 py-2" data-admin-toggle-device="${key}">Toggle</button>` : ""}
+            </div>
+          </div>
+        </div>
+      `).join("");
+
+      adminDevicesPanel.querySelectorAll("[data-admin-toggle-device]").forEach((btn) => {
+        btn.onclick = async () => {
+          adminToggleDevice(btn.getAttribute("data-admin-toggle-device"));
+          await renderAll();
+        };
+      });
+    }
+
+    if (adminDeviceLogs) {
+      const logs = safeArr(data.state?.deviceLogs).slice(0, 8);
+      adminDeviceLogs.innerHTML = logs.length
+        ? logs.map((l) => `
+            <div class="p-2 rounded-xl bg-white/5 border border-white/10 text-xs">
+              <div class="text-slate-400">${l.at ? new Date(l.at).toLocaleTimeString() : ""} • ${l.level || "INFO"}</div>
+              <div class="text-slate-200 mt-1">${l.message || ""}</div>
+            </div>
+          `).join("")
+        : `<div class="text-sm text-slate-400">No device events yet.</div>`;
+    }
   }
 
   function renderAds(data) {
@@ -1676,6 +1971,8 @@
       renderMetrics(data);
       await renderRestaurants(data);
       renderAnalytics(data);
+      renderCashCounter(data);
+      renderHardwareConsole(data);
       renderAds(data);
       renderLogs(data);
     } catch (err) {
@@ -1718,6 +2015,83 @@
         console.error("admin.js: reset ads failed", err);
       }
 
+      await renderAll();
+    };
+  }
+
+
+  if (adminSimulateLatencyBtn) {
+    adminSimulateLatencyBtn.onclick = async () => {
+      try {
+        const ms = typeof FC.simulateLatency === "function"
+          ? FC.simulateLatency()
+          : Math.floor(Math.random() * 300) + 20;
+        if (ms > 150 && typeof FC.deviceLog === "function") FC.deviceLog("Latency spike detected from admin console.", "WARN");
+      } catch (err) {
+        console.error("admin.js: simulate latency failed", err);
+      }
+      await renderAll();
+    };
+  }
+
+  if (adminTestPrintBtn) {
+    adminTestPrintBtn.onclick = async () => {
+      try {
+        if (typeof FC.deviceLog === "function") FC.deviceLog("Admin sent test receipt to printer spool.", "INFO");
+        if (typeof FC.simulatePrinterPaperUse === "function") FC.simulatePrinterPaperUse();
+      } catch (err) {
+        console.error("admin.js: test print failed", err);
+      }
+      await renderAll();
+    };
+  }
+
+  if (adminConsumePaperBtn) {
+    adminConsumePaperBtn.onclick = async () => {
+      try {
+        if (typeof FC.simulatePrinterPaperUse === "function") FC.simulatePrinterPaperUse();
+      } catch (err) {
+        console.error("admin.js: consume paper failed", err);
+      }
+      await renderAll();
+    };
+  }
+
+  if (adminGatewaySuccessBtn) {
+    adminGatewaySuccessBtn.onclick = async () => {
+      try {
+        if (typeof FC.simulateGatewayVerify === "function") FC.simulateGatewayVerify(true);
+      } catch (err) {
+        console.error("admin.js: gateway success failed", err);
+      }
+      await renderAll();
+    };
+  }
+
+  if (adminGatewayFailBtn) {
+    adminGatewayFailBtn.onclick = async () => {
+      try {
+        if (typeof FC.simulateGatewayVerify === "function") FC.simulateGatewayVerify(false);
+      } catch (err) {
+        console.error("admin.js: gateway failure failed", err);
+      }
+      await renderAll();
+    };
+  }
+
+  if (adminLockKioskBtn) {
+    adminLockKioskBtn.onclick = async () => {
+      const d = adminGetDevices();
+      adminSetDevice("kioskDisplay", { locked: !d.kioskDisplay?.locked });
+      await renderAll();
+    };
+  }
+
+  if (adminClearDeviceLogsBtn) {
+    adminClearDeviceLogsBtn.onclick = async () => {
+      const st = getStateSafe();
+      st.deviceLogs = [];
+      saveStateSafe(st);
       await renderAll();
     };
   }

@@ -14,7 +14,7 @@
       <div class="text-xs uppercase tracking-widest text-slate-400">Staff Cash Counter</div>
       <h1 class="text-2xl font-semibold mt-2">Confirm Cash Payment</h1>
       <p class="text-slate-400 mt-2 text-sm">
-        Verify the order details, collect cash from customer, then confirm payment.
+        Verify the order details, collect cash from customer, enter received amount, then confirm payment.
       </p>
 
       <div id="pageMessage" class="hidden mt-5 rounded-2xl border px-4 py-3 text-sm"></div>
@@ -58,18 +58,34 @@
         </div>
 
         <div id="confirmPanel" class="rounded-2xl bg-white/5 border border-white/10 p-4">
-          <label class="block text-xs font-semibold text-slate-300 mb-2">Staff Name</label>
-          <input id="staffNameInput" class="tws-input w-full" placeholder="Enter staff name" />
+          <div class="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-2">Staff Name</label>
+              <input id="staffNameInput" class="tws-input w-full" placeholder="Enter staff name" />
+            </div>
 
-          <label class="block text-xs font-semibold text-slate-300 mt-4 mb-2">Staff PIN</label>
-          <input id="staffPinInput" type="password" inputmode="numeric" class="tws-input w-full" placeholder="Enter staff PIN" />
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-2">Staff PIN</label>
+              <input id="staffPinInput" type="password" inputmode="numeric" class="tws-input w-full" placeholder="Enter staff PIN" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-2">Amount Received</label>
+              <input id="amountReceivedInput" type="number" min="0" step="1" inputmode="numeric" class="tws-input w-full" placeholder="Enter cash received" />
+            </div>
+
+            <div class="rounded-2xl bg-slate-950/50 border border-white/10 px-4 py-3">
+              <div class="text-xs text-slate-400">Change Given</div>
+              <div id="changeGivenLabel" class="font-semibold mt-1">PKR 0</div>
+            </div>
+          </div>
 
           <button id="confirmCashBtn" class="btn-primary w-full mt-5">
-            Confirm Cash Payment
+            Confirm Payment Received
           </button>
 
           <div class="text-xs text-slate-400 mt-3">
-            Default demo PIN is 1234 unless changed in settings.
+            Default demo PIN is 1234 unless changed in settings. Amount received must be equal to or greater than order total.
           </div>
         </div>
 
