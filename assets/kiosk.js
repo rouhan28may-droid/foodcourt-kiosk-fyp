@@ -758,6 +758,12 @@
     return url.toString();
   }
 
+  function cashQrPayloadForOrder(order = {}) {
+    const orderId = String(order.id || "").trim();
+    const token = String(order.payment?.cashToken || "").trim();
+    return token ? `FC_CASH_ORDER|${orderId}|${token}` : `FC_CASH_ORDER|${orderId}`;
+  }
+
   function setPaymentMethod(method) {
     paymentMethod = normalizePaymentMethod(method);
 
@@ -1761,7 +1767,8 @@ async function browserPrintSlipOnly(orderId) {
     provider: "Cash Counter",
     cashSlipPrintedAt: nowISO(),
     trackingUrl: trackingUrlForOrder(order),
-    cashConfirmUrl: cashConfirmUrlForOrder(order)
+    cashConfirmPayload: cashQrPayloadForOrder(order),
+    cashConfirmUrl: ""
   };
 
   try {
@@ -2264,7 +2271,7 @@ async function browserPrintSlipOnly(orderId) {
     const restaurant = getRestaurantById(order.restaurantId);
     const receiptDate = order.paidAt || order.createdAt || nowISO();
     const trackingUrl = trackingUrlForOrder(order);
-    const cashConfirmUrl = cashConfirmUrlForOrder(order);
+    const cashConfirmPayload = cashQrPayloadForOrder(order);
     const cashPending = orderIsCashPending(order);
 
     const itemRows = safeArray(order.items).map((item) => {
@@ -2342,7 +2349,7 @@ async function browserPrintSlipOnly(orderId) {
           CASH NOT PAID YET<br>
           Staff must confirm payment before preparation starts.
         </div>
-        ${qrBlock("Staff Cash Confirmation", cashConfirmUrl)}
+        ${qrBlock("Staff Cash Confirmation", cashConfirmPayload)}
       ` : ""}
 
       ${qrBlock("Customer Order Tracking", trackingUrl)}
@@ -2470,7 +2477,8 @@ async function browserPrintSlipOnly(orderId) {
       paymentMethod: paymentMethodOf(order),
       paymentStatus: paymentStatusText(order),
       trackingUrl: trackingUrlForOrder(order),
-      cashConfirmUrl: cashConfirmUrlForOrder(order)
+      cashConfirmPayload: cashQrPayloadForOrder(order),
+      cashConfirmUrl: ""
     };
 
     if (typeof FC.printReceiptSilently === "function") {

@@ -48,10 +48,22 @@
   const adminLockKioskBtn = document.getElementById("adminLockKioskBtn");
   const adminClearDeviceLogsBtn = document.getElementById("adminClearDeviceLogsBtn");
 
+  const scanCashQrBtn = document.getElementById("scanCashQrBtn");
+  const cashQrScannerModal = document.getElementById("cashQrScannerModal");
+  const cashQrReader = document.getElementById("cashQrReader");
+  const cashQrManualInput = document.getElementById("cashQrManualInput");
+  const cashQrLoadBtn = document.getElementById("cashQrLoadBtn");
+  const cashQrCloseBtn = document.getElementById("cashQrCloseBtn");
+  const cashQrMessage = document.getElementById("cashQrMessage");
+
   const sessKey = "fc_admin_session";
   let loggedIn = false;
   let isRendering = false;
   let rerenderRequested = false;
+  let cashCounterSelectedOrderId = "";
+  let cashCounterScannedTokens = {};
+  let cashQrScanner = null;
+  let cashQrScannerRunning = false;
 
   try {
     const sess = JSON.parse(localStorage.getItem(sessKey) || "{}");
@@ -621,36 +633,174 @@
     return items.map((it) => `${it.name || "Item"} x${Number(it.qty || 0)}`).join(" | ");
   }
 
-  function adminCashPageUrl(order) {
-    const payment = safeObj(order?.payment);
-    const params = new URLSearchParams();
-    params.set("order_id", order?.id || "");
-    if (payment.cashToken) params.set("cash_token", payment.cashToken);
-    return `cash-confirm.html?${params.toString()}`;
+  function parseCashQrPayload(raw) {
+    const text = String(raw || "").trim();
+    if (!text) return null;
+
+    try {
+      const url = new URL(text);
+      const orderId = url.searchParams.get("order_id") || url.searchParams.get("orderId") || url.searchParams.get("id");
+      const cashToken = url.searchParams.get("cash_token") || url.searchParams.get("cashToken") || "";
+      if (orderId) return { orderId: String(orderId).trim(), cashToken: String(cashToken).trim(), raw: text };
+    } catch {}
+
+    try {
+      const obj = JSON.parse(text);
+      const orderId = obj.order_id || obj.orderId || obj.id;
+      const cashToken = obj.cash_token || obj.cashToken || obj.token || "";
+      if (orderId) return { orderId: String(orderId).trim(), cashToken: String(cashToken).trim(), raw: text };
+    } catch {}
+
+    if (text.startsWith("FC_CASH_ORDER|")) {
+      const parts = text.split("|");
+      return {
+        orderId: String(parts[1] || "").trim(),
+        cashToken: String(parts[2] || "").trim(),
+        raw: text
+      };
+    }
+
+    const match = text.match(/ORD-[A-Z0-9-]+/i);
+    if (match) return { orderId: match[0], cashToken: "", raw: text };
+
+    return { orderId: text, cashToken: "", raw: text };
+  }
+
+  function setCashQrMessage(text, type = "info") {
+    if (!cashQrMessage) return;
+    cashQrMessage.textContent = text;
+    cashQrMessage.className = type === "error"
+      ? "mt-3 text-sm text-rose-300"
+      : type === "success"
+        ? "mt-3 text-sm text-emerald-300"
+        : "mt-3 text-sm text-slate-300";
+  }
+
+  async function stopCashQrScanner() {
+    if (cashQrScanner && cashQrScannerRunning) {
+      try {
+        await cashQrScanner.stop();
+      } catch (err) {
+        console.warn("admin.js: scanner stop failed", err);
+      }
+    }
+    cashQrScannerRunning = false;
+  }
+
+  async function closeCashQrScanner() {
+    await stopCashQrScanner();
+    if (cashQrScannerModal) cashQrScannerModal.classList.add("hidden");
+  }
+
+  async function loadCashOrderFromQrText(text) {
+    const parsed = parseCashQrPayload(text);
+
+    if (!parsed || !parsed.orderId) {
+      setCashQrMessage("Could not read order id from QR.", "error");
+      return;
+    }
+
+    cashCounterSelectedOrderId = parsed.orderId;
+    if (parsed.cashToken) cashCounterScannedTokens[parsed.orderId] = parsed.cashToken;
+
+    await closeCashQrScanner();
+    await renderAll();
+
+    setTimeout(() => {
+      cashCounterPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  }
+
+  async function openCashQrScanner() {
+    if (!cashQrScannerModal) return;
+
+    cashQrScannerModal.classList.remove("hidden");
+    if (cashQrManualInput) cashQrManualInput.value = "";
+    setCashQrMessage("Starting camera scanner...");
+
+    if (typeof Html5Qrcode === "undefined") {
+      setCashQrMessage("Camera scanner library not loaded. Type or paste the Order ID manually.", "error");
+      return;
+    }
+
+    try {
+      if (!cashQrScanner) {
+        cashQrScanner = new Html5Qrcode("cashQrReader");
+      }
+
+      if (cashQrScannerRunning) return;
+
+      await cashQrScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        async (decodedText) => {
+          if (!decodedText) return;
+          await loadCashOrderFromQrText(decodedText);
+        },
+        () => {}
+      );
+
+      cashQrScannerRunning = true;
+      setCashQrMessage("Scanner active. Point the camera at the cash QR on the receipt.", "success");
+    } catch (err) {
+      console.error("admin.js: QR scanner failed", err);
+      setCashQrMessage("Camera scanner could not start. Use manual Order ID entry below.", "error");
+    }
   }
 
   function renderCashCounter(data) {
     if (!cashCounterPanel) return;
 
-    const pendingCash = safeArr(data.orders)
-      .filter(adminCashPending)
+    const activeEl = document.activeElement;
+    if (activeEl && cashCounterPanel.contains(activeEl)) {
+      return;
+    }
+
+    const allCashOrders = safeArr(data.orders)
+      .filter((order) => adminPaymentMethodOf(order) === "cash")
       .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+
+    let visibleOrders = allCashOrders.filter(adminCashPending);
+
+    if (cashCounterSelectedOrderId) {
+      const selected = safeArr(data.orders).find((o) => String(o.id) === String(cashCounterSelectedOrderId));
+      visibleOrders = selected ? [selected] : [];
+    }
 
     cashCounterPanel.innerHTML = "";
 
-    if (!pendingCash.length) {
-      cashCounterPanel.innerHTML = `
+    if (cashCounterSelectedOrderId) {
+      const banner = document.createElement("div");
+      banner.className = "p-3 rounded-2xl bg-indigo-500/10 border border-indigo-400/20 text-sm text-indigo-100 flex items-center justify-between gap-3 flex-wrap";
+      banner.innerHTML = `
+        <div>Showing scanned/selected order: <span class="pill">${cashCounterSelectedOrderId}</span></div>
+        <button class="btn-ghost text-xs" data-clear-cash-selection>Show All Pending Cash Orders</button>
+      `;
+      banner.querySelector("[data-clear-cash-selection]").onclick = async () => {
+        cashCounterSelectedOrderId = "";
+        await renderAll();
+      };
+      cashCounterPanel.appendChild(banner);
+    }
+
+    if (!visibleOrders.length) {
+      cashCounterPanel.innerHTML += `
         <div class="p-4 rounded-2xl bg-white/5 border border-white/10 text-sm text-slate-400">
-          No cash payments waiting right now.
+          ${cashCounterSelectedOrderId ? "Selected cash order was not found. Scan again or enter a valid Order ID." : "No cash payments waiting right now."}
         </div>
       `;
       return;
     }
 
-    pendingCash.forEach((order) => {
+    visibleOrders.forEach((order) => {
       const restaurantName = restaurantNameById(data.restaurants, order.restaurantId);
       const total = Number(order.total || 0);
-      const currency = order.currency || "PKR";
+      const payment = safeObj(order.payment);
+      const isPaid = payment.success || ["paid", "preparing", "ready", "completed"].includes(String(order.status || "").toLowerCase());
+      const canConfirm = adminCashPending(order);
+      const amountReceived = Number(payment.cashReceived || payment.amountReceived || total || 0);
+      const changeGiven = Number(payment.cashChange || payment.changeGiven || 0);
+
       const div = document.createElement("div");
       div.className = "p-4 rounded-2xl bg-white/5 border border-white/10";
       div.innerHTML = `
@@ -658,94 +808,107 @@
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <div class="font-semibold">${order.id}</div>
-              <span class="pill badge-yellow">CASH PENDING</span>
+              <span class="pill ${isPaid ? "badge-green" : "badge-yellow"}">${isPaid ? "CASH PAID" : "CASH PENDING"}</span>
               <span class="pill">${restaurantName}</span>
             </div>
             <div class="text-xs text-slate-400 mt-2">${serviceSummary(order)}</div>
             <div class="text-xs text-slate-400 mt-1 break-words">${adminOrderItemsText(order)}</div>
             <div class="text-sm text-slate-200 mt-2">Total Due: <span class="pill">${money(total)}</span></div>
           </div>
-          <a class="btn-ghost text-sm" target="_blank" rel="noopener" href="${adminCashPageUrl(order)}">Open QR Page</a>
-        </div>
-
-        <div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <input class="tws-input" data-cash-staff placeholder="Staff name" value="Admin" />
-          <input class="tws-input" data-cash-pin type="password" inputmode="numeric" placeholder="Staff PIN" />
-          <input class="tws-input" data-cash-received type="number" min="0" step="1" placeholder="Amount received" />
-          <div class="rounded-2xl bg-slate-950/50 border border-white/10 px-4 py-3 text-sm">
-            <div class="text-xs text-slate-400">Change Given</div>
-            <div class="font-semibold mt-1" data-cash-change>${money(0)}</div>
+          <div class="text-right text-xs text-slate-400">
+            <div>${order.createdAt ? new Date(order.createdAt).toLocaleString() : ""}</div>
+            <div class="mt-1">${adminPaymentStatus(order)}</div>
           </div>
         </div>
 
-        <button class="btn-primary w-full mt-3" data-confirm-cash>Confirm Payment Received</button>
-        <div class="text-xs text-slate-400 mt-2" data-cash-note>
-          Enter collected amount. Change is calculated automatically.
-        </div>
+        ${isPaid ? `
+          <div class="mt-4 rounded-2xl bg-emerald-500/10 border border-emerald-400/20 p-4 text-sm text-emerald-200">
+            Payment already received by ${payment.cashConfirmedBy || payment.paymentReceivedBy || "Staff"}.<br>
+            Received: <b>${money(amountReceived)}</b> • Change Given: <b>${money(changeGiven)}</b>
+          </div>
+        ` : `
+          <div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <input class="tws-input" data-cash-staff placeholder="Staff name" value="Admin" />
+            <input class="tws-input" data-cash-pin type="password" inputmode="numeric" placeholder="Staff PIN" />
+            <input class="tws-input" data-cash-received type="number" min="0" step="1" placeholder="Amount received" />
+            <div class="rounded-2xl bg-slate-950/50 border border-white/10 px-4 py-3 text-sm">
+              <div class="text-xs text-slate-400">Change Given</div>
+              <div class="font-semibold mt-1" data-cash-change>${money(0)}</div>
+            </div>
+          </div>
+
+          <button class="btn-primary w-full mt-3" data-confirm-cash ${canConfirm ? "" : "disabled"}>Confirm Payment Received</button>
+          <div class="text-xs text-slate-400 mt-2" data-cash-note>
+            ${canConfirm ? "Enter collected amount. Change is calculated automatically." : `Current status is "${order.status}". Cash can be confirmed after restaurant approval.`}
+          </div>
+        `}
       `;
 
-      const staffInput = div.querySelector("[data-cash-staff]");
-      const pinInput = div.querySelector("[data-cash-pin]");
-      const receivedInput = div.querySelector("[data-cash-received]");
-      const changeEl = div.querySelector("[data-cash-change]");
-      const confirmBtn = div.querySelector("[data-confirm-cash]");
-      const noteEl = div.querySelector("[data-cash-note]");
+      if (!isPaid) {
+        const staffInput = div.querySelector("[data-cash-staff]");
+        const pinInput = div.querySelector("[data-cash-pin]");
+        const receivedInput = div.querySelector("[data-cash-received]");
+        const changeEl = div.querySelector("[data-cash-change]");
+        const confirmBtn = div.querySelector("[data-confirm-cash]");
+        const noteEl = div.querySelector("[data-cash-note]");
 
-      const updateChange = () => {
-        const received = Number(receivedInput?.value || 0);
-        const change = Math.max(0, received - total);
-        if (changeEl) changeEl.textContent = money(change);
-      };
+        const updateChange = () => {
+          const received = Number(receivedInput?.value || 0);
+          const change = Math.max(0, received - total);
+          if (changeEl) changeEl.textContent = money(change);
+        };
 
-      receivedInput?.addEventListener("input", updateChange);
+        receivedInput?.addEventListener("input", updateChange);
 
-      confirmBtn.onclick = async () => {
-        const staffName = String(staffInput?.value || "Admin").trim() || "Admin";
-        const staffPin = String(pinInput?.value || "").trim();
-        const amountReceived = Number(receivedInput?.value || 0);
-        const changeGiven = Math.max(0, amountReceived - total);
+        confirmBtn.onclick = async () => {
+          const staffName = String(staffInput?.value || "Admin").trim() || "Admin";
+          const staffPin = String(pinInput?.value || "").trim();
+          const amountReceived = Number(receivedInput?.value || 0);
+          const changeGiven = Math.max(0, amountReceived - total);
 
-        if (!staffPin) {
-          if (noteEl) noteEl.textContent = "Enter staff PIN first.";
-          return;
-        }
-
-        if (amountReceived < total) {
-          if (noteEl) noteEl.textContent = `Amount received is less than total due (${money(total)}).`;
-          return;
-        }
-
-        if (confirmBtn) {
-          confirmBtn.disabled = true;
-          confirmBtn.classList.add("opacity-60");
-          confirmBtn.textContent = "Confirming...";
-        }
-
-        try {
-          if (typeof FC.confirmCashPayment !== "function") {
-            throw new Error("FC.confirmCashPayment is missing. Update storage.js first.");
+          if (!staffPin) {
+            if (noteEl) noteEl.textContent = "Enter staff PIN first.";
+            return;
           }
 
-          await FC.confirmCashPayment(order.id, {
-            cashToken: safeObj(order.payment).cashToken || "",
-            staffName,
-            staffPin,
-            amountReceived,
-            changeGiven
-          });
+          if (amountReceived < total) {
+            if (noteEl) noteEl.textContent = `Amount received is less than total due (${money(total)}).`;
+            return;
+          }
 
-          logSafe(`Admin confirmed cash payment for ${order.id}. Received ${amountReceived}, change ${changeGiven}.`);
-          await renderAll();
-        } catch (err) {
-          console.error("admin.js: cash confirmation failed", err);
-          if (noteEl) noteEl.textContent = err.message || "Cash confirmation failed.";
           if (confirmBtn) {
-            confirmBtn.disabled = false;
-            confirmBtn.classList.remove("opacity-60");
-            confirmBtn.textContent = "Confirm Payment Received";
+            confirmBtn.disabled = true;
+            confirmBtn.classList.add("opacity-60");
+            confirmBtn.textContent = "Confirming...";
           }
-        }
-      };
+
+          try {
+            if (typeof FC.confirmCashPayment !== "function") {
+              throw new Error("FC.confirmCashPayment is missing. Update storage.js first.");
+            }
+
+            await FC.confirmCashPayment(order.id, {
+              cashToken: cashCounterScannedTokens[order.id] || safeObj(order.payment).cashToken || "",
+              staffName,
+              staffPin,
+              amountReceived,
+              changeGiven
+            });
+
+            logSafe(`Admin confirmed cash payment for ${order.id}. Received ${amountReceived}, change ${changeGiven}.`);
+            cashCounterSelectedOrderId = "";
+            await renderAll();
+          } catch (err) {
+            console.error("admin.js: cash confirmation failed", err);
+            if (noteEl) noteEl.textContent = err.message || "Cash confirmation failed.";
+            if (confirmBtn) {
+              confirmBtn.disabled = false;
+              confirmBtn.classList.remove("opacity-60");
+              confirmBtn.textContent = "Confirm Payment Received";
+            }
+          }
+        };
+      }
 
       cashCounterPanel.appendChild(div);
     });
@@ -2096,6 +2259,39 @@
     };
   }
 
+  if (scanCashQrBtn) {
+    scanCashQrBtn.onclick = async () => {
+      await openCashQrScanner();
+    };
+  }
+
+  if (cashQrCloseBtn) {
+    cashQrCloseBtn.onclick = async () => {
+      await closeCashQrScanner();
+    };
+  }
+
+  if (cashQrLoadBtn) {
+    cashQrLoadBtn.onclick = async () => {
+      await loadCashOrderFromQrText(cashQrManualInput?.value || "");
+    };
+  }
+
+  if (cashQrManualInput) {
+    cashQrManualInput.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        await loadCashOrderFromQrText(cashQrManualInput.value || "");
+      }
+    });
+  }
+
+  if (cashQrScannerModal) {
+    cashQrScannerModal.addEventListener("click", async (e) => {
+      if (e.target === cashQrScannerModal) await closeCashQrScanner();
+    });
+  }
+
   if (logoutBtn) {
     logoutBtn.onclick = () => {
       localStorage.removeItem(sessKey);
@@ -2146,8 +2342,10 @@
   }
 
   setInterval(() => {
-    if (loggedIn) renderAll();
-  }, 1400);
+    if (!loggedIn) return;
+    if (cashCounterPanel && cashCounterPanel.contains(document.activeElement)) return;
+    renderAll();
+  }, 3000);
 
   window.addEventListener("focus", () => {
     if (loggedIn) renderAll();
