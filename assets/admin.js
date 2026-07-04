@@ -5,6 +5,15 @@
   const safeObj = (v) => (v && typeof v === "object" ? v : {});
   const setText = (el, value) => { if (el) el.textContent = String(value ?? ""); };
 
+  function escapeHtml(value = "") {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   try {
     if (typeof FC.seed === "function") {
       await FC.seed();
@@ -125,6 +134,56 @@
     return new Date().toISOString();
   }
 
+  function approvalWindowSeconds() {
+    try {
+      if (typeof FC.approvalWindowSeconds === "function") {
+        const n = Number(FC.approvalWindowSeconds());
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    } catch {}
+
+    const state = getStateSafe();
+    const n = Number(state.settings?.approvalWindowSeconds || 12);
+    return Number.isFinite(n) && n > 0 ? n : 12;
+  }
+
+  function orderApprovalStart(order = {}) {
+    const payment = safeObj(order.payment);
+    const raw =
+      order.approvalRequestedAt ||
+      order.approval_requested_at ||
+      payment.approvalRequestedAt ||
+      order.createdAt ||
+      order.created_at ||
+      "";
+
+    const parsed = raw ? new Date(raw).getTime() : NaN;
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function orderApprovalSecondsLeft(order = {}) {
+    try {
+      if (typeof FC.orderApprovalSecondsLeft === "function") {
+        return Math.max(0, Number(FC.orderApprovalSecondsLeft(order)) || 0);
+      }
+    } catch {}
+
+    const elapsed = Date.now() - orderApprovalStart(order);
+    const left = Math.max(0, approvalWindowSeconds() * 1000 - elapsed);
+    return Math.ceil(left / 1000);
+  }
+
+  function approvalModeText(order = {}) {
+    const mode = String(order.approvalMode || order.payment?.approvalMode || "").toLowerCase();
+
+    if (mode.includes("auto")) return "Auto Accepted";
+    if (mode.includes("restaurant_manual")) return "Accepted by Restaurant";
+    if (mode.includes("rejected")) return "Rejected by Restaurant";
+    if (mode.includes("pending")) return "Pending Restaurant";
+
+    return "";
+  }
+
   function logSafe(message) {
     try {
       if (typeof FC.log === "function") FC.log(message);
@@ -209,6 +268,8 @@
       const serviceType = normalizeServiceType(order.service_type || order.serviceType || "");
       const tableNumber = normalizeTableNumber(serviceType, order.table_number || order.tableNumber || "");
 
+      const payment = safeObj(order.payment);
+
       return {
         id: order.id,
         restaurantId: order.restaurant_id,
@@ -217,7 +278,11 @@
         items: safeArr(order.order_items).map((it) => ({
           itemId: it.menu_item_id ?? null,
           name: it.name,
+          originalName: it.original_name || it.originalName || it.base_name || it.name,
           price: Number(it.price || 0),
+          basePrice: Number(it.base_price || it.basePrice || it.price || 0),
+          addonTotal: Number(it.addon_total || it.addonTotal || 0),
+          addons: safeArr(it.addons || it.selected_addons || it.options),
           qty: Number(it.qty || 0),
           fast: !!it.fast
         })),
@@ -226,17 +291,25 @@
         total: Number(order.total || 0),
         currency: order.currency || "PKR",
         status: order.status || "pending_approval",
-        rejectReason: order.reject_reason || null,
+        paymentMethod: order.payment_method || payment.paymentMethod || payment.method || "",
+        rejectReason: order.reject_reason || payment.rejectReason || payment.rejectionReason || null,
         createdAt: order.created_at || null,
-        approvedAt: order.approved_at || null,
+        approvalRequestedAt: order.approval_requested_at || payment.approvalRequestedAt || order.created_at || null,
+        approvalRespondedAt: order.approval_responded_at || payment.approvalRespondedAt || null,
+        approvalMode: order.approval_mode || payment.approvalMode || "",
+        rejectedAt: order.rejected_at || payment.rejectedAt || null,
+        rejectedByRestaurantId: order.rejected_by_restaurant_id || payment.rejectedByRestaurantId || null,
+        approvedAt: order.approved_at || payment.approvedAt || null,
         paidAt: order.paid_at || null,
-        payment: safeObj(order.payment)
+        payment
       };
     }
 
     // Local/demo shape
     const serviceType = normalizeServiceType(order.serviceType || order.service_type || order.orderType || "");
     const tableNumber = normalizeTableNumber(serviceType, order.tableNumber || order.table_number || order.tableNo || "");
+
+    const payment = safeObj(order.payment);
 
     return {
       id: order.id,
@@ -249,11 +322,17 @@
       total: Number(order.total || 0),
       currency: order.currency || "PKR",
       status: order.status || "pending_approval",
-      rejectReason: order.rejectReason || null,
+      paymentMethod: order.paymentMethod || order.payment_method || payment.paymentMethod || payment.method || "",
+      rejectReason: order.rejectReason || payment.rejectReason || payment.rejectionReason || null,
       createdAt: order.createdAt || null,
-      approvedAt: order.approvedAt || null,
+      approvalRequestedAt: order.approvalRequestedAt || payment.approvalRequestedAt || order.createdAt || null,
+      approvalRespondedAt: order.approvalRespondedAt || payment.approvalRespondedAt || null,
+      approvalMode: order.approvalMode || payment.approvalMode || "",
+      rejectedAt: order.rejectedAt || payment.rejectedAt || null,
+      rejectedByRestaurantId: order.rejectedByRestaurantId || payment.rejectedByRestaurantId || null,
+      approvedAt: order.approvedAt || payment.approvedAt || null,
       paidAt: order.paidAt || null,
-      payment: safeObj(order.payment)
+      payment
     };
   }
 
@@ -401,6 +480,13 @@
       const sold = restOrdersToday.reduce((sum, o) => sum + Number(o.total || 0), 0);
       const dineInCount = restOrdersToday.filter((o) => o.serviceType === "dine_in").length;
       const takeawayCount = restOrdersToday.filter((o) => o.serviceType === "takeaway").length;
+      const pendingApprovalCount = data.orders.filter((o) => o.restaurantId === r.id && o.status === "pending_approval").length;
+      const rejectedTodayCount = data.orders.filter((o) => o.restaurantId === r.id && isToday(o.createdAt) && o.status === "rejected").length;
+      const autoAcceptedTodayCount = data.orders.filter((o) =>
+        o.restaurantId === r.id &&
+        isToday(o.createdAt) &&
+        String(o.approvalMode || o.payment?.approvalMode || "").toLowerCase().includes("auto")
+      ).length;
 
       const menu = safeArr(r.menu);
 
@@ -417,6 +503,11 @@
             <div class="text-xs text-slate-400 mt-2">
               Dine In: <span class="text-slate-200">${dineInCount}</span>
               • Takeaway: <span class="text-slate-200">${takeawayCount}</span>
+            </div>
+            <div class="text-xs text-slate-400 mt-2">
+              Pending Approval: <span class="pill badge-yellow">${pendingApprovalCount}</span>
+              Rejected Today: <span class="pill badge-red">${rejectedTodayCount}</span>
+              Auto Accepted: <span class="pill badge-green">${autoAcceptedTodayCount}</span>
             </div>
           </div>
           <div class="flex items-center gap-2">
@@ -570,6 +661,44 @@
         </div>
       </div>
 
+      <div class="mt-4 grid sm:grid-cols-4 gap-4">
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Pending Approval</div>
+          <div class="text-2xl font-semibold mt-2">${data.orders.filter((o) => o.status === "pending_approval").length}</div>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Rejected Today</div>
+          <div class="text-2xl font-semibold mt-2">${data.orders.filter((o) => isToday(o.createdAt) && o.status === "rejected").length}</div>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Auto Accepted Today</div>
+          <div class="text-2xl font-semibold mt-2">${data.orders.filter((o) => isToday(o.createdAt) && String(o.approvalMode || o.payment?.approvalMode || "").toLowerCase().includes("auto")).length}</div>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Approval Window</div>
+          <div class="text-2xl font-semibold mt-2">${approvalWindowSeconds()}s</div>
+        </div>
+      </div>
+
+      <div class="mt-4 p-4 rounded-2xl bg-white/5 border border-white/10">
+        <div class="text-sm font-semibold">Approval / Rejection Monitor</div>
+        <div class="mt-3 space-y-2 text-sm">
+          ${
+            data.orders.filter((o) => ["pending_approval", "approved", "rejected"].includes(String(o.status || "").toLowerCase())).slice(0, 8).length
+              ? data.orders.filter((o) => ["pending_approval", "approved", "rejected"].includes(String(o.status || "").toLowerCase())).slice(0, 8).map((o) => `
+                  <div class="flex justify-between gap-3 text-slate-300 border-b border-white/5 pb-2">
+                    <span class="truncate">${o.id} • ${restaurantNameById(data.restaurants, o.restaurantId)}</span>
+                    <span class="text-right">${escapeHtml(adminPaymentStatus(o))}</span>
+                  </div>
+                `).join("")
+              : `<div class="text-slate-400 text-sm">No approval/rejection activity yet.</div>`
+          }
+        </div>
+      </div>
+
       <div class="mt-4 p-4 rounded-2xl bg-white/5 border border-white/10">
         <div class="text-sm font-semibold">Ad Impressions</div>
         <div class="mt-3 space-y-2 text-sm">
@@ -608,12 +737,13 @@
   function adminPaymentStatus(order) {
     const status = String(order?.status || "").toLowerCase();
     const payment = safeObj(order?.payment);
+    const mode = approvalModeText(order);
 
     if (payment.success || ["paid", "preparing", "ready", "completed"].includes(status)) return "Paid";
     if (status === "awaiting_payment") return adminPaymentMethodOf(order) === "cash" ? "Cash Pending" : "Online Pending";
-    if (status === "approved") return "Approved - Payment Pending";
-    if (status === "pending_approval") return "Pending Approval";
-    if (status === "rejected") return "Rejected";
+    if (status === "approved") return mode ? `${mode} - Payment Pending` : "Approved - Payment Pending";
+    if (status === "pending_approval") return `Pending Approval (${orderApprovalSecondsLeft(order)}s left)`;
+    if (status === "rejected") return `Rejected${order.rejectReason ? ` - ${order.rejectReason}` : ""}`;
     return status || "Unknown";
   }
 
@@ -1902,6 +2032,10 @@
       "Status",
       "Payment Method",
       "Payment Status",
+      "Approval Mode",
+      "Approval Requested At",
+      "Approval Responded At",
+      "Rejection Reason",
       "Service Type",
       "Table Number",
       "Order Type",
@@ -1926,6 +2060,10 @@
         o.status || "",
         advPaymentMethodLabel(o),
         advPaymentStatusLabel(o),
+        approvalModeText(o),
+        timeOnly(o.approvalRequestedAt || o.createdAt),
+        timeOnly(o.approvalRespondedAt || o.rejectedAt || o.approvedAt),
+        o.rejectReason || "",
         serviceTypeLabel(o),
         tableNumberOf(o),
         serviceSummary(o),
@@ -1954,6 +2092,7 @@
       "Status",
       "Payment Method",
       "Payment Status",
+      "Approval Mode",
       "Service Type",
       "Table Number",
       "Order Type",
@@ -1979,6 +2118,7 @@
           o.status || "",
           advPaymentMethodLabel(o),
           advPaymentStatusLabel(o),
+          approvalModeText(o),
           serviceTypeLabel(o),
           tableNumberOf(o),
           serviceSummary(o),
@@ -2092,8 +2232,8 @@
     XLSX.utils.book_append_sheet(wb, summarySheet, "Executive Summary");
     XLSX.utils.book_append_sheet(wb, createSheet(dailyRows, [14, 10, 14, 10, 10, 10, 10, 12, 14], `A1:I${dailyRows.length}`), "Daily Summary");
     XLSX.utils.book_append_sheet(wb, createSheet(restaurantRows, [24, 12, 14, 18, 12, 12, 10, 10, 12, 14, 14, 14, 30], `A1:M${restaurantRows.length}`), "Restaurant Summary");
-    XLSX.utils.book_append_sheet(wb, createSheet(orderRows, [22, 20, 16, 16, 18, 15, 14, 22, 14, 14, 14, 14, 16, 12, 12, 12, 55, 45, 14, 14], `A1:T${orderRows.length}`), "All Orders");
-    XLSX.utils.book_append_sheet(wb, createSheet(orderLineRows, [22, 20, 16, 16, 18, 15, 14, 22, 14, 14, 14, 28, 34, 35, 8, 12, 12], `A1:Q${orderLineRows.length}`), "Order Lines");
+    XLSX.utils.book_append_sheet(wb, createSheet(orderRows, [22, 20, 16, 16, 18, 18, 18, 18, 32, 15, 14, 22, 14, 14, 14, 14, 16, 12, 12, 12, 55, 45, 14, 14], `A1:X${orderRows.length}`), "All Orders");
+    XLSX.utils.book_append_sheet(wb, createSheet(orderLineRows, [22, 20, 16, 16, 18, 18, 15, 14, 22, 14, 14, 14, 28, 34, 35, 8, 12, 12], `A1:R${orderLineRows.length}`), "Order Lines");
     XLSX.utils.book_append_sheet(wb, createSheet(itemRows, [20, 30, 14, 14, 14], `A1:E${itemRows.length}`), "Item Sales");
     XLSX.utils.book_append_sheet(wb, createSheet(addonRows, [20, 28, 14, 14, 18], `A1:E${addonRows.length}`), "Add-ons Sales");
     XLSX.utils.book_append_sheet(wb, createSheet(paymentRows, [20, 12, 14, 14, 14], `A1:E${paymentRows.length}`), "Payment Summary");
@@ -2345,7 +2485,7 @@
     if (!loggedIn) return;
     if (cashCounterPanel && cashCounterPanel.contains(document.activeElement)) return;
     renderAll();
-  }, 3000);
+  }, 1500);
 
   window.addEventListener("focus", () => {
     if (loggedIn) renderAll();

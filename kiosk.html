@@ -69,6 +69,7 @@
           </div>
         </div>
 
+        <!-- Existing status/workflow panel. kiosk.js can use this for small inline messages. -->
         <div id="flowPanel" class="mt-6 hidden"></div>
       </section>
 
@@ -216,6 +217,86 @@
       </aside>
     </div>
   </main>
+
+  <!-- Restaurant approval waiting modal: used after checkout before payment starts. -->
+  <div id="restaurantApprovalModal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm">
+    <div class="h-full w-full flex items-center justify-center px-6 py-8">
+      <div class="max-w-2xl w-full rounded-3xl bg-slate-950 border border-white/10 shadow-2xl p-6 overflow-hidden">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">Restaurant Confirmation</div>
+            <div id="approvalWaitTitle" class="text-2xl font-semibold mt-1">
+              Waiting for restaurant confirmation
+            </div>
+            <div id="approvalWaitMessage" class="text-slate-300 mt-2 text-sm leading-6">
+              Your order has been sent to the restaurant. Please wait while the restaurant checks item availability.
+            </div>
+          </div>
+
+          <div id="approvalStatusBadge" class="pill text-xs whitespace-nowrap">Pending</div>
+        </div>
+
+        <div class="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+          <div class="grid md:grid-cols-[170px_1fr] gap-6 items-center">
+            <div class="flex items-center justify-center">
+              <div id="approvalAnimation" class="food-loader" aria-hidden="true">
+                <div class="food-loader-steam steam-one"></div>
+                <div class="food-loader-steam steam-two"></div>
+                <div class="food-loader-steam steam-three"></div>
+                <div class="food-loader-pot">
+                  <div class="food-loader-lid"></div>
+                  <div class="food-loader-bowl"></div>
+                </div>
+                <div class="food-loader-flame"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold text-slate-100">Restaurant response timer</div>
+                <div class="text-sm text-slate-300">
+                  Auto-accept in
+                  <span id="approvalCountdown" class="text-2xl font-bold text-white tabular-nums">12</span>s
+                </div>
+              </div>
+
+              <div class="mt-4 h-3 rounded-full bg-white/10 overflow-hidden">
+                <div id="approvalProgressBar" class="h-full rounded-full bg-emerald-400 transition-all duration-500" style="width: 100%;"></div>
+              </div>
+
+              <div id="approvalWaitSubMessage" class="mt-4 text-sm text-slate-300 leading-6" aria-live="polite">
+                Checking restaurant availability<span class="loading-dots">...</span>
+              </div>
+
+              <div class="mt-4 rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-xs text-slate-400 leading-6">
+                If the restaurant does not respond within 12 seconds, the order will be accepted automatically.
+                If the restaurant rejects it, the reason will be shown here and you can try another order.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="approvalRejectionBox" class="hidden mt-5 rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4">
+          <div class="text-sm font-semibold text-rose-200">Order rejected by restaurant</div>
+          <div id="approvalRejectionReason" class="mt-2 text-sm text-rose-100 leading-6">
+            Food item is not available.
+          </div>
+          <div class="mt-4 grid sm:grid-cols-2 gap-3">
+            <button id="approvalTryAgainBtn" class="btn-primary">Try Another Order</button>
+            <button id="approvalChooseRestaurantBtn" class="btn-ghost">Choose Different Restaurant</button>
+          </div>
+        </div>
+
+        <div id="approvalAcceptedBox" class="hidden mt-5 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+          <div class="text-sm font-semibold text-emerald-200">Order accepted</div>
+          <div id="approvalAcceptedMessage" class="mt-2 text-sm text-emerald-100 leading-6">
+            The restaurant accepted your order. Please continue to the selected payment flow.
+          </div>
+          <button id="approvalContinuePaymentBtn" class="btn-primary mt-4 w-full">Continue to Payment</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div id="paymentModal" class="hidden fixed inset-0 z-50 bg-black/70">
     <div class="h-full w-full flex items-center justify-center px-6">

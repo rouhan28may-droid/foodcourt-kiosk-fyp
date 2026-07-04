@@ -192,6 +192,7 @@ FC.defaultState = function () {
       taxRate: 0.13,
       idleAdsAfterSeconds: 240,
       paymentTimeoutSeconds: 180,
+      approvalWindowSeconds: 12,
       kioskPin: "1234",
       staffPin: "1234"
     },
@@ -403,6 +404,44 @@ FC.uid = function (prefix = "ORD") {
   );
 };
 
+// ---------- Approval Helpers ----------
+FC.approvalWindowSeconds = function () {
+  const s = FC.getState();
+  const n = Number(s.settings?.approvalWindowSeconds || 12);
+  return Number.isFinite(n) && n > 0 ? n : 12;
+};
+
+FC.approvalWindowMs = function () {
+  return FC.approvalWindowSeconds() * 1000;
+};
+
+FC.orderApprovalStartTime = function (order = {}) {
+  const payment = FC._safeObject(order.payment);
+  const raw =
+    order.approvalRequestedAt ||
+    order.approval_requested_at ||
+    payment.approvalRequestedAt ||
+    order.createdAt ||
+    order.created_at ||
+    "";
+
+  const parsed = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(parsed) ? parsed : Date.now();
+};
+
+FC.orderApprovalSecondsLeft = function (order = {}) {
+  const elapsed = Date.now() - FC.orderApprovalStartTime(order);
+  const left = Math.max(0, FC.approvalWindowMs() - elapsed);
+  return Math.ceil(left / 1000);
+};
+
+FC.shouldAutoApproveOrder = function (order = {}) {
+  return (
+    String(order.status || "").toLowerCase() === "pending_approval" &&
+    FC.orderApprovalSecondsLeft(order) <= 0
+  );
+};
+
 // ---------- Order Normalization ----------
 FC._normalizeOrder = function (order) {
   if (!order) return null;
@@ -422,9 +461,14 @@ FC._normalizeOrder = function (order) {
       tax: Number(order.tax || 0),
       total: Number(order.total || 0),
       currency: order.currency || "PKR",
-      rejectReason: order.reject_reason || null,
+      rejectReason: order.reject_reason || payment.rejectReason || payment.rejectionReason || null,
       createdAt: order.created_at || null,
-      approvedAt: order.approved_at || null,
+      approvalRequestedAt: order.approval_requested_at || order.approvalRequestedAt || payment.approvalRequestedAt || order.created_at || null,
+      approvalRespondedAt: order.approval_responded_at || order.approvalRespondedAt || payment.approvalRespondedAt || null,
+      approvalMode: order.approval_mode || order.approvalMode || payment.approvalMode || "",
+      rejectedAt: order.rejected_at || order.rejectedAt || payment.rejectedAt || null,
+      rejectedByRestaurantId: order.rejected_by_restaurant_id || order.rejectedByRestaurantId || payment.rejectedByRestaurantId || null,
+      approvedAt: order.approved_at || payment.approvedAt || null,
       paidAt: order.paid_at || null,
       payment,
       paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.payment_method || "online"),
@@ -462,9 +506,14 @@ FC._normalizeOrder = function (order) {
     tax: Number(order.tax || 0),
     total: Number(order.total || 0),
     currency: order.currency || "PKR",
-    rejectReason: order.rejectReason || null,
+    rejectReason: order.rejectReason || payment.rejectReason || payment.rejectionReason || null,
     createdAt: order.createdAt || null,
-    approvedAt: order.approvedAt || null,
+    approvalRequestedAt: order.approvalRequestedAt || payment.approvalRequestedAt || order.createdAt || null,
+    approvalRespondedAt: order.approvalRespondedAt || payment.approvalRespondedAt || null,
+    approvalMode: order.approvalMode || payment.approvalMode || "",
+    rejectedAt: order.rejectedAt || payment.rejectedAt || null,
+    rejectedByRestaurantId: order.rejectedByRestaurantId || payment.rejectedByRestaurantId || null,
+    approvedAt: order.approvedAt || payment.approvedAt || null,
     paidAt: order.paidAt || null,
     payment,
     paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.paymentMethod || "online"),
@@ -580,6 +629,7 @@ FC.createOrder = async function ({
   const orderId = FC.uid("ORD");
   const trackingToken = FC.uid("TRK");
   const cashToken = normalizedPaymentMethod === "cash" ? FC.uid("CASH") : null;
+  const createdAt = FC.nowISO();
 
   const payment = {
     attemptCount: 0,
@@ -593,7 +643,11 @@ FC.createOrder = async function ({
     cashToken,
     cashConfirmUrl: cashToken ? FC.cashConfirmUrl(orderId, cashToken) : "",
     cashConfirmedAt: null,
-    cashConfirmedBy: null
+    cashConfirmedBy: null,
+    approvalRequestedAt: createdAt,
+    approvalRespondedAt: null,
+    approvalMode: "pending_restaurant",
+    approvalWindowSeconds: FC.approvalWindowSeconds()
   };
 
   const order = {
@@ -607,7 +661,12 @@ FC.createOrder = async function ({
     total: Number(totals?.total || 0),
     currency: "PKR",
     rejectReason: null,
-    createdAt: FC.nowISO(),
+    createdAt,
+    approvalRequestedAt: createdAt,
+    approvalRespondedAt: null,
+    approvalMode: "pending_restaurant",
+    rejectedAt: null,
+    rejectedByRestaurantId: null,
     approvedAt: null,
     paidAt: null,
     payment,
@@ -711,7 +770,45 @@ FC.updateOrder = async function (orderId, patch) {
     if ("rejectReason" in patch) dbPatch.reject_reason = patch.rejectReason;
     if ("approvedAt" in patch) dbPatch.approved_at = patch.approvedAt;
     if ("paidAt" in patch) dbPatch.paid_at = patch.paidAt;
-    if ("payment" in patch) dbPatch.payment = patch.payment;
+    const approvalMeta = {};
+    const approvalMetaKeys = [
+      "approvalRequestedAt",
+      "approvalRespondedAt",
+      "approvalMode",
+      "rejectedAt",
+      "rejectedByRestaurantId"
+    ];
+
+    approvalMetaKeys.forEach((key) => {
+      if (key in patch) approvalMeta[key] = patch[key];
+    });
+
+    if ("rejectReason" in patch) approvalMeta.rejectReason = patch.rejectReason;
+    if ("approvedAt" in patch) approvalMeta.approvedAt = patch.approvedAt;
+
+    if ("payment" in patch || Object.keys(approvalMeta).length) {
+      let previousPayment = {};
+
+      try {
+        const { data: existingPaymentRow, error: paymentFetchError } = await db
+          .from("orders")
+          .select("payment")
+          .eq("id", orderId)
+          .maybeSingle();
+
+        if (!paymentFetchError) {
+          previousPayment = FC._safeObject(existingPaymentRow?.payment);
+        }
+      } catch (err) {
+        console.warn("Previous payment metadata fetch skipped:", err);
+      }
+
+      dbPatch.payment = {
+        ...previousPayment,
+        ...FC._safeObject(patch.payment),
+        ...approvalMeta
+      };
+    }
 
     if ("serviceType" in patch) {
       dbPatch.service_type = FC._normalizeServiceType(patch.serviceType);
@@ -762,6 +859,38 @@ FC.updateOrder = async function (orderId, patch) {
   s.orders[idx] = next;
   FC.setState(s);
   return next;
+};
+
+
+FC.approveOrder = async function (orderId, mode = "restaurant_manual") {
+  const respondedAt = FC.nowISO();
+
+  return await FC.updateOrder(orderId, {
+    status: "approved",
+    approvedAt: respondedAt,
+    approvalRespondedAt: respondedAt,
+    approvalMode: mode,
+    rejectReason: ""
+  });
+};
+
+FC.rejectOrder = async function (orderId, reason, restaurantId = "") {
+  const cleanReason = String(reason || "").trim();
+
+  if (cleanReason.length < 5) {
+    throw new Error("A valid rejection reason is required.");
+  }
+
+  const respondedAt = FC.nowISO();
+
+  return await FC.updateOrder(orderId, {
+    status: "rejected",
+    rejectReason: cleanReason,
+    rejectedAt: respondedAt,
+    approvalRespondedAt: respondedAt,
+    approvalMode: "restaurant_rejected",
+    rejectedByRestaurantId: restaurantId || ""
+  });
 };
 
 FC.confirmCashPayment = async function (orderId, options = {}) {

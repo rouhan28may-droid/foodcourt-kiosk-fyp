@@ -24,6 +24,20 @@
   const revenue = $("revenue");
   const bestSeller = $("bestSeller");
 
+  // 12-second restaurant approval flow
+  const APPROVAL_WINDOW_SECONDS = 12;
+  const APPROVAL_WINDOW_MS = APPROVAL_WINDOW_SECONDS * 1000;
+
+  const approvalWindowLabel = $("approvalWindowLabel");
+  const rejectModal = $("rejectModal");
+  const rejectOrderId = $("rejectOrderId");
+  const rejectOrderLabel = $("rejectOrderLabel");
+  const rejectReasonInput = $("rejectReasonInput");
+  const rejectReasonErr = $("rejectReasonErr");
+  const rejectCloseBtn = $("rejectCloseBtn");
+  const rejectCancelBtn = $("rejectCancelBtn");
+  const rejectConfirmBtn = $("rejectConfirmBtn");
+
   const sessKey = "fc_restaurant_session";
 
   function safeArray(v) {
@@ -59,6 +73,39 @@
 
   function setText(el, value) {
     if (el) el.textContent = String(value ?? "");
+  }
+
+  function escapeHtml(value = "") {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function orderCreatedTime(order = {}) {
+    const raw = order.approvalRequestedAt || order.createdAt || order.created_at || order.time || "";
+    const parsed = raw ? new Date(raw).getTime() : NaN;
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function approvalElapsedMs(order = {}) {
+    return Math.max(0, Date.now() - orderCreatedTime(order));
+  }
+
+  function approvalSecondsLeft(order = {}) {
+    const leftMs = Math.max(0, APPROVAL_WINDOW_MS - approvalElapsedMs(order));
+    return Math.ceil(leftMs / 1000);
+  }
+
+  function approvalProgressPercent(order = {}) {
+    const elapsed = Math.min(APPROVAL_WINDOW_MS, approvalElapsedMs(order));
+    return Math.max(0, Math.min(100, Math.round((elapsed / APPROVAL_WINDOW_MS) * 100)));
+  }
+
+  function approvalExpired(order = {}) {
+    return approvalElapsedMs(order) >= APPROVAL_WINDOW_MS;
   }
 
   function logSafe(message) {
@@ -140,6 +187,48 @@
 
   async function updateOrderSafe(orderId, patch) {
     return await Promise.resolve(FC.updateOrder(orderId, patch));
+  }
+
+  async function approveOrder(orderId, mode = "restaurant_manual") {
+    await updateOrderSafe(orderId, {
+      status: "approved",
+      approvedAt: nowISO(),
+      approvalRespondedAt: nowISO(),
+      approvalMode: mode,
+      rejectReason: ""
+    });
+  }
+
+  async function rejectOrder(orderId, reason) {
+    const cleanReason = String(reason || "").trim();
+
+    await updateOrderSafe(orderId, {
+      status: "rejected",
+      rejectReason: cleanReason,
+      rejectedAt: nowISO(),
+      approvalRespondedAt: nowISO(),
+      approvalMode: "restaurant_rejected",
+      rejectedByRestaurantId: restaurantId
+    });
+  }
+
+  async function autoApproveExpiredPendingOrders(orders) {
+    const pending = safeArray(orders).filter((o) => o.status === "pending_approval");
+    let changed = false;
+
+    for (const order of pending) {
+      if (!approvalExpired(order)) continue;
+
+      try {
+        await approveOrder(order.id, "auto_approved_after_12s");
+        logSafe(`Order ${order.id} auto-approved after ${APPROVAL_WINDOW_SECONDS} seconds.`);
+        changed = true;
+      } catch (err) {
+        console.error("restaurant.js: auto approval failed", err);
+      }
+    }
+
+    return changed;
   }
 
   async function toggleRestaurantOnlineSafe() {
@@ -258,6 +347,69 @@
     };
   }
 
+  function closeRejectModal() {
+    if (rejectModal) rejectModal.classList.add("hidden");
+    if (rejectOrderId) rejectOrderId.value = "";
+    if (rejectOrderLabel) rejectOrderLabel.textContent = "";
+    if (rejectReasonInput) rejectReasonInput.value = "";
+    if (rejectReasonErr) rejectReasonErr.classList.add("hidden");
+  }
+
+  function openRejectModal(order) {
+    if (!order || !rejectModal) return;
+
+    if (rejectOrderId) rejectOrderId.value = order.id;
+    if (rejectOrderLabel) {
+      rejectOrderLabel.textContent = `Order ${order.id} • ${serviceLabel(order)} • ${money(order.total)}`;
+    }
+
+    if (rejectReasonInput) {
+      rejectReasonInput.value = "";
+      setTimeout(() => rejectReasonInput.focus(), 80);
+    }
+
+    if (rejectReasonErr) rejectReasonErr.classList.add("hidden");
+    rejectModal.classList.remove("hidden");
+  }
+
+  async function confirmRejectFromModal() {
+    const orderId = String(rejectOrderId?.value || "").trim();
+    const reason = String(rejectReasonInput?.value || "").trim();
+
+    if (!orderId) return;
+
+    if (reason.length < 5) {
+      if (rejectReasonErr) {
+        rejectReasonErr.textContent = "Please enter a valid rejection reason with at least 5 characters.";
+        rejectReasonErr.classList.remove("hidden");
+      }
+      if (rejectReasonInput) rejectReasonInput.focus();
+      return;
+    }
+
+    try {
+      const orders = await getOrdersForRestaurantSafe();
+      const order = safeArray(orders).find((o) => String(o.id) === orderId);
+
+      if (!order || order.status !== "pending_approval") {
+        closeRejectModal();
+        await renderAll();
+        return;
+      }
+
+      await rejectOrder(orderId, reason);
+      logSafe(`Order ${orderId} rejected by restaurant. Reason: ${reason}`);
+      closeRejectModal();
+      await renderAll();
+    } catch (err) {
+      console.error("restaurant.js: reject failed", err);
+      if (rejectReasonErr) {
+        rejectReasonErr.textContent = `Reject failed: ${err.message || err}`;
+        rejectReasonErr.classList.remove("hidden");
+      }
+    }
+  }
+
   async function renderPending(orders) {
     if (!pendingList) return;
 
@@ -270,68 +422,75 @@
     }
 
     for (const o of pending) {
-      const items = safeArray(o.items).map((it) => `${it.name}×${it.qty}`).join(", ");
+      const items = safeArray(o.items).map((it) => `${escapeHtml(it.name || "Item")} × ${Number(it.qty || 0)}`).join(", ");
+      const secondsLeft = approvalSecondsLeft(o);
+      const progress = approvalProgressPercent(o);
+      const createdText = o.createdAt ? new Date(o.createdAt).toLocaleTimeString() : "";
 
       const div = document.createElement("div");
-      div.className = "p-4 rounded-2xl bg-white/5 border border-white/10";
+      div.className = "p-4 rounded-2xl bg-white/5 border border-amber-400/20";
       div.innerHTML = `
-        <div class="flex items-start justify-between gap-3 flex-wrap">
-          <div class="min-w-0">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 flex-wrap">
-              <div class="font-semibold">${o.id}</div>
+              <div class="font-semibold">${escapeHtml(o.id)}</div>
               ${serviceBadge(o)}
+              <span class="pill badge-yellow">Pending Approval</span>
             </div>
-            <div class="text-xs text-slate-400 mt-1">
-              ${o.createdAt ? new Date(o.createdAt).toLocaleTimeString() : ""} • ${items}
+
+            <div class="text-xs text-slate-400 mt-2">
+              ${escapeHtml(createdText)} • ${items}
             </div>
-            <div class="text-sm text-slate-200 mt-2">
+
+            <div class="text-sm text-slate-200 mt-3">
               Total: <span class="pill">${money(o.total)}</span>
             </div>
+
             <div class="text-xs text-slate-400 mt-2">
-              Order Type: <span class="text-slate-200">${serviceLabel(o)}</span>
+              Order Type: <span class="text-slate-200">${escapeHtml(serviceLabel(o))}</span>
+            </div>
+
+            <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-3">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-xs uppercase tracking-widest text-slate-500">Decision Timer</div>
+                  <div class="text-sm font-semibold text-slate-100 mt-1">
+                    Auto-accept in <span class="text-amber-300">${secondsLeft}</span> second${secondsLeft === 1 ? "" : "s"}
+                  </div>
+                </div>
+
+                <div class="text-3xl">🍳</div>
+              </div>
+
+              <div class="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
+                <div class="h-full rounded-full bg-amber-400 transition-all duration-500" style="width:${progress}%"></div>
+              </div>
             </div>
           </div>
-          <div class="flex gap-2 flex-wrap">
-            <button class="btn-primary text-sm" data-act="approve">Approve</button>
-            <button class="btn-ghost text-sm" data-act="reject">Reject</button>
+
+          <div class="flex gap-2 flex-wrap justify-end">
+            <button class="btn-primary text-sm" data-act="approve">Approve Order</button>
+            <button class="btn-ghost text-sm border-rose-400/40 text-rose-200" data-act="reject">Reject with Reason</button>
           </div>
-        </div>
-        <div class="mt-3 hidden" data-reject-box>
-          <select class="tws-select" data-reason>
-            <option value="Out of stock">Out of stock</option>
-            <option value="Kitchen busy">Kitchen busy</option>
-            <option value="Item unavailable">Item unavailable</option>
-          </select>
-          <button class="btn-primary mt-2 text-sm" data-act="confirm-reject">Confirm Reject</button>
         </div>
       `;
 
       const approveBtn = div.querySelector('[data-act="approve"]');
       const rejectBtn = div.querySelector('[data-act="reject"]');
-      const rejBox = div.querySelector("[data-reject-box]");
-      const reasonSel = div.querySelector("[data-reason]");
-      const confirmReject = div.querySelector('[data-act="confirm-reject"]');
 
       approveBtn.onclick = async () => {
-        await updateOrderSafe(o.id, {
-          status: "approved",
-          approvedAt: nowISO()
-        });
-        logSafe(`Order ${o.id} approved by restaurant.`);
-        await renderAll();
+        try {
+          await approveOrder(o.id, "restaurant_manual");
+          logSafe(`Order ${o.id} approved by restaurant.`);
+          await renderAll();
+        } catch (err) {
+          console.error("restaurant.js: approve failed", err);
+          alert(`Approve failed: ${err.message || err}`);
+        }
       };
 
       rejectBtn.onclick = () => {
-        rejBox?.classList.toggle("hidden");
-      };
-
-      confirmReject.onclick = async () => {
-        await updateOrderSafe(o.id, {
-          status: "rejected",
-          rejectReason: reasonSel?.value || "Rejected"
-        });
-        logSafe(`Order ${o.id} rejected (${reasonSel?.value || "Rejected"}).`);
-        await renderAll();
+        openRejectModal(o);
       };
 
       pendingList.appendChild(div);
@@ -1097,6 +1256,52 @@
     return true;
   }
 
+  if (approvalWindowLabel) {
+    approvalWindowLabel.textContent = `${APPROVAL_WINDOW_SECONDS}s`;
+  }
+
+  if (rejectCloseBtn) {
+    rejectCloseBtn.onclick = closeRejectModal;
+  }
+
+  if (rejectCancelBtn) {
+    rejectCancelBtn.onclick = closeRejectModal;
+  }
+
+  if (rejectConfirmBtn) {
+    rejectConfirmBtn.onclick = confirmRejectFromModal;
+  }
+
+  if (rejectReasonInput) {
+    rejectReasonInput.addEventListener("input", () => {
+      if (rejectReasonErr) rejectReasonErr.classList.add("hidden");
+    });
+
+    rejectReasonInput.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        await confirmRejectFromModal();
+      }
+    });
+  }
+
+  document.querySelectorAll(".rejectQuickReason").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const reason = btn.getAttribute("data-reason") || "";
+      if (rejectReasonInput) {
+        rejectReasonInput.value = reason;
+        rejectReasonInput.focus();
+      }
+      if (rejectReasonErr) rejectReasonErr.classList.add("hidden");
+    });
+  });
+
+  if (rejectModal) {
+    rejectModal.addEventListener("click", (e) => {
+      if (e.target === rejectModal) closeRejectModal();
+    });
+  }
+
   if (exportBtn) {
     exportBtn.onclick = async () => {
       const r = getRestaurant();
@@ -1133,7 +1338,13 @@
         return;
       }
 
-      const orders = await getOrdersForRestaurantSafe();
+      let orders = await getOrdersForRestaurantSafe();
+
+      const autoApproved = await autoApproveExpiredPendingOrders(orders);
+      if (autoApproved) {
+        orders = await getOrdersForRestaurantSafe();
+      }
+
       renderSummary(orders);
       await renderPending(orders);
       await renderActive(orders);
@@ -1207,7 +1418,7 @@
   setInterval(() => {
     if (!restaurantId) return;
     renderAll();
-  }, 1200);
+  }, 500);
 
   window.addEventListener("fc:state-changed", () => {
     if (!restaurantId) return;

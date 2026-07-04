@@ -3,6 +3,9 @@
 
   const $ = (id) => document.getElementById(id);
 
+  const RESTAURANT_APPROVAL_SECONDS = 12;
+  const RESTAURANT_APPROVAL_MS = RESTAURANT_APPROVAL_SECONDS * 1000;
+
   function safeArray(v) {
     return Array.isArray(v) ? v : [];
   }
@@ -437,6 +440,164 @@
     document.head.appendChild(style);
   }
 
+
+  function injectRestaurantApprovalStyles() {
+    if (document.getElementById("restaurantApprovalStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "restaurantApprovalStyles";
+    style.textContent = `
+      .fc-approval-card {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .fc-approval-card::before {
+        content: "";
+        position: absolute;
+        inset: -2px;
+        pointer-events: none;
+        background: radial-gradient(circle at 20% 20%, rgba(249, 115, 22, 0.16), transparent 32%),
+                    radial-gradient(circle at 80% 15%, rgba(129, 140, 248, 0.12), transparent 30%);
+      }
+
+      .fc-cooking-stage {
+        width: 130px;
+        height: 130px;
+        position: relative;
+        margin: 0 auto;
+      }
+
+      .fc-pot {
+        position: absolute;
+        left: 18px;
+        right: 18px;
+        bottom: 22px;
+        height: 45px;
+        border-radius: 0 0 28px 28px;
+        background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.08));
+        border: 1px solid rgba(255,255,255,.18);
+        box-shadow: 0 14px 34px rgba(0,0,0,.28);
+        animation: fc-pot-bounce 1.2s ease-in-out infinite;
+      }
+
+      .fc-pot::before {
+        content: "";
+        position: absolute;
+        left: -13px;
+        top: 12px;
+        width: 18px;
+        height: 18px;
+        border: 3px solid rgba(255,255,255,.18);
+        border-right: 0;
+        border-radius: 16px 0 0 16px;
+      }
+
+      .fc-pot::after {
+        content: "";
+        position: absolute;
+        right: -13px;
+        top: 12px;
+        width: 18px;
+        height: 18px;
+        border: 3px solid rgba(255,255,255,.18);
+        border-left: 0;
+        border-radius: 0 16px 16px 0;
+      }
+
+      .fc-pot-lid {
+        position: absolute;
+        left: 28px;
+        right: 28px;
+        bottom: 68px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.22);
+        animation: fc-lid-shake 1.2s ease-in-out infinite;
+      }
+
+      .fc-pot-flame {
+        position: absolute;
+        left: 47px;
+        bottom: 5px;
+        width: 36px;
+        height: 36px;
+        border-radius: 50% 50% 50% 50%;
+        background: linear-gradient(180deg, rgba(251,191,36,.95), rgba(249,115,22,.6));
+        filter: blur(.2px);
+        transform: rotate(45deg);
+        animation: fc-flame 0.65s ease-in-out infinite alternate;
+      }
+
+      .fc-steam {
+        position: absolute;
+        bottom: 84px;
+        width: 10px;
+        height: 32px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.32);
+        filter: blur(1px);
+        animation: fc-steam-rise 1.35s ease-in-out infinite;
+      }
+
+      .fc-steam.s1 { left: 43px; animation-delay: 0s; }
+      .fc-steam.s2 { left: 61px; animation-delay: .25s; }
+      .fc-steam.s3 { left: 79px; animation-delay: .48s; }
+
+      @keyframes fc-steam-rise {
+        0% { transform: translateY(12px) scale(.75); opacity: 0; }
+        35% { opacity: .85; }
+        100% { transform: translateY(-18px) scale(1.18); opacity: 0; }
+      }
+
+      @keyframes fc-pot-bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-3px); }
+      }
+
+      @keyframes fc-lid-shake {
+        0%, 100% { transform: translateX(0) rotate(0deg); }
+        35% { transform: translateX(-2px) rotate(-2deg); }
+        70% { transform: translateX(2px) rotate(2deg); }
+      }
+
+      @keyframes fc-flame {
+        from { transform: rotate(45deg) scale(.86); opacity: .72; }
+        to { transform: rotate(45deg) scale(1.05); opacity: 1; }
+      }
+
+      .fc-progress-track {
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255,255,255,.08);
+        border: 1px solid rgba(255,255,255,.1);
+      }
+
+      .fc-progress-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(99,102,241,.9), rgba(249,115,22,.95));
+        transition: width .45s ease;
+      }
+
+      .fc-dot-loader span {
+        display: inline-block;
+        animation: fc-dot-pulse 1.2s ease-in-out infinite;
+      }
+
+      .fc-dot-loader span:nth-child(2) { animation-delay: .18s; }
+      .fc-dot-loader span:nth-child(3) { animation-delay: .36s; }
+
+      @keyframes fc-dot-pulse {
+        0%, 80%, 100% { opacity: .25; transform: translateY(0); }
+        40% { opacity: 1; transform: translateY(-2px); }
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+
   function getFullscreenElement() {
     return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
   }
@@ -568,6 +729,7 @@
   }
 
   injectKioskFullscreenStyles();
+  injectRestaurantApprovalStyles();
 
   if (fullscreenBtn) {
     fullscreenBtn.onclick = async () => {
@@ -634,6 +796,7 @@
   let autoCashSlipStartedForOrderId = null;
   let autoCashPaidReceiptOpenedForOrderId = null;
   let stripeReturnHandled = false;
+  let approvalAutoAcceptTimers = new Map();
 
   let idleSeconds = 0;
   let adsIdx = 0;
@@ -674,7 +837,7 @@
     const table = String(order.tableNumber || order.table_number || "").trim();
 
     if (type === "dine_in") {
-      return table ? `Dine In â€¢ Table ${table}` : "Dine In";
+      return table ? `Dine In • Table ${table}` : "Dine In";
     }
 
     if (type === "takeaway") return "Takeaway";
@@ -682,6 +845,99 @@
     return "Order type not selected";
   }
 
+
+
+  function orderDateMs(value) {
+    if (!value) return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function approvalStartMs(order = {}) {
+    return (
+      orderDateMs(order.approvalRequestedAt) ||
+      orderDateMs(order.approval_requested_at) ||
+      orderDateMs(order.requestedAt) ||
+      orderDateMs(order.createdAt) ||
+      orderDateMs(order.created_at) ||
+      Date.now()
+    );
+  }
+
+  function approvalSecondsLeft(order = {}) {
+    const elapsed = Date.now() - approvalStartMs(order);
+    return Math.max(0, Math.ceil((RESTAURANT_APPROVAL_MS - elapsed) / 1000));
+  }
+
+  function approvalProgressPercent(order = {}) {
+    const elapsed = Math.max(0, Date.now() - approvalStartMs(order));
+    const progress = Math.min(100, Math.round((elapsed / RESTAURANT_APPROVAL_MS) * 100));
+    return Math.max(4, progress);
+  }
+
+  function rejectionReasonOf(order = {}) {
+    return String(
+      order.rejectReason ||
+      order.rejectionReason ||
+      order.rejectedReason ||
+      order.reject_reason ||
+      order.rejection_reason ||
+      order.payment?.rejectReason ||
+      ""
+    ).trim();
+  }
+
+  function isFinalOrderStatus(status) {
+    return ["approved", "awaiting_payment", "awaiting_cash_payment", "paid", "preparing", "ready", "completed", "rejected", "cancelled"].includes(String(status || "").toLowerCase());
+  }
+
+  async function autoAcceptPendingOrder(orderId) {
+    const order = await getOrderSafe(orderId);
+    if (!order || order.status !== "pending_approval") return;
+
+    const secondsLeft = approvalSecondsLeft(order);
+    if (secondsLeft > 0) {
+      scheduleRestaurantAutoAccept(order);
+      return;
+    }
+
+    try {
+      await updateOrderSafe(order.id, {
+        status: "approved",
+        approvedAt: nowISO(),
+        autoAccepted: true,
+        autoAcceptedAt: nowISO(),
+        restaurantResponse: "auto_accepted"
+      });
+
+      logSafe(`Order ${order.id} auto-accepted after ${RESTAURANT_APPROVAL_SECONDS} seconds.`);
+    } catch (err) {
+      console.error("kiosk.js: auto-accept failed", err);
+    }
+  }
+
+  function scheduleRestaurantAutoAccept(order = {}) {
+    if (!order?.id || order.status !== "pending_approval") return;
+
+    const existing = approvalAutoAcceptTimers.get(order.id);
+    if (existing) clearTimeout(existing);
+
+    const delay = Math.max(0, approvalSecondsLeft(order) * 1000);
+
+    const timer = setTimeout(async () => {
+      approvalAutoAcceptTimers.delete(order.id);
+      await autoAcceptPendingOrder(order.id);
+    }, delay || 50);
+
+    approvalAutoAcceptTimers.set(order.id, timer);
+  }
+
+  function clearRestaurantAutoAccept(orderId) {
+    if (!orderId) return;
+    const timer = approvalAutoAcceptTimers.get(orderId);
+    if (timer) clearTimeout(timer);
+    approvalAutoAcceptTimers.delete(orderId);
+  }
 
   function normalizePaymentMethod(value) {
     const v = String(value || "").trim().toLowerCase();
@@ -873,7 +1129,7 @@
       ok: true,
       serviceType: type,
       tableNumber: type === "dine_in" ? table : "",
-      label: type === "dine_in" ? `Dine In â€¢ Table ${table}` : "Takeaway"
+      label: type === "dine_in" ? `Dine In • Table ${table}` : "Takeaway"
     };
   }
 
@@ -912,7 +1168,7 @@
     if (serviceSummary) {
       serviceSummary.textContent =
         serviceType === "dine_in"
-          ? (tableValue ? `Dine In â€¢ Table ${tableValue}` : "Dine In")
+          ? (tableValue ? `Dine In • Table ${tableValue}` : "Dine In")
           : serviceLabel();
     }
 
@@ -1544,54 +1800,119 @@
     const svcText = serviceText(order);
 
     if (order.status === "pending_approval") {
+      scheduleRestaurantAutoAccept(order);
+
+      const secondsLeft = approvalSecondsLeft(order);
+      const progress = approvalProgressPercent(order);
+
       elFlowPanel.innerHTML = `
-        <div class="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div class="text-xs uppercase tracking-widest text-slate-400">Order Sent</div>
-            <div class="text-xl font-semibold mt-1">Waiting for Approval</div>
-            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> sent to <span class="pill">${r?.name || "Restaurant"}</span> â€¢ <span class="pill">${svcText}</span></div>
+        <div class="fc-approval-card rounded-3xl border border-white/10 bg-white/5 p-5">
+          <div class="grid md:grid-cols-[160px_1fr] gap-5 items-center relative z-10">
+            <div class="text-center">
+              <div class="fc-cooking-stage" aria-hidden="true">
+                <div class="fc-steam s1"></div>
+                <div class="fc-steam s2"></div>
+                <div class="fc-steam s3"></div>
+                <div class="fc-pot-lid"></div>
+                <div class="fc-pot"></div>
+                <div class="fc-pot-flame"></div>
+              </div>
+              <div class="mt-2 pill badge-yellow">Pending Approval</div>
+            </div>
+
+            <div>
+              <div class="text-xs uppercase tracking-widest text-slate-400">Order Sent to Restaurant</div>
+              <div class="text-2xl font-semibold mt-1">Restaurant is checking your order<span class="fc-dot-loader"><span>.</span><span>.</span><span>.</span></span></div>
+              <div class="text-sm text-slate-300 mt-2">
+                Order <span class="pill">${escapeHtml(order.id)}</span>
+                sent to <span class="pill">${escapeHtml(r?.name || "Restaurant")}</span>
+                • <span class="pill">${escapeHtml(svcText)}</span>
+              </div>
+
+              <div class="mt-5">
+                <div class="flex items-center justify-between gap-3 text-sm">
+                  <span class="text-slate-300">Auto-accept if restaurant does not respond</span>
+                  <span class="pill">${secondsLeft}s left</span>
+                </div>
+                <div class="fc-progress-track mt-2">
+                  <div class="fc-progress-fill" style="width:${progress}%"></div>
+                </div>
+              </div>
+
+              <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
+                Please wait while the restaurant checks item availability. The restaurant can approve or reject this order with a valid reason. If there is no response within ${RESTAURANT_APPROVAL_SECONDS} seconds, the order will be accepted automatically.
+              </div>
+            </div>
           </div>
-          <div class="pill badge-yellow">Pending</div>
         </div>
-        <div class="mt-4 text-sm text-slate-400">Restaurant will approve/reject based on availability.</div>
       `;
       return;
     }
 
+    clearRestaurantAutoAccept(order.id);
+
     if (order.status === "rejected") {
+      const reason = rejectionReasonOf(order) || "Food item is not available right now.";
+
       elFlowPanel.innerHTML = `
-        <div class="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div class="text-xs uppercase tracking-widest text-slate-400">Rejected</div>
-            <div class="text-xl font-semibold mt-1">Order Not Available</div>
-            <div class="text-sm text-slate-300 mt-2">Reason: <span class="pill">${order.rejectReason || "Not specified"}</span></div>
+        <div class="rounded-3xl border border-rose-400/20 bg-rose-500/10 p-5">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div class="text-xs uppercase tracking-widest text-rose-200">Order Rejected</div>
+              <div class="text-2xl font-semibold mt-1">Sorry, the restaurant rejected this order.</div>
+              <div class="text-sm text-slate-200 mt-3">
+                Reason: <span class="pill">${escapeHtml(reason)}</span>
+              </div>
+              <div class="text-sm text-slate-300 mt-3">
+                You can modify your cart, make another order, or try a different restaurant.
+              </div>
+            </div>
+            <div class="pill badge-red">Rejected</div>
           </div>
-          <div class="pill badge-red">Rejected</div>
-        </div>
-        <div class="mt-5 flex gap-2">
-          <button id="tryAgainBtn" class="btn-primary">Modify & Try Again</button>
-          <button id="cancelBtn" class="btn-ghost">Cancel</button>
+
+          <div class="mt-5 flex gap-2 flex-wrap">
+            <button id="tryAgainBtn" class="btn-primary">Modify & Try Again</button>
+            <button id="newOrderBtn" class="btn-ghost">Make Another Order</button>
+            <button id="differentRestaurantBtn" class="btn-ghost">Try Different Restaurant</button>
+          </div>
         </div>
       `;
 
       const tryAgainBtn = elFlowPanel.querySelector("#tryAgainBtn");
-      const cancelBtn = elFlowPanel.querySelector("#cancelBtn");
+      const newOrderBtn = elFlowPanel.querySelector("#newOrderBtn");
+      const differentRestaurantBtn = elFlowPanel.querySelector("#differentRestaurantBtn");
 
       if (tryAgainBtn) {
         tryAgainBtn.onclick = () => {
           awaitingOrderId = null;
           saveSession();
           hideFlow();
+          renderCart();
         };
       }
 
-      if (cancelBtn) {
-        cancelBtn.onclick = () => {
+      if (newOrderBtn) {
+        newOrderBtn.onclick = () => {
           awaitingOrderId = null;
           cart = [];
+          resetServiceSelection();
+          resetPaymentMethodSelection();
           saveSession();
           renderCart();
           hideFlow();
+        };
+      }
+
+      if (differentRestaurantBtn) {
+        differentRestaurantBtn.onclick = () => {
+          awaitingOrderId = null;
+          cart = [];
+          resetServiceSelection();
+          resetPaymentMethodSelection();
+          saveSession();
+          renderCart();
+          hideFlow();
+          window.scrollTo({ top: 0, behavior: "smooth" });
         };
       }
 
@@ -1600,28 +1921,36 @@
 
     if (order.status === "approved" || order.status === "awaiting_payment" || order.status === "awaiting_cash_payment") {
       const method = paymentMethodOf(order);
+      const autoText = order.autoAccepted || order.restaurantResponse === "auto_accepted"
+        ? `Restaurant did not reject within ${RESTAURANT_APPROVAL_SECONDS} seconds, so the order was accepted automatically.`
+        : "Restaurant accepted your order.";
 
       if (method === "cash") {
-        const pendingCash = order.status === "awaiting_cash_payment";
+        const pendingCash = order.status === "awaiting_cash_payment" || order.status === "awaiting_payment";
         elFlowPanel.innerHTML = `
-        <div class="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div class="text-xs uppercase tracking-widest text-slate-400">${pendingCash ? "Cash Payment" : "Approved"}</div>
-            <div class="text-xl font-semibold mt-1">${pendingCash ? "Waiting for Cash Confirmation" : "Cash Slip Starting"}</div>
-            <div class="text-sm text-slate-300 mt-2">
-              Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span>
-              • <span class="pill">${svcText}</span>
-              • <span class="pill">Cash Payment</span>
+        <div class="rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-5">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div class="text-xs uppercase tracking-widest text-emerald-200">${pendingCash ? "Cash Payment" : "Accepted"}</div>
+              <div class="text-xl font-semibold mt-1">${pendingCash ? "Waiting for Cash Confirmation" : "Restaurant Accepted Your Order"}</div>
+              <div class="text-sm text-slate-300 mt-2">
+                ${escapeHtml(autoText)}
+              </div>
+              <div class="text-sm text-slate-300 mt-3">
+                Estimated prep: <span class="pill">${escapeHtml(r?.prepTimeMins || 15)} min</span>
+                • <span class="pill">${escapeHtml(svcText)}</span>
+                • <span class="pill">Cash Payment</span>
+              </div>
+              <div class="text-sm text-slate-400 mt-3">
+                Print the cash slip and take payment at the counter. Staff must scan the cash confirmation QR and confirm payment before preparation starts.
+              </div>
             </div>
-            <div class="text-sm text-slate-400 mt-3">
-              Print the cash slip and take payment at counter. Staff must scan the cash confirmation QR and confirm payment before preparation starts.
-            </div>
+            <div class="pill badge-yellow">${pendingCash ? "Cash Pending" : "Accepted"}</div>
           </div>
-          <div class="pill badge-yellow">${pendingCash ? "Cash Pending" : "Approved"}</div>
-        </div>
-        <div class="mt-5 flex gap-2 flex-wrap">
-          <button id="cashSlipBtn" class="btn-primary">${pendingCash ? "Reprint Cash Slip" : "Print Cash Slip"}</button>
-          <button id="trackBtn" class="btn-ghost">Open Tracking Page</button>
+          <div class="mt-5 flex gap-2 flex-wrap">
+            <button id="cashSlipBtn" class="btn-primary">${pendingCash ? "Reprint Cash Slip" : "Print Cash Slip"}</button>
+            <button id="trackBtn" class="btn-ghost">Open Tracking Page</button>
+          </div>
         </div>
       `;
 
@@ -1644,27 +1973,30 @@
           autoCashSlipStartedForOrderId = order.id;
           setTimeout(async () => {
             await openCashSlip(order.id);
-          }, 500);
+          }, 900);
         }
 
         return;
       }
 
       elFlowPanel.innerHTML = `
-        <div class="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div class="text-xs uppercase tracking-widest text-slate-400">Approved</div>
-            <div class="text-xl font-semibold mt-1">Stripe Payment Starting</div>
-            <div class="text-sm text-slate-300 mt-2">
-              Estimated prep: <span class="pill">${r?.prepTimeMins || 15} min</span>
-              • <span class="pill">${svcText}</span>
-              • Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span>
+        <div class="rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-5">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div class="text-xs uppercase tracking-widest text-emerald-200">Accepted</div>
+              <div class="text-xl font-semibold mt-1">Restaurant accepted your order.</div>
+              <div class="text-sm text-slate-300 mt-2">${escapeHtml(autoText)}</div>
+              <div class="text-sm text-slate-300 mt-3">
+                Estimated prep: <span class="pill">${escapeHtml(r?.prepTimeMins || 15)} min</span>
+                • <span class="pill">${escapeHtml(svcText)}</span>
+                • Priority: <span class="pill">${items.some((i) => i.fast) ? "Fast items" : "Standard"}</span>
+              </div>
+              <div class="text-sm text-slate-400 mt-3">
+                Stripe payment QR will open automatically. Scan it to complete payment.
+              </div>
             </div>
-            <div class="text-sm text-slate-400 mt-3">
-              Payment QR will open automatically. Scan it to pay through Stripe sandbox.
-            </div>
+            <div class="pill badge-green">Accepted</div>
           </div>
-          <div class="pill badge-green">Approved</div>
         </div>
       `;
 
@@ -1672,7 +2004,7 @@
         autoStripeStartedForOrderId = order.id;
         setTimeout(async () => {
           await openPayment(order.id);
-        }, 500);
+        }, 900);
       }
 
       return;
@@ -1684,9 +2016,9 @@
           <div>
             <div class="text-xs uppercase tracking-widest text-slate-400">In Queue</div>
             <div class="text-xl font-semibold mt-1">Order Confirmed</div>
-            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${order.id}</span> is now in preparation queue. <span class="pill">${svcText}</span></div>
+            <div class="text-sm text-slate-300 mt-2">Order <span class="pill">${escapeHtml(order.id)}</span> is now in preparation queue. <span class="pill">${escapeHtml(svcText)}</span></div>
           </div>
-          <div class="pill badge-green">${String(order.status).toUpperCase()}</div>
+          <div class="pill badge-green">${escapeHtml(String(order.status).toUpperCase())}</div>
         </div>
         <div class="mt-4 text-sm text-slate-400">You can show this screen as proof of payment.</div>
       `;
@@ -1700,8 +2032,13 @@
     }
 
     const o = await getOrderSafe(awaitingOrderId);
-    if (o) renderFlow(o);
-    else hideFlow();
+    if (o) {
+      if (o.status === "pending_approval") scheduleRestaurantAutoAccept(o);
+      else clearRestaurantAutoAccept(o.id);
+      renderFlow(o);
+    } else {
+      hideFlow();
+    }
   }
 async function browserPrintSlipOnly(orderId) {
   const order = await getOrderSafe(orderId);
@@ -2712,6 +3049,15 @@ async function browserPrintSlipOnly(orderId) {
     elCheckout.onclick = async () => {
       if (!cart.length) return;
 
+      if (awaitingOrderId) {
+        const existing = await getOrderSafe(awaitingOrderId);
+        if (existing && !["rejected", "cancelled", "completed"].includes(String(existing.status || "").toLowerCase())) {
+          renderFlow(existing);
+          alertSafe("Please finish the current order request before creating a new order.");
+          return;
+        }
+      }
+
       const serviceSelection = getServiceSelection();
       if (!serviceSelection.ok) {
         if (serviceError) {
@@ -2748,19 +3094,34 @@ async function browserPrintSlipOnly(orderId) {
         return;
       }
 
-      const allAvailable = cart.every((ci) => {
+      const missingItems = cart.filter((ci) => {
         const mi = safeArray(r.menu).find((x) => x.id === ci.itemId);
-        return mi && mi.available;
+        return !mi || !mi.available;
       });
 
+      if (missingItems.length) {
+        alertSafe("One or more selected items are not available right now. Please update your cart.");
+        return;
+      }
+
       const totals = computeTotals(cart);
+      const approvalRequestedAt = nowISO();
 
       try {
+        if (elCheckout) {
+          elCheckout.disabled = true;
+          elCheckout.classList.add("opacity-50");
+          elCheckout.textContent = "Sending Request...";
+        }
+
         const order = await createOrderSafe({
           restaurantId: r.id,
           serviceType: serviceSelection.serviceType,
           tableNumber: serviceSelection.tableNumber,
           paymentMethod: paymentSelection.paymentMethod,
+          approvalRequestedAt,
+          autoApproveAfterSeconds: RESTAURANT_APPROVAL_SECONDS,
+          restaurantResponseRequired: true,
           items: cart.map((x) => ({
             ...x,
             fast: !!safeArray(r.menu).find((m) => m.id === x.itemId)?.fast
@@ -2768,26 +3129,57 @@ async function browserPrintSlipOnly(orderId) {
           totals
         });
 
-        awaitingOrderId = order.id;
-        saveSession();
-        renderFlow(order);
-        await refreshQueueCount();
+        const orderForFlow = {
+          ...order,
+          status: order.status || "pending_approval",
+          approvalRequestedAt: order.approvalRequestedAt || approvalRequestedAt,
+          autoApproveAfterSeconds: RESTAURANT_APPROVAL_SECONDS,
+          restaurantResponseRequired: true,
+          paymentMethod: paymentSelection.paymentMethod
+        };
 
-        if (allAvailable && r.online) {
-          setTimeout(async () => {
-            const o = await getOrderSafe(order.id);
-            if (o && o.status === "pending_approval") {
-              await updateOrderSafe(order.id, {
-                status: "approved",
-                approvedAt: nowISO()
-              });
-              logSafe(`Order ${order.id} auto-approved (restaurant online + items available).`);
+        try {
+          await updateOrderSafe(order.id, {
+            status: "pending_approval",
+            approvalRequestedAt: orderForFlow.approvalRequestedAt,
+            autoApproveAfterSeconds: RESTAURANT_APPROVAL_SECONDS,
+            restaurantResponseRequired: true,
+            paymentMethod: paymentSelection.paymentMethod,
+            payment: {
+              ...safeObject(order.payment),
+              method: paymentSelection.paymentMethod,
+              paymentMethod: paymentSelection.paymentMethod,
+              success: false
             }
-          }, 900);
+          });
+        } catch (patchErr) {
+          console.warn("kiosk.js: approval metadata update failed, using created order", patchErr);
         }
+
+        awaitingOrderId = order.id;
+        autoStripeStartedForOrderId = null;
+        autoCashSlipStartedForOrderId = null;
+        autoCashPaidReceiptOpenedForOrderId = null;
+        saveSession();
+
+        renderFlow(orderForFlow);
+        scheduleRestaurantAutoAccept(orderForFlow);
+
+        if (elFlowPanel) {
+          setTimeout(() => {
+            elFlowPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }, 80);
+        }
+
+        await refreshQueueCount();
       } catch (err) {
         console.error("Checkout failed:", err);
         alertSafe(`Checkout failed: ${err.message || err}`);
+      } finally {
+        if (elCheckout) {
+          elCheckout.textContent = "Checkout";
+          renderCart();
+        }
       }
     };
   }
@@ -2827,6 +3219,12 @@ async function browserPrintSlipOnly(orderId) {
     if (!awaitingOrderId) return;
     const o = await getOrderSafe(awaitingOrderId);
     if (!o) return;
+
+    if (o.status === "pending_approval") {
+      scheduleRestaurantAutoAccept(o);
+    } else {
+      clearRestaurantAutoAccept(o.id);
+    }
 
     if (
       o.status === "paid" &&

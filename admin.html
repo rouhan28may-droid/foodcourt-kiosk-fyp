@@ -49,7 +49,7 @@
         <div class="glass p-5 rounded-3xl">
           <div class="text-xs uppercase tracking-widest text-slate-400">Orders Today</div>
           <div id="mOrders" class="text-2xl font-semibold mt-2">0</div>
-          <div class="text-xs text-slate-400 mt-1">All statuses</div>
+          <div class="text-xs text-slate-400 mt-1">All statuses, including approval/rejection</div>
         </div>
 
         <div class="glass p-5 rounded-3xl">
@@ -72,13 +72,26 @@
               <div>
                 <div class="text-lg font-semibold">Restaurant Management</div>
                 <div class="text-sm text-slate-400">
-                  Toggle restaurant online mode, item availability, and monitor sales.
+                  Toggle restaurant online mode, item availability, monitor sales, and review approval/rejection activity.
                 </div>
               </div>
 
               <button id="exportAllBtn" class="btn-ghost text-sm">
                 Export Full Monthly Report (XLSX)
               </button>
+            </div>
+
+            <div class="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
+              <div class="flex items-start gap-3">
+                <div class="text-2xl">⏱️</div>
+                <div>
+                  <div class="text-sm font-semibold text-amber-100">12-Second Approval Rule</div>
+                  <div class="text-xs text-amber-100/80 mt-1">
+                    Customer orders first go to the restaurant as pending approval. If the restaurant does not approve or reject
+                    within 12 seconds, the order is automatically accepted.
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div id="restaurantsPanel" class="mt-4 space-y-3"></div>
@@ -104,7 +117,7 @@
           <div class="glass p-5 rounded-3xl">
             <div class="text-lg font-semibold">Sales Analytics</div>
             <div class="text-sm text-slate-400 mt-1">
-              Best-sellers, item breakdown, payment type, add-ons, service type, and restaurant ranking.
+              Best-sellers, item breakdown, payment type, add-ons, service type, restaurant ranking, and approval/rejection monitor.
             </div>
 
             <div id="analyticsPanel" class="mt-4"></div>
@@ -164,7 +177,6 @@
       </div>
     </section>
   </main>
-
 
   <div id="cashQrScannerModal" class="hidden fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm">
     <div class="h-full w-full flex items-center justify-center px-6 py-6">

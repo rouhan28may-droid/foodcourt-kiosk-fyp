@@ -1,4 +1,6 @@
-<!doctype html>
+from pathlib import Path
+
+restaurant_html = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -8,6 +10,7 @@
   <link rel="stylesheet" href="assets/styles.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
+
 <body class="min-h-screen bg-slate-950 text-slate-100">
   <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
     <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
@@ -15,6 +18,7 @@
         <div class="text-sm text-slate-400">Operations</div>
         <div class="text-xl font-semibold">Restaurant Dashboard</div>
       </div>
+
       <div class="flex items-center gap-2">
         <button id="logoutBtn" class="btn-ghost text-sm hidden">Logout</button>
         <a href="index.html" class="btn-ghost text-sm">Home</a>
@@ -26,10 +30,12 @@
     <!-- login -->
     <section id="loginBox" class="max-w-xl mx-auto glass p-6 rounded-3xl">
       <div class="text-lg font-semibold">Login</div>
+
       <div class="mt-5 grid sm:grid-cols-2 gap-3">
         <input id="userInput" class="tws-input" placeholder="Username" />
         <input id="passInput" class="tws-input" placeholder="Password" type="password" />
       </div>
+
       <button id="loginBtn" class="btn-primary w-full mt-4">Sign In</button>
       <div id="loginErr" class="text-sm text-red-300 mt-3"></div>
     </section>
@@ -45,9 +51,10 @@
                 <div class="text-xs uppercase tracking-widest text-slate-400">Restaurant</div>
                 <div id="restName" class="text-2xl font-semibold mt-1"></div>
                 <div class="text-sm text-slate-400 mt-1">
-                  Approve/reject orders, check Dine In / Takeaway type, and manage preparation status.
+                  New orders wait for restaurant approval. If no action is taken, the order auto-accepts after 12 seconds.
                 </div>
               </div>
+
               <div class="flex items-center gap-2">
                 <span class="pill">Online: <span id="onlineLabel">Yes</span></span>
                 <button id="toggleOnlineBtn" class="btn-ghost text-sm">Toggle Online</button>
@@ -55,23 +62,46 @@
             </div>
           </div>
 
-          <div class="glass p-5 rounded-3xl">
+          <div class="glass p-5 rounded-3xl border border-amber-400/10">
             <div class="flex items-center justify-between gap-3 flex-wrap">
-              <div class="text-lg font-semibold">Pending Approval</div>
-              <div class="text-sm text-slate-400">
-                Kiosk sends order → verify order type/table → approve or reject
+              <div>
+                <div class="text-lg font-semibold">Pending Approval</div>
+                <div class="text-sm text-slate-400 mt-1">
+                  Kiosk sends order → check availability → approve or reject with valid reason.
+                </div>
+              </div>
+
+              <div class="pill badge-yellow">
+                Auto-accept: <span id="approvalWindowLabel">12s</span>
               </div>
             </div>
+
+            <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div class="flex items-start gap-3">
+                <div class="text-2xl">⏱️</div>
+                <div>
+                  <div class="text-sm font-semibold text-slate-100">Approval Rule</div>
+                  <div class="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Restaurant can approve or reject before the countdown ends. If no action is taken within 12 seconds,
+                    the system will automatically approve the order so the customer is not kept waiting.
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div id="pendingList" class="mt-4 space-y-3"></div>
           </div>
 
           <div class="glass p-5 rounded-3xl">
             <div class="flex items-center justify-between gap-3 flex-wrap">
-              <div class="text-lg font-semibold">Active Orders</div>
-              <div class="text-sm text-slate-400">
-                Update status: Preparing → Ready → Completed
+              <div>
+                <div class="text-lg font-semibold">Active Orders</div>
+                <div class="text-sm text-slate-400 mt-1">
+                  Update status: Preparing → Ready → Completed
+                </div>
               </div>
             </div>
+
             <div id="activeList" class="mt-4 space-y-3"></div>
           </div>
         </section>
@@ -89,22 +119,34 @@
               <div class="text-lg font-semibold">Sales Today</div>
               <button id="exportBtn" class="btn-ghost text-sm">Export XLSX</button>
             </div>
+
             <div class="mt-4 space-y-2 text-sm">
               <div class="flex justify-between text-slate-300">
                 <span>Paid Orders</span>
                 <span id="paidCount">0</span>
               </div>
+
               <div class="flex justify-between text-slate-300">
                 <span>Revenue</span>
                 <span id="revenue">0</span>
               </div>
+
               <div class="flex justify-between text-slate-300">
                 <span>Best Seller</span>
                 <span id="bestSeller">—</span>
               </div>
             </div>
+
             <div class="mt-4 text-xs text-slate-400">
-              XLSX report will include service type and table number where available.
+              XLSX report includes service type, table number, payment method, add-ons, item sales, and monthly summaries.
+            </div>
+          </div>
+
+          <div class="glass p-5 rounded-3xl">
+            <div class="text-lg font-semibold">Order Rejection Rules</div>
+            <div class="text-sm text-slate-400 mt-2 leading-relaxed">
+              Reject only when the item is unavailable, kitchen is overloaded, ingredients are missing, or the restaurant
+              cannot prepare the order. A valid reason is required and will be shown on the customer kiosk.
             </div>
           </div>
         </aside>
@@ -112,10 +154,80 @@
     </section>
   </main>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/supabaseclient.js"></script>
-<script src="assets/storage.js"></script>
-<script src="assets/app.js"></script>
-<script src="assets/restaurant.js"></script>
+  <!-- Reject reason modal -->
+  <div id="rejectModal" class="hidden fixed inset-0 z-[90] bg-black/75 backdrop-blur-sm">
+    <div class="h-full w-full flex items-center justify-center px-6">
+      <div class="max-w-lg w-full rounded-3xl bg-slate-950 border border-white/10 shadow-2xl p-6">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-400">Reject Order</div>
+            <div class="text-2xl font-semibold mt-1">Enter Valid Reason</div>
+            <div id="rejectOrderLabel" class="text-sm text-slate-400 mt-2"></div>
+          </div>
+
+          <button id="rejectCloseBtn" class="btn-ghost text-sm">Close</button>
+        </div>
+
+        <input id="rejectOrderId" type="hidden" />
+
+        <div class="mt-5">
+          <label for="rejectReasonInput" class="block text-sm font-semibold text-slate-200 mb-2">
+            Rejection Reason
+          </label>
+
+          <textarea
+            id="rejectReasonInput"
+            class="tws-input w-full min-h-[120px] resize-none"
+            placeholder="Example: Food item is not available right now."
+            maxlength="180"
+          ></textarea>
+
+          <div class="mt-2 text-xs text-slate-500">
+            This reason will be displayed to the customer on the kiosk screen.
+          </div>
+
+          <div id="rejectReasonErr" class="hidden mt-3 text-sm text-rose-300">
+            Please enter a valid rejection reason.
+          </div>
+        </div>
+
+        <div class="mt-5 grid sm:grid-cols-2 gap-3">
+          <button id="rejectCancelBtn" class="btn-ghost w-full">Cancel</button>
+          <button id="rejectConfirmBtn" class="btn-primary w-full bg-rose-600 hover:bg-rose-500">
+            Reject Order
+          </button>
+        </div>
+
+        <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
+          <button class="rejectQuickReason btn-ghost text-xs" data-reason="Food item is not available right now.">
+            Item unavailable
+          </button>
+          <button class="rejectQuickReason btn-ghost text-xs" data-reason="Kitchen is currently overloaded. Please try again later.">
+            Kitchen overloaded
+          </button>
+          <button class="rejectQuickReason btn-ghost text-xs" data-reason="Required ingredients are not available.">
+            Ingredients missing
+          </button>
+          <button class="rejectQuickReason btn-ghost text-xs" data-reason="Restaurant cannot prepare this order at the moment.">
+            Cannot prepare now
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/supabaseclient.js"></script>
+  <script src="assets/storage.js"></script>
+  <script src="assets/app.js"></script>
+  <script src="assets/restaurant.js"></script>
 </body>
 </html>
+"""
+
+out = Path("/mnt/data/restaurant_updated_approval.html")
+out.write_text(restaurant_html, encoding="utf-8")
+txt = Path("/mnt/data/restaurant_updated_approval_notepad.txt")
+txt.write_text(restaurant_html, encoding="utf-8")
+print(f"Created {out}")
+print(f"Created {txt}")
