@@ -734,3 +734,230 @@ body.short-details #menuGrid .line-clamp-2,
 body.short-details .menu-grid .line-clamp-2{
   -webkit-line-clamp: 1 !important;
 }
+/* =========================================================
+   Food Court UX Patch v4
+   Paste this at the END of assets/styles.css
+   Purpose: high-contrast cart + order type + payment method
+   ========================================================= */
+
+/* Main cart panel: stronger contrast and warmer food-kiosk feel */
+.glass:has(#cartItems),
+.glass:has(#cartList),
+.glass:has(#checkoutBtn),
+#cartPanel,
+.cart-panel{
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249,115,22,.16), transparent 35%),
+    linear-gradient(180deg, rgba(31,43,63,.98), rgba(13,20,36,.99)) !important;
+  border: 1px solid rgba(255,255,255,.18) !important;
+  border-left: 4px solid rgba(249,115,22,.95) !important;
+  box-shadow:
+    0 28px 70px rgba(0,0,0,.48),
+    inset 0 1px 0 rgba(255,255,255,.08) !important;
+}
+
+/* Cart title */
+.glass:has(#cartItems) .text-lg,
+.glass:has(#cartItems) .text-xl,
+#cartPanel .text-lg,
+#cartPanel .text-xl,
+.cart-panel .text-lg,
+.cart-panel .text-xl{
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  letter-spacing: -.02em;
+}
+
+/* Cart item cards */
+#cartItems > div,
+#cartList > div,
+.cart-items > div,
+#cartPanel .rounded-2xl,
+.cart-panel .rounded-2xl{
+  background:
+    linear-gradient(180deg, rgba(51,65,85,.96), rgba(35,47,68,.98)) !important;
+  border: 1px solid rgba(255,255,255,.18) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.06),
+    0 12px 30px rgba(0,0,0,.18) !important;
+}
+
+/* Cart item names */
+#cartItems .font-semibold,
+#cartList .font-semibold,
+.cart-items .font-semibold,
+#cartPanel .font-semibold,
+.cart-panel .font-semibold{
+  color: #ffffff !important;
+  font-size: 1.08rem !important;
+  font-weight: 900 !important;
+}
+
+/* Cart item price/qty/details */
+#cartItems .text-xs,
+#cartItems .text-sm,
+#cartList .text-xs,
+#cartList .text-sm,
+#cartPanel .text-xs,
+#cartPanel .text-sm,
+.cart-panel .text-xs,
+.cart-panel .text-sm{
+  color: #dbeafe !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+
+/* Plus/minus buttons in cart */
+#cartItems button,
+#cartList button,
+#cartPanel button,
+.cart-panel button{
+  border-color: rgba(255,255,255,.20) !important;
+  color: #ffffff !important;
+  font-weight: 900 !important;
+}
+
+/* Only round quantity buttons inside cart */
+#cartItems button:not(.btn-primary):not(.btn-ghost),
+#cartList button:not(.btn-primary):not(.btn-ghost){
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 999px !important;
+  background: rgba(255,255,255,.08) !important;
+}
+
+/* Make plus button warmer when possible */
+#cartItems button:last-child,
+#cartList button:last-child{
+  background: rgba(249,115,22,.18) !important;
+  border-color: rgba(249,115,22,.35) !important;
+}
+
+/* Totals section */
+#cartTotal,
+#totalLabel,
+#subtotalLabel,
+#taxLabel,
+.glass:has(#checkoutBtn) .text-2xl,
+.glass:has(#checkoutBtn) .font-bold{
+  color: #fff7ed !important;
+  font-weight: 950 !important;
+}
+
+/* Divider lines in cart */
+.glass:has(#checkoutBtn) hr,
+#cartPanel hr,
+.cart-panel hr{
+  border-color: rgba(255,255,255,.18) !important;
+}
+
+/* Order Type and Payment Method headings */
+#servicePanel,
+#paymentMethodPanel{
+  background: transparent !important;
+}
+
+#servicePanel .font-semibold,
+#paymentMethodPanel .font-semibold,
+.glass:has(#servicePanel) .font-semibold,
+.glass:has(#paymentMethodPanel) .font-semibold{
+  color: #ffffff !important;
+  font-weight: 900 !important;
+}
+
+#servicePanel .text-slate-400,
+#paymentMethodPanel .text-slate-400,
+.glass:has(#servicePanel) .text-slate-400,
+.glass:has(#paymentMethodPanel) .text-slate-400{
+  color: #cbd5e1 !important;
+  opacity: 1 !important;
+}
+
+/* Order type/payment option buttons */
+#servicePanel button,
+#paymentMethodPanel button{
+  min-height: 88px !important;
+  background:
+    linear-gradient(180deg, rgba(51,65,85,.92), rgba(37,49,70,.96)) !important;
+  border: 1px solid rgba(255,255,255,.18) !important;
+  color: #f8fafc !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06) !important;
+}
+
+#servicePanel button:hover,
+#paymentMethodPanel button:hover{
+  border-color: rgba(249,115,22,.55) !important;
+  background:
+    linear-gradient(180deg, rgba(67,82,106,.95), rgba(42,56,80,.98)) !important;
+}
+
+/* Selected order type/payment option.
+   This catches Tailwind selected classes such as border-indigo/ring/blue/purple. */
+#servicePanel button[class*="border-indigo"],
+#servicePanel button[class*="border-blue"],
+#servicePanel button[class*="ring"],
+#servicePanel button[aria-pressed="true"],
+#servicePanel button[data-active="true"],
+#paymentMethodPanel button[class*="border-indigo"],
+#paymentMethodPanel button[class*="border-blue"],
+#paymentMethodPanel button[class*="ring"],
+#paymentMethodPanel button[aria-pressed="true"],
+#paymentMethodPanel button[data-active="true"]{
+  background:
+    radial-gradient(circle at 12% 0%, rgba(251,146,60,.26), transparent 42%),
+    linear-gradient(180deg, rgba(124,58,237,.20), rgba(249,115,22,.18)),
+    linear-gradient(180deg, rgba(51,65,85,.96), rgba(35,47,68,.98)) !important;
+  border: 2px solid rgba(249,115,22,.95) !important;
+  box-shadow:
+    0 0 0 4px rgba(249,115,22,.15),
+    0 18px 42px rgba(249,115,22,.18),
+    inset 0 1px 0 rgba(255,255,255,.10) !important;
+}
+
+/* Text inside option buttons */
+#servicePanel button div,
+#paymentMethodPanel button div{
+  color: #ffffff !important;
+}
+#servicePanel button .text-slate-400,
+#servicePanel button .text-sm,
+#paymentMethodPanel button .text-slate-400,
+#paymentMethodPanel button .text-sm{
+  color: #dbeafe !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+
+/* Small status pill like Takeaway/Cash */
+.glass:has(#servicePanel) .pill,
+.glass:has(#paymentMethodPanel) .pill{
+  background: rgba(249,115,22,.16) !important;
+  border-color: rgba(249,115,22,.42) !important;
+  color: #fff7ed !important;
+  font-weight: 850 !important;
+}
+
+/* Checkout button should be the strongest action */
+#checkoutBtn,
+button[id*="checkout" i]{
+  background: linear-gradient(135deg, #fb923c, #ea580c) !important;
+  min-height: 64px !important;
+  font-size: 1.12rem !important;
+  font-weight: 950 !important;
+  box-shadow:
+    0 22px 50px rgba(249,115,22,.32),
+    inset 0 1px 0 rgba(255,255,255,.20) !important;
+}
+
+/* Optional stronger cart mode:
+   Add class "cart-extra-readable" on body if needed.
+   <body class="... cart-extra-readable">
+*/
+body.cart-extra-readable #cartItems .text-xs,
+body.cart-extra-readable #cartItems .text-sm,
+body.cart-extra-readable #cartList .text-xs,
+body.cart-extra-readable #cartList .text-sm{
+  color: #f1f5f9 !important;
+  font-size: .98rem !important;
+  font-weight: 700 !important;
+}
