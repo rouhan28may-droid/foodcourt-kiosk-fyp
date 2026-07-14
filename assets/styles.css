@@ -961,3 +961,40 @@ body.cart-extra-readable #cartList .text-sm{
   font-size: .98rem !important;
   font-weight: 700 !important;
 }
+/* Restaurant tab logo test */
+.restaurant-tab-logo-test{
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  object-fit: cover;
+  flex: 0 0 auto;
+  border: 1px solid rgba(249,115,22,.55);
+  box-shadow: 0 8px 20px rgba(0,0,0,.28);
+}
+
+.restaurant-tab-with-logo{
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  text-align: left !important;
+}
+
+.restaurant-tab-with-logo .restaurant-tab-text-wrap{
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.1;
+}
+
+.restaurant-tab-with-logo .restaurant-tab-title{
+  color: #ffffff;
+  font-weight: 850;
+  font-size: 15px;
+}
+
+.restaurant-tab-with-logo .restaurant-tab-online{
+  margin-top: 5px;
+  color: #93c5fd;
+  font-size: 13px;
+  font-weight: 600;
+}
