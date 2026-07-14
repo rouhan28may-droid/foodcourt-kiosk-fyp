@@ -1,86 +1,361 @@
-/* Sexy minimal styling on top of Tailwind */
+/* =========================================================
+   Food Court Kiosk UI Theme v2
+   Dark navy + warm food-orange CTA + clear kiosk readability
+   Replace: assets/styles.css
+   ========================================================= */
+
+/* ---------- Theme tokens ---------- */
 :root{
-  --glass: rgba(255,255,255,.06);
-  --glass2: rgba(255,255,255,.10);
-  --stroke: rgba(255,255,255,.12);
+  --bg-main: #0f172a;
+  --bg-deep: #080d1b;
+  --bg-panel: rgba(30, 41, 59, .82);
+  --bg-card: rgba(38, 50, 68, .88);
+  --bg-card-soft: rgba(255,255,255,.055);
+
+  --glass: rgba(255,255,255,.065);
+  --glass2: rgba(255,255,255,.105);
+  --stroke: rgba(255,255,255,.13);
+
+  --text-main: #f8fafc;
+  --text-strong: #ffffff;
+  --text-muted: #cbd5e1;
+  --text-soft: #94a3b8;
+
+  --primary: #f97316;
+  --primary-2: #ea580c;
+  --primary-3: #fb923c;
+
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #facc15;
+
+  --shadow-card: 0 22px 55px rgba(0,0,0,.38);
+  --shadow-orange: 0 18px 40px rgba(249,115,22,.22);
+
+  /* Image option:
+     Rectangle default = 18px
+     More rounded = 28px
+     Almost square = 12px
+  */
+  --menu-img-radius: 18px;
 }
+
+/* ---------- Base ---------- */
+*{
+  box-sizing: border-box;
+}
+
+html{
+  scroll-behavior: smooth;
+}
+
+body{
+  background:
+    radial-gradient(circle at 15% 0%, rgba(249,115,22,.09), transparent 28%),
+    radial-gradient(circle at 85% 8%, rgba(59,130,246,.08), transparent 30%),
+    linear-gradient(180deg, var(--bg-deep), var(--bg-main) 40%, #0b1120);
+  color: var(--text-main);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: geometricPrecision;
+}
+
+::selection{
+  background: rgba(249,115,22,.35);
+  color: #fff;
+}
+
+/* Better scrollbar for kiosk */
+::-webkit-scrollbar{
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track{
+  background: rgba(15,23,42,.75);
+}
+::-webkit-scrollbar-thumb{
+  background: rgba(148,163,184,.45);
+  border-radius: 999px;
+  border: 3px solid rgba(15,23,42,.75);
+}
+::-webkit-scrollbar-thumb:hover{
+  background: rgba(249,115,22,.75);
+}
+
+/* ---------- Layout cards ---------- */
 .glass{
   background: linear-gradient(135deg, var(--glass2), var(--glass));
   border: 1px solid var(--stroke);
-  box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(16px);
 }
+
+.card{
+  border-radius: 1.5rem;
+  background: var(--bg-card-soft);
+  border: 1px solid var(--stroke);
+}
+
+/* Common panels become easier to read */
+.bg-white\/5{
+  background-color: rgba(255,255,255,.06) !important;
+}
+.border-white\/10{
+  border-color: rgba(255,255,255,.13) !important;
+}
+
+/* ---------- Typography contrast ---------- */
+.text-slate-400{
+  color: var(--text-soft) !important;
+}
+.text-slate-300{
+  color: var(--text-muted) !important;
+}
+.text-slate-200,
+.text-slate-100{
+  color: var(--text-main) !important;
+}
+
+/* Stronger headings */
+h1, h2, h3,
+.font-semibold{
+  letter-spacing: -.015em;
+}
+
+/* ---------- Buttons ---------- */
 .btn-primary{
-  display:inline-flex; align-items:center; justify-content:center;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
   gap:.5rem;
-  padding:.75rem 1rem;
-  border-radius: 1.25rem;
-  background: linear-gradient(135deg, rgba(59,130,246,.9), rgba(139,92,246,.9));
+  min-height: 48px;
+  padding:.78rem 1.05rem;
+  border-radius: 1.15rem;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
   border: 1px solid rgba(255,255,255,.18);
-  color: white; font-weight: 600;
-  box-shadow: 0 18px 40px rgba(59,130,246,.22);
-  transition: transform .15s ease, filter .15s ease;
+  color: white;
+  font-weight: 800;
+  box-shadow: var(--shadow-orange);
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
 }
-.btn-primary:hover{ transform: translateY(-1px); filter: brightness(1.05); }
+.btn-primary:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow: 0 22px 50px rgba(249,115,22,.30);
+}
+.btn-primary:active{
+  transform: translateY(0) scale(.99);
+}
 .btn-primary:disabled{
   opacity: .52;
   cursor: not-allowed;
   transform: none;
   filter: none;
+  box-shadow: none;
 }
+
 .btn-ghost{
-  display:inline-flex; align-items:center; justify-content:center;
-  padding:.65rem .9rem;
-  border-radius: 1.25rem;
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.12);
-  color: rgba(226,232,240,.95);
-  transition: transform .15s ease, background .15s ease;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:.5rem;
+  min-height: 44px;
+  padding:.68rem .95rem;
+  border-radius: 1.15rem;
+  background: rgba(255,255,255,.055);
+  border: 1px solid rgba(255,255,255,.14);
+  color: rgba(241,245,249,.96);
+  font-weight: 650;
+  transition: transform .15s ease, background .15s ease, border-color .15s ease;
 }
-.btn-ghost:hover{ transform: translateY(-1px); background: rgba(255,255,255,.06); }
+.btn-ghost:hover{
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.085);
+  border-color: rgba(249,115,22,.35);
+}
 .btn-ghost:disabled{
   opacity: .45;
   cursor: not-allowed;
   transform: none;
 }
+
+button[aria-label*="Add"],
+[data-act="add"],
+#menuGrid button,
+.menu-grid button{
+  touch-action: manipulation;
+}
+
+/* ---------- Inputs ---------- */
+.tws-input, .tws-select{
+  width: 100%;
+  min-height: 52px;
+  padding: .78rem .95rem;
+  border-radius: 1rem;
+  background: rgba(15, 23, 42, .78);
+  border: 1px solid rgba(255,255,255,.16);
+  outline: none;
+  color: rgba(248,250,252,.98);
+  font-size: 1rem;
+}
+.tws-input:focus, .tws-select:focus{
+  border-color: rgba(249,115,22,.70);
+  box-shadow: 0 0 0 4px rgba(249,115,22,.16);
+}
+.tws-input::placeholder{
+  color: rgba(203,213,225,.72);
+}
+
+/* ---------- Pills / badges ---------- */
 .pill{
   display:inline-flex;
   align-items:center;
+  justify-content:center;
   gap:.4rem;
-  padding:.35rem .6rem;
+  padding:.38rem .68rem;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.04);
-}
-.tws-input, .tws-select{
-  width: 100%;
-  padding: .7rem .9rem;
-  border-radius: 1rem;
-  background: rgba(15, 23, 42, .7);
   border: 1px solid rgba(255,255,255,.14);
-  outline: none;
-  color: rgba(226,232,240,.95);
-}
-.tws-input:focus, .tws-select:focus{ border-color: rgba(59,130,246,.6); box-shadow: 0 0 0 4px rgba(59,130,246,.15); }
-.tws-input::placeholder{ color: rgba(148,163,184,.85); }
-.card{
-  border-radius: 1.5rem;
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.055);
+  color: var(--text-main);
+  font-weight: 650;
 }
 .badge-green{
   color: rgb(134,239,172);
-  background: rgba(34,197,94,.12);
-  border: 1px solid rgba(34,197,94,.25);
+  background: rgba(34,197,94,.14);
+  border: 1px solid rgba(34,197,94,.30);
 }
 .badge-red{
   color: rgb(253,164,175);
-  background: rgba(244,63,94,.12);
-  border: 1px solid rgba(244,63,94,.25);
+  background: rgba(244,63,94,.14);
+  border: 1px solid rgba(244,63,94,.30);
 }
 .badge-yellow{
   color: rgb(253,224,71);
-  background: rgba(250,204,21,.12);
-  border: 1px solid rgba(250,204,21,.25);
+  background: rgba(250,204,21,.14);
+  border: 1px solid rgba(250,204,21,.30);
+}
+
+/* ---------- Customer kiosk restaurant tabs ---------- */
+#restaurantTabs,
+.restaurant-tabs{
+  gap: .75rem;
+}
+#restaurantTabs button,
+.restaurant-tabs button{
+  min-height: 72px;
+  border-radius: 1.35rem !important;
+  padding: .8rem 1.35rem !important;
+  background: rgba(255,255,255,.065) !important;
+  border: 1px solid rgba(255,255,255,.15) !important;
+  color: var(--text-main) !important;
+}
+#restaurantTabs button:hover,
+.restaurant-tabs button:hover{
+  background: rgba(249,115,22,.12) !important;
+  border-color: rgba(249,115,22,.42) !important;
+}
+#restaurantTabs button[aria-selected="true"],
+.restaurant-tabs button[aria-selected="true"],
+#restaurantTabs .active,
+.restaurant-tabs .active{
+  background: linear-gradient(135deg, rgba(249,115,22,.25), rgba(234,88,12,.16)) !important;
+  border-color: rgba(249,115,22,.65) !important;
+  box-shadow: 0 18px 40px rgba(249,115,22,.12);
+}
+
+/* ---------- Menu grid / food cards ---------- */
+#menuGrid .card,
+#menuGrid > div,
+.menu-grid .card,
+.menu-grid > div{
+  overflow: hidden;
+  border-radius: 1.65rem !important;
+  background: linear-gradient(180deg, rgba(38,50,68,.92), rgba(27,36,55,.95)) !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  box-shadow: 0 18px 48px rgba(0,0,0,.30);
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+#menuGrid .card:hover,
+#menuGrid > div:hover,
+.menu-grid .card:hover,
+.menu-grid > div:hover{
+  transform: translateY(-2px);
+  border-color: rgba(249,115,22,.40) !important;
+  box-shadow: 0 24px 60px rgba(0,0,0,.38);
+}
+
+/* Rectangle image style - recommended */
+#menuGrid img,
+.menu-grid img{
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  display: block;
+  border-radius: var(--menu-img-radius) var(--menu-img-radius) 0 0;
+  background: rgba(15,23,42,.85);
+}
+
+/* Food item names and prices */
+#menuGrid .font-semibold,
+.menu-grid .font-semibold{
+  color: #fff !important;
+  font-size: 1.08rem;
+}
+#menuGrid .text-slate-400,
+.menu-grid .text-slate-400{
+  color: #aebbd0 !important;
+}
+
+/* Make plus/add buttons feel like kiosk touch targets */
+#menuGrid button,
+.menu-grid button{
+  min-width: 58px;
+  min-height: 58px;
+  border-radius: 999px !important;
+  font-size: 1.35rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2)) !important;
+  border: 1px solid rgba(255,255,255,.2) !important;
+  color: #fff !important;
+  box-shadow: 0 18px 38px rgba(249,115,22,.27);
+}
+#menuGrid button:hover,
+.menu-grid button:hover{
+  filter: brightness(1.08);
+  transform: translateY(-1px) scale(1.02);
+}
+
+/* Availability text */
+#menuGrid .text-emerald-300,
+.menu-grid .text-emerald-300,
+.text-green-300{
+  color: #7dffad !important;
+}
+
+/* ---------- Cart panel ---------- */
+#cartPanel,
+.cart-panel{
+  background: linear-gradient(180deg, rgba(30,41,59,.94), rgba(15,23,42,.96)) !important;
+  border: 1px solid rgba(255,255,255,.16) !important;
+  box-shadow: 0 26px 65px rgba(0,0,0,.42);
+}
+#cartPanel .rounded-2xl,
+.cart-panel .rounded-2xl{
+  background: rgba(255,255,255,.065) !important;
+  border-color: rgba(255,255,255,.14) !important;
+}
+
+#checkoutBtn,
+button[id*="checkout" i]{
+  min-height: 58px;
+  font-size: 1.05rem;
+  letter-spacing: .01em;
+}
+
+/* ---------- Payment / service selection ---------- */
+#servicePanel button,
+#paymentMethodPanel button{
+  min-height: 58px;
+  border-radius: 1.2rem;
 }
 
 /* ---------- 12-second restaurant approval cooking animation ---------- */
@@ -204,7 +479,7 @@
 .fc-progress-fill{
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(99,102,241,.9), rgba(249,115,22,.95));
+  background: linear-gradient(90deg, rgba(249,115,22,.95), rgba(251,191,36,.95));
   transition: width .45s ease;
 }
 .fc-dot-loader span{
@@ -237,7 +512,38 @@
   overflow: hidden;
 }
 
+/* ---------- Optional image styles ----------
+   Default is rectangle.
+   To use more rounded image cards, add class "image-rounded" on body:
+   <body class="... image-rounded">
+   To use almost square corners, add class "image-square":
+   <body class="... image-square">
+*/
+body.image-rounded{
+  --menu-img-radius: 30px;
+}
+body.image-square{
+  --menu-img-radius: 10px;
+}
+
+/* ---------- Responsive kiosk polish ---------- */
+@media (max-width: 900px){
+  #menuGrid img,
+  .menu-grid img{
+    height: 165px;
+  }
+
+  .btn-primary{
+    min-height: 52px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce){
+  *,
+  *::before,
+  *::after{
+    scroll-behavior: auto !important;
+  }
   .fc-pot,
   .fc-pot-lid,
   .fc-pot-flame,
@@ -247,8 +553,19 @@
   }
 }
 
+/* ---------- Print receipt ---------- */
 @media print{
-  body{ background: white !important; color: black !important; }
-  #receiptModal{ position: static !important; background: transparent !important; }
-  #receiptModal .btn-primary, #receiptModal .btn-ghost, #receiptModal #closeReceiptBtn{ display:none !important; }
+  body{
+    background: white !important;
+    color: black !important;
+  }
+  #receiptModal{
+    position: static !important;
+    background: transparent !important;
+  }
+  #receiptModal .btn-primary,
+  #receiptModal .btn-ghost,
+  #receiptModal #closeReceiptBtn{
+    display:none !important;
+  }
 }
