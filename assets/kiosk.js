@@ -2040,175 +2040,53 @@
       hideFlow();
     }
   }
+async function browserPrintSlipOnly(orderId) {
+  const order = await getOrderSafe(orderId);
+  if (!order) return false;
 
-  function injectReceiptBrowserPrintStyles() {
-    if (document.getElementById("receiptBrowserPrintStyles")) return;
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  iframe.setAttribute("aria-hidden", "true");
 
-    const style = document.createElement("style");
-    style.id = "receiptBrowserPrintStyles";
-    style.textContent = `
-      @media print {
-        @page {
-          size: 58mm 400mm;
-          margin: 0;
-        }
+  document.body.appendChild(iframe);
 
-        html,
-        body {
-          width: 58mm !important;
-          min-width: 58mm !important;
-          max-width: 58mm !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #ffffff !important;
-          color: #000000 !important;
-          overflow: visible !important;
-        }
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Cash Slip ${escapeHtml(order.id)}</title>
+        <style>${getReceiptCss()}</style>
+      </head>
+      <body>
+        ${buildFullReceiptMarkup(order)}
+      </body>
+    </html>
+  `);
+  doc.close();
 
-        body * {
-          visibility: hidden !important;
-        }
-
-        #receiptModal,
-        #receiptModal *,
-        #printArea,
-        #printArea * {
-          visibility: visible !important;
-        }
-
-        #receiptModal {
-          position: absolute !important;
-          inset: auto !important;
-          left: 0 !important;
-          top: 0 !important;
-          width: 58mm !important;
-          min-width: 58mm !important;
-          max-width: 58mm !important;
-          height: auto !important;
-          max-height: none !important;
-          overflow: visible !important;
-          background: #ffffff !important;
-          color: #000000 !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          border: 0 !important;
-          box-shadow: none !important;
-          border-radius: 0 !important;
-        }
-
-        #receiptModal > div,
-        #receiptModal .glass {
-          position: static !important;
-          display: block !important;
-          width: 58mm !important;
-          min-width: 58mm !important;
-          max-width: 58mm !important;
-          height: auto !important;
-          max-height: none !important;
-          overflow: visible !important;
-          background: #ffffff !important;
-          color: #000000 !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          border: 0 !important;
-          box-shadow: none !important;
-          border-radius: 0 !important;
-          transform: none !important;
-        }
-
-        #printArea {
-          position: absolute !important;
-          left: 0 !important;
-          top: 0 !important;
-          width: 58mm !important;
-          min-width: 58mm !important;
-          max-width: 58mm !important;
-          height: auto !important;
-          max-height: none !important;
-          overflow: visible !important;
-          background: #ffffff !important;
-          color: #000000 !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          border: 0 !important;
-          box-shadow: none !important;
-        }
-
-        #receiptModal button,
-        #receiptModal .no-print,
-        #receiptModal .modal-actions,
-        #receiptHint,
-        #closeReceiptBtn,
-        #printBtn,
-        #doneBtn {
-          display: none !important;
-          visibility: hidden !important;
-        }
-
-        .print-shell {
-          width: 58mm !important;
-          max-width: 58mm !important;
-          padding: 2mm 2.5mm !important;
-          margin: 0 !important;
-          background: #ffffff !important;
-          box-shadow: none !important;
-          border-radius: 0 !important;
-        }
-
-        .print-root {
-          width: 53mm !important;
-          max-width: 53mm !important;
-          margin: 0 auto !important;
-          font-size: 9.8px !important;
-          line-height: 1.23 !important;
-          background: #ffffff !important;
-          color: #000000 !important;
-        }
-
-        .qr-img {
-          width: 30mm !important;
-          height: 30mm !important;
-        }
-      }
-    `;
-
-    document.head.appendChild(style);
-  }
-
-  function printVisibleReceiptNow() {
-    if (!receiptModal || !printArea || !String(printArea.innerHTML || "").trim()) {
-      alertSafe("Receipt preview is not ready yet. Please open the receipt again and press Reprint Receipt.");
-      return false;
-    }
-
-    injectReceiptBrowserPrintStyles();
-
-    if (receiptHint && currentReceiptOrderId) {
-      receiptHint.textContent = `Opening printer for receipt with QR codes. Order ID: ${currentReceiptOrderId}`;
-    }
-
+  setTimeout(() => {
     try {
-      receiptModal.classList.remove("hidden");
-      window.print();
-      simulatePrinterPaperUseSafe();
-      return true;
-    } catch (err) {
-      console.error("kiosk.js: browser print failed", err);
-      alertSafe(`Printing failed: ${err.message || err}`);
-      return false;
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } finally {
+      setTimeout(() => {
+        iframe.remove();
+      }, 1200);
     }
-  }
+  }, 900);
 
-
-  async function browserPrintSlipOnly(orderId) {
-    if (!orderId) return false;
-
-    if (currentReceiptOrderId !== orderId || !printArea || !String(printArea.innerHTML || "").trim()) {
-      await renderReceiptPreview(orderId);
-    }
-
-    return printVisibleReceiptNow();
-  }
+  simulatePrinterPaperUseSafe();
+  return true;
+}
   async function openCashSlip(orderId) {
   const order = await getOrderSafe(orderId);
 
@@ -2425,21 +2303,21 @@
   function getReceiptCss() {
     return `
     @page {
-      size: 58mm 400mm;
+      size: 80mm;
       margin: 0;
     }
 
     html {
       margin: 0;
       padding: 0;
-      width: 58mm;
+      width: 80mm;
       background: #ffffff;
     }
 
     body {
       margin: 0;
       padding: 0;
-      width: 58mm;
+      width: 80mm;
       background: #ffffff;
       color: #000000;
       font-family: Arial, Helvetica, sans-serif;
@@ -2450,19 +2328,19 @@
     }
 
     .print-shell {
-      width: 58mm;
+      width: 80mm;
       box-sizing: border-box;
-      padding: 2mm 2.5mm 2mm 2.5mm;
+      padding: 2mm 3mm 2mm 3mm;
       background: #fff;
       display: inline-block;
     }
 
     .print-root {
-      width: 53mm;
+      width: 74mm;
       margin: 0 auto;
       background: #fff;
-      font-size: 9.8px;
-      line-height: 1.23;
+      font-size: 12px;
+      line-height: 1.28;
     }
 
     .slip {
@@ -2481,7 +2359,7 @@
     }
 
     .title {
-      font-size: 15px;
+      font-size: 20px;
       font-weight: 700;
       text-align: center;
       margin: 0;
@@ -2583,7 +2461,7 @@
       margin-top: 5px;
       padding-top: 5px;
       border-top: 1px solid #000;
-      font-size: 13px;
+      font-size: 16px;
       font-weight: 700;
     }
 
@@ -2676,7 +2554,7 @@
 
       .print-shell {
         width: auto;
-        max-width: 280px;
+        max-width: 340px;
         padding: 10px;
         border-radius: 12px;
         box-shadow: 0 2px 12px rgba(0,0,0,0.15);
@@ -2923,16 +2801,124 @@
     await renderReceiptPreview(orderId);
   }
 
-  
   async function printReceiptOnly(orderId) {
-    currentReceiptOrderId = orderId || currentReceiptOrderId;
+    const order = await getOrderSafe(orderId);
+    if (!order) return false;
 
-    /*
-      Print the same visible receipt preview instead of FC.printReceiptSilently.
-      FC.printReceiptSilently prints the old ESC/POS text receipt, so it cannot print
-      the QR-code receipt shown on screen.
-    */
-    return printVisibleReceiptNow();
+    const restaurant = getRestaurantById(order.restaurantId);
+    const payload = {
+      ...order,
+      restaurantName: restaurant?.name || "Restaurant",
+      serviceType: order.serviceType || order.service_type || "",
+      tableNumber: order.tableNumber || order.table_number || "",
+      paymentMethod: paymentMethodOf(order),
+      paymentStatus: paymentStatusText(order),
+      trackingUrl: trackingUrlForOrder(order),
+      cashConfirmPayload: cashQrPayloadForOrder(order),
+      cashConfirmUrl: ""
+    };
+
+    if (typeof FC.printReceiptSilently === "function") {
+      const oldPrintText = printBtn ? printBtn.textContent : "Print Receipt";
+      const oldDoneText = doneBtn ? doneBtn.textContent : "Done";
+
+      try {
+        if (printBtn) {
+          printBtn.disabled = true;
+          printBtn.classList.add("opacity-50");
+          printBtn.textContent = "Printing...";
+        }
+
+        if (doneBtn) {
+          doneBtn.disabled = true;
+          doneBtn.classList.add("opacity-50");
+          doneBtn.textContent = "Please wait...";
+        }
+
+        if (receiptHint) {
+          receiptHint.textContent = `Printing receipt for Order ID: ${order.id}...`;
+        }
+
+        await FC.printReceiptSilently(payload);
+        simulatePrinterPaperUseSafe();
+
+        if (receiptHint) {
+          receiptHint.textContent = `Receipt printed successfully. Order ID: ${order.id}`;
+        }
+
+        return true;
+      } catch (err) {
+        console.error("kiosk.js: silent print failed", err);
+        if (receiptHint) {
+          receiptHint.textContent = `Printing failed for Order ID: ${order.id}`;
+        }
+        alertSafe(`Printing failed: ${err.message || err}`);
+        return false;
+      } finally {
+        if (printBtn) {
+          printBtn.disabled = false;
+          printBtn.classList.remove("opacity-50");
+          printBtn.textContent = oldPrintText;
+        }
+
+        if (doneBtn) {
+          doneBtn.disabled = false;
+          doneBtn.classList.remove("opacity-50");
+          doneBtn.textContent = oldDoneText;
+        }
+      }
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0";
+    iframe.setAttribute("aria-hidden", "true");
+
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Receipt ${escapeHtml(order.id)}</title>
+        <style>${getReceiptCss()}</style>
+      </head>
+      <body>
+        ${buildFullReceiptMarkup(order)}
+      </body>
+    </html>
+  `);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } finally {
+        const cleanup = () => {
+          setTimeout(() => {
+            iframe.remove();
+          }, 500);
+        };
+
+        if ("onafterprint" in iframe.contentWindow) {
+          iframe.contentWindow.onafterprint = cleanup;
+        } else {
+          cleanup();
+        }
+      }
+    }, 350);
+
+    simulatePrinterPaperUseSafe();
+    return true;
   }
 
   async function closeReceipt() {
@@ -2986,9 +2972,9 @@
   }
 
   if (printBtn) {
-    printBtn.onclick = () => {
+    printBtn.onclick = async () => {
       if (!currentReceiptOrderId) return;
-      printReceiptOnly(currentReceiptOrderId);
+      await printReceiptOnly(currentReceiptOrderId);
     };
   }
 
