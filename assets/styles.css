@@ -1032,3 +1032,85 @@ body.cart-extra-readable #cartList .text-sm{
     transition: background-color .12s ease, color .12s ease !important;
   }
 }
+/* QR receipt browser print fix for 58mm POS roll */
+@media print {
+  @page {
+    size: 58mm auto;
+    margin: 0;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #receiptModal,
+  #receiptModal *,
+  #printArea,
+  #printArea * {
+    visibility: visible !important;
+  }
+
+  #receiptModal {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 58mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  #printArea {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 58mm !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  #printArea .print-shell {
+    width: 58mm !important;
+    max-width: 58mm !important;
+    padding: 2mm !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  #printArea .print-root {
+    width: 54mm !important;
+    max-width: 54mm !important;
+    margin: 0 auto !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 10px !important;
+    line-height: 1.2 !important;
+    color: #000000 !important;
+  }
+
+  #printArea .title {
+    font-size: 15px !important;
+  }
+
+  #printArea table {
+    font-size: 9px !important;
+  }
+
+  #printArea .qr-img {
+    width: 28mm !important;
+    height: 28mm !important;
+  }
+
+  #receiptModal button,
+  #receiptModal .btn-primary,
+  #receiptModal .btn-ghost,
+  #receiptHint {
+    display: none !important;
+  }
+}
