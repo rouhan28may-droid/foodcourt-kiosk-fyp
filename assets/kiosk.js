@@ -2040,102 +2040,174 @@
       hideFlow();
     }
   }
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+
+  function injectReceiptBrowserPrintStyles() {
+    if (document.getElementById("receiptBrowserPrintStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "receiptBrowserPrintStyles";
+    style.textContent = `
+      @media print {
+        @page {
+          size: 58mm 400mm;
+          margin: 0;
+        }
+
+        html,
+        body {
+          width: 58mm !important;
+          min-width: 58mm !important;
+          max-width: 58mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          overflow: visible !important;
+        }
+
+        body * {
+          visibility: hidden !important;
+        }
+
+        #receiptModal,
+        #receiptModal *,
+        #printArea,
+        #printArea * {
+          visibility: visible !important;
+        }
+
+        #receiptModal {
+          position: absolute !important;
+          inset: auto !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: 58mm !important;
+          min-width: 58mm !important;
+          max-width: 58mm !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          border: 0 !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+        }
+
+        #receiptModal > div,
+        #receiptModal .glass {
+          position: static !important;
+          display: block !important;
+          width: 58mm !important;
+          min-width: 58mm !important;
+          max-width: 58mm !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          border: 0 !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+          transform: none !important;
+        }
+
+        #printArea {
+          position: absolute !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: 58mm !important;
+          min-width: 58mm !important;
+          max-width: 58mm !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          border: 0 !important;
+          box-shadow: none !important;
+        }
+
+        #receiptModal button,
+        #receiptModal .no-print,
+        #receiptModal .modal-actions,
+        #receiptHint,
+        #closeReceiptBtn,
+        #printBtn,
+        #doneBtn {
+          display: none !important;
+          visibility: hidden !important;
+        }
+
+        .print-shell {
+          width: 58mm !important;
+          max-width: 58mm !important;
+          padding: 2mm 2.5mm !important;
+          margin: 0 !important;
+          background: #ffffff !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+        }
+
+        .print-root {
+          width: 53mm !important;
+          max-width: 53mm !important;
+          margin: 0 auto !important;
+          font-size: 9.8px !important;
+          line-height: 1.23 !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+        }
+
+        .qr-img {
+          width: 30mm !important;
+          height: 30mm !important;
+        }
+      }
+    `;
+
+    document.head.appendChild(style);
   }
 
-  async function waitForReceiptImages(doc, timeoutMs = 4500) {
-    const images = Array.from(doc.images || []);
-
-    if (!images.length) {
-      await sleep(250);
-      return;
+  function printVisibleReceiptNow() {
+    if (!receiptModal || !printArea || !String(printArea.innerHTML || "").trim()) {
+      alertSafe("Receipt preview is not ready yet. Please open the receipt again and press Reprint Receipt.");
+      return false;
     }
 
-    const waitOne = (img) => new Promise((resolve) => {
-      if (img.complete && img.naturalWidth > 0) {
-        resolve();
-        return;
-      }
+    injectReceiptBrowserPrintStyles();
 
-      const done = () => resolve();
-      img.addEventListener("load", done, { once: true });
-      img.addEventListener("error", done, { once: true });
-    });
-
-    await Promise.race([
-      Promise.all(images.map(waitOne)),
-      sleep(timeoutMs)
-    ]);
-
-    // Give Chromium/thermal printer one extra moment to paint QR images.
-    await sleep(350);
-  }
-
-  async function printReceiptHtmlInIframe(order, title = "Receipt") {
-    if (!order) return false;
-
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.style.opacity = "0";
-    iframe.setAttribute("aria-hidden", "true");
-
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    doc.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>${escapeHtml(title)} ${escapeHtml(order.id || "")}</title>
-          <style>${getReceiptCss()}</style>
-        </head>
-        <body>
-          ${buildFullReceiptMarkup(order)}
-        </body>
-      </html>
-    `);
-    doc.close();
-
-    await waitForReceiptImages(doc);
+    if (receiptHint && currentReceiptOrderId) {
+      receiptHint.textContent = `Opening printer for receipt with QR codes. Order ID: ${currentReceiptOrderId}`;
+    }
 
     try {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
+      receiptModal.classList.remove("hidden");
+      window.print();
       simulatePrinterPaperUseSafe();
       return true;
     } catch (err) {
-      console.error("kiosk.js: browser receipt print failed", err);
+      console.error("kiosk.js: browser print failed", err);
       alertSafe(`Printing failed: ${err.message || err}`);
       return false;
-    } finally {
-      const cleanup = () => {
-        setTimeout(() => iframe.remove(), 1200);
-      };
-
-      if ("onafterprint" in iframe.contentWindow) {
-        iframe.contentWindow.onafterprint = cleanup;
-        setTimeout(cleanup, 5000);
-      } else {
-        cleanup();
-      }
     }
   }
 
-  async function browserPrintSlipOnly(orderId) {
-    const order = await getOrderSafe(orderId);
-    if (!order) return false;
 
-    // Print the exact same receipt markup that is shown in the modal,
-    // including Staff Cash QR and Customer Tracking QR.
-    return await printReceiptHtmlInIframe(order, "Cash Slip");
+  async function browserPrintSlipOnly(orderId) {
+    if (!orderId) return false;
+
+    if (currentReceiptOrderId !== orderId || !printArea || !String(printArea.innerHTML || "").trim()) {
+      await renderReceiptPreview(orderId);
+    }
+
+    return printVisibleReceiptNow();
   }
   async function openCashSlip(orderId) {
   const order = await getOrderSafe(orderId);
@@ -2353,7 +2425,7 @@ function sleep(ms) {
   function getReceiptCss() {
     return `
     @page {
-      size: 58mm auto;
+      size: 58mm 400mm;
       margin: 0;
     }
 
@@ -2402,10 +2474,10 @@ function sleep(ms) {
 
     .copy-badge {
       text-align: center;
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.8px;
-      margin: 0 0 4px 0;
+      letter-spacing: 1px;
+      margin: 0 0 5px 0;
     }
 
     .title {
@@ -2416,55 +2488,53 @@ function sleep(ms) {
     }
 
     .sub-title {
-      font-size: 10px;
+      font-size: 12px;
       text-align: center;
-      margin-top: 2px;
+      margin-top: 3px;
     }
 
     .meta {
-      font-size: 9px;
+      font-size: 11px;
       text-align: center;
-      margin-top: 3px;
+      margin-top: 4px;
     }
 
     .divider {
       border: 0;
       border-top: 1px dashed #000;
-      margin: 5px 0;
+      margin: 7px 0;
     }
 
     .row {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 6px;
+      gap: 8px;
     }
 
     .row + .row {
-      margin-top: 2px;
+      margin-top: 3px;
     }
 
     .label {
-      font-size: 9.8px;
+      font-size: 12px;
     }
 
     .value {
-      font-size: 9.8px;
+      font-size: 12px;
       text-align: right;
-      white-space: normal;
-      word-break: break-word;
+      white-space: nowrap;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 5px;
-      font-size: 9.5px;
-      table-layout: fixed;
+      margin-top: 6px;
+      font-size: 12px;
     }
 
     th, td {
-      padding: 3px 0;
+      padding: 4px 0;
       vertical-align: top;
     }
 
@@ -2474,55 +2544,53 @@ function sleep(ms) {
     }
 
     td.item {
-      width: 58%;
-      padding-right: 4px;
+      width: 62%;
+      padding-right: 6px;
       word-break: break-word;
-      overflow-wrap: anywhere;
     }
 
     td.qty, th.qty {
-      width: 12%;
+      width: 14%;
       text-align: center;
     }
 
     td.amount, th.amount {
-      width: 30%;
+      width: 24%;
       text-align: right;
       white-space: nowrap;
     }
 
     .kitchen-items td.item,
     .kitchen-items th.item {
-      width: 82%;
+      width: 86%;
       text-align: left;
-      padding-right: 4px;
+      padding-right: 6px;
       word-break: break-word;
-      overflow-wrap: anywhere;
     }
 
     .kitchen-items td.qty,
     .kitchen-items th.qty {
-      width: 18%;
+      width: 14%;
       text-align: center;
       white-space: nowrap;
     }
 
     .totals {
-      margin-top: 5px;
+      margin-top: 7px;
     }
 
     .grand-total {
-      margin-top: 4px;
-      padding-top: 4px;
+      margin-top: 5px;
+      padding-top: 5px;
       border-top: 1px solid #000;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 700;
     }
 
     .footer {
-      margin-top: 7px;
+      margin-top: 9px;
       text-align: center;
-      font-size: 9px;
+      font-size: 11px;
     }
 
     .tear-separator {
@@ -2536,45 +2604,45 @@ function sleep(ms) {
     }
 
     .tear-separator .text {
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.8px;
+      letter-spacing: 1px;
       margin: 2px 0;
     }
 
     .kitchen-note {
-      margin-top: 7px;
+      margin-top: 9px;
       border: 1px dashed #000;
-      padding: 5px;
+      padding: 6px;
       text-align: center;
-      font-size: 9px;
+      font-size: 11px;
       font-weight: 700;
     }
 
     .prep-note {
-      margin-top: 5px;
+      margin-top: 7px;
       text-align: center;
-      font-size: 9px;
+      font-size: 11px;
     }
 
     .qr-section {
-      margin-top: 7px;
+      margin-top: 8px;
       text-align: center;
       break-inside: avoid;
       page-break-inside: avoid;
     }
 
     .qr-title {
-      font-size: 8.5px;
+      font-size: 10px;
       font-weight: 700;
       margin-bottom: 3px;
       text-transform: uppercase;
-      letter-spacing: 0.3px;
+      letter-spacing: 0.4px;
     }
 
     .qr-img {
-      width: 28mm;
-      height: 28mm;
+      width: 30mm;
+      height: 30mm;
       display: block;
       margin: 0 auto;
       border: 1px solid #000;
@@ -2584,19 +2652,20 @@ function sleep(ms) {
 
     .qr-url {
       margin-top: 3px;
-      font-size: 6.5px;
+      font-size: 8px;
       word-break: break-all;
-      line-height: 1.1;
+      line-height: 1.15;
     }
 
     .payment-warning {
-      margin-top: 6px;
+      margin-top: 7px;
       border: 1px dashed #000;
-      padding: 5px;
+      padding: 6px;
       text-align: center;
-      font-size: 9px;
+      font-size: 11px;
       font-weight: 700;
     }
+
 
     @media screen {
       html, body {
@@ -2607,7 +2676,7 @@ function sleep(ms) {
 
       .print-shell {
         width: auto;
-        max-width: 340px;
+        max-width: 280px;
         padding: 10px;
         border-radius: 12px;
         box-shadow: 0 2px 12px rgba(0,0,0,0.15);
@@ -2615,35 +2684,6 @@ function sleep(ms) {
 
       .print-root {
         width: 100%;
-        font-size: 12px;
-        line-height: 1.28;
-      }
-
-      .title {
-        font-size: 20px;
-      }
-
-      .copy-badge,
-      .sub-title,
-      .meta,
-      .label,
-      .value,
-      table,
-      .footer,
-      .tear-separator .text,
-      .kitchen-note,
-      .prep-note,
-      .payment-warning {
-        font-size: revert;
-      }
-
-      .qr-img {
-        width: 120px;
-        height: 120px;
-      }
-
-      .qr-url {
-        font-size: 8px;
       }
     }
   `;
@@ -2883,65 +2923,16 @@ function sleep(ms) {
     await renderReceiptPreview(orderId);
   }
 
+  
   async function printReceiptOnly(orderId) {
-    const order = await getOrderSafe(orderId);
-    if (!order) return false;
+    currentReceiptOrderId = orderId || currentReceiptOrderId;
 
-    const oldPrintText = printBtn ? printBtn.textContent : "Print Receipt";
-    const oldDoneText = doneBtn ? doneBtn.textContent : "Done";
-
-    try {
-      if (printBtn) {
-        printBtn.disabled = true;
-        printBtn.classList.add("opacity-50");
-        printBtn.textContent = "Opening Print...";
-      }
-
-      if (doneBtn) {
-        doneBtn.disabled = true;
-        doneBtn.classList.add("opacity-50");
-        doneBtn.textContent = "Please wait...";
-      }
-
-      if (receiptHint) {
-        receiptHint.textContent = `Printing same receipt preview with QR codes. Order ID: ${order.id}`;
-      }
-
-      /*
-        Important:
-        Do not use FC.printReceiptSilently here.
-        That old ESC/POS/text printer path prints the old simple receipt and cannot print
-        the HTML QR-code receipt. Browser print prints the same receipt shown on screen.
-      */
-      const ok = await printReceiptHtmlInIframe(order, "Receipt");
-
-      if (receiptHint) {
-        receiptHint.textContent = ok
-          ? `Receipt print opened successfully. Order ID: ${order.id}`
-          : `Receipt print could not open. Order ID: ${order.id}`;
-      }
-
-      return ok;
-    } catch (err) {
-      console.error("kiosk.js: receipt print failed", err);
-      if (receiptHint) {
-        receiptHint.textContent = `Printing failed for Order ID: ${order.id}`;
-      }
-      alertSafe(`Printing failed: ${err.message || err}`);
-      return false;
-    } finally {
-      if (printBtn) {
-        printBtn.disabled = false;
-        printBtn.classList.remove("opacity-50");
-        printBtn.textContent = oldPrintText;
-      }
-
-      if (doneBtn) {
-        doneBtn.disabled = false;
-        doneBtn.classList.remove("opacity-50");
-        doneBtn.textContent = oldDoneText;
-      }
-    }
+    /*
+      Print the same visible receipt preview instead of FC.printReceiptSilently.
+      FC.printReceiptSilently prints the old ESC/POS text receipt, so it cannot print
+      the QR-code receipt shown on screen.
+    */
+    return printVisibleReceiptNow();
   }
 
   async function closeReceipt() {
@@ -2995,9 +2986,9 @@ function sleep(ms) {
   }
 
   if (printBtn) {
-    printBtn.onclick = async () => {
+    printBtn.onclick = () => {
       if (!currentReceiptOrderId) return;
-      await printReceiptOnly(currentReceiptOrderId);
+      printReceiptOnly(currentReceiptOrderId);
     };
   }
 
