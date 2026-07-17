@@ -6,3 +6,5 @@ node_modules/**
 *.log
 .wrangler
 .wrangler/**
+
+assets/images/menu-original-200mb/
