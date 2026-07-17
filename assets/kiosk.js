@@ -215,6 +215,7 @@
       awaitingOrderId = order.id;
       saveSession();
       await openReceipt(order.id);
+      autoPrintReceiptOnce(order.id);
       return;
     }
 
@@ -251,6 +252,7 @@
     currentStripeCheckoutUrl = "";
 
     await openReceipt(order.id);
+    autoPrintReceiptOnce(order.id);
   }
 
   function startStripePolling(orderId, sessionId) {
@@ -795,6 +797,7 @@
   let autoStripeStartedForOrderId = null;
   let autoCashSlipStartedForOrderId = null;
   let autoCashPaidReceiptOpenedForOrderId = null;
+  let autoPrintedReceiptOrderIds = new Set();
   let stripeReturnHandled = false;
   let approvalAutoAcceptTimers = new Map();
 
@@ -824,6 +827,20 @@
         paymentMethod
       })
     );
+  }
+
+  function autoPrintReceiptOnce(orderId, delay = 700) {
+    if (!orderId || autoPrintedReceiptOrderIds.has(orderId)) return;
+
+    autoPrintedReceiptOrderIds.add(orderId);
+
+    setTimeout(async () => {
+      try {
+        await printReceiptOnly(orderId);
+      } catch (err) {
+        console.error("kiosk.js: automatic bridge print failed", err);
+      }
+    }, delay);
   }
 
   function serviceLabel(type = serviceType) {
@@ -2041,51 +2058,9 @@
     }
   }
 async function browserPrintSlipOnly(orderId) {
-  const order = await getOrderSafe(orderId);
-  if (!order) return false;
-
-  const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  iframe.style.opacity = "0";
-  iframe.setAttribute("aria-hidden", "true");
-
-  document.body.appendChild(iframe);
-
-  const doc = iframe.contentWindow.document;
-  doc.open();
-  doc.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Cash Slip ${escapeHtml(order.id)}</title>
-        <style>${getReceiptCss()}</style>
-      </head>
-      <body>
-        ${buildFullReceiptMarkup(order)}
-      </body>
-    </html>
-  `);
-  doc.close();
-
-  setTimeout(() => {
-    try {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-    } finally {
-      setTimeout(() => {
-        iframe.remove();
-      }, 1200);
-    }
-  }, 900);
-
-  simulatePrinterPaperUseSafe();
-  return true;
+  // Do NOT use Chromium/browser print preview here.
+  // This sends the slip to the Raspberry Pi local print bridge instead.
+  return await printReceiptOnly(orderId);
 }
   async function openCashSlip(orderId) {
   const order = await getOrderSafe(orderId);
@@ -2120,10 +2095,7 @@ async function browserPrintSlipOnly(orderId) {
     logSafe(`Cash slip generated for ${orderId}.`);
 
     await openReceipt(orderId);
-
-    setTimeout(async () => {
-      await browserPrintSlipOnly(orderId);
-    }, 700);
+    autoPrintReceiptOnce(orderId);
 
     await refreshFlowPanel();
   } catch (err) {
@@ -2869,56 +2841,12 @@ async function browserPrintSlipOnly(orderId) {
       }
     }
 
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.style.opacity = "0";
-    iframe.setAttribute("aria-hidden", "true");
+    if (receiptHint) {
+      receiptHint.textContent = `Printer bridge is not available. Order ID: ${order.id}`;
+    }
 
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    doc.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Receipt ${escapeHtml(order.id)}</title>
-        <style>${getReceiptCss()}</style>
-      </head>
-      <body>
-        ${buildFullReceiptMarkup(order)}
-      </body>
-    </html>
-  `);
-    doc.close();
-
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } finally {
-        const cleanup = () => {
-          setTimeout(() => {
-            iframe.remove();
-          }, 500);
-        };
-
-        if ("onafterprint" in iframe.contentWindow) {
-          iframe.contentWindow.onafterprint = cleanup;
-        } else {
-          cleanup();
-        }
-      }
-    }, 350);
-
-    simulatePrinterPaperUseSafe();
-    return true;
+    alertSafe("Automatic printer bridge is not available. Please make sure the Raspberry Pi print bridge is running.");
+    return false;
   }
 
   async function closeReceipt() {
@@ -3234,6 +3162,7 @@ async function browserPrintSlipOnly(orderId) {
     ) {
       autoCashPaidReceiptOpenedForOrderId = o.id;
       await openReceipt(o.id);
+      autoPrintReceiptOnce(o.id);
     }
 
     renderFlow(o);
