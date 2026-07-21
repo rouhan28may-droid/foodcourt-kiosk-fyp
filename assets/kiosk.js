@@ -849,6 +849,28 @@
         display: none !important;
       }
 
+      #paymentModal:not(.hidden) > div {
+        display: flex !important;
+      }
+
+      #paymentModal:not(.hidden) .fc-payment-card {
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+      }
+
+      #paymentModal:not(.hidden) .fc-payment-grid {
+        display: grid !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+      }
+
+      #paymentModal:not(.hidden) .fc-qr-shell {
+        display: flex !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+      }
+
       .fc-payment-customer-note {
         border: 1px solid rgba(255,255,255,.12);
         background: rgba(255,255,255,.055);
@@ -2740,25 +2762,31 @@ async function browserPrintSlipOnly(orderId) {
   function prepareStripeCustomerPaymentUi() {
     if (!paymentModal) return;
 
+    paymentModal.classList.remove("hidden");
+    paymentModal.style.display = "";
+
+    const outerWrap = paymentModal.firstElementChild;
     const card = paymentModal.querySelector(".rounded-3xl.bg-slate-950");
-    if (card) {
-      card.classList.remove("fc-payment-hidden");
-      card.classList.add("fc-payment-card");
-    }
-
     const grid = paymentModal.querySelector(".grid");
-    if (grid) {
-      grid.classList.remove("fc-payment-hidden");
-      grid.classList.add("fc-payment-grid");
-    }
+    const rightPanel = paymentModal.querySelector(".space-y-3");
+    const qrShell = qrBox?.parentElement || null;
 
-    if (qrBox?.parentElement) {
-      qrBox.parentElement.classList.remove("fc-payment-hidden");
-      qrBox.parentElement.classList.add("fc-qr-shell");
-    }
+    /* Important: the earlier test-card hiding logic could accidentally add
+       fc-payment-hidden to the main wrapper. Remove it from the real Stripe
+       layout parts first so the dark overlay never appears empty. */
+    [outerWrap, card, grid, rightPanel, qrShell].forEach((node) => {
+      if (!node) return;
+      node.classList.remove("hidden", "fc-payment-hidden");
+      node.style.display = "";
+    });
+
+    if (card) card.classList.add("fc-payment-card");
+    if (grid) grid.classList.add("fc-payment-grid");
+    if (qrShell) qrShell.classList.add("fc-qr-shell");
 
     if (simulatePayBtn) {
       simulatePayBtn.classList.add("hidden", "fc-payment-hidden");
+      simulatePayBtn.style.display = "none";
       simulatePayBtn.disabled = true;
       simulatePayBtn.onclick = null;
       simulatePayBtn.textContent = "";
@@ -2766,37 +2794,37 @@ async function browserPrintSlipOnly(orderId) {
 
     if (simulateFailBtn) {
       simulateFailBtn.classList.add("hidden", "fc-payment-hidden");
+      simulateFailBtn.style.display = "none";
       simulateFailBtn.disabled = true;
       simulateFailBtn.onclick = null;
       simulateFailBtn.textContent = "";
     }
 
-    /* Hide only the small test-card line, not the full payment modal/card.
-       Previous broad selector could hide the entire Stripe popup because parent
-       containers also contain the text "Test card / 4242" in textContent. */
+    /* Hide only the small test-card row. Never hide parents/wrappers whose text
+       includes the QR/payment card content, otherwise the modal becomes a dark
+       empty overlay. */
     const testCardCandidates = Array.from(paymentModal.querySelectorAll("div, span"));
     testCardCandidates.forEach((node) => {
-      const text = String(node.textContent || "").trim();
-      const isSmallNode = node.children.length <= 2;
+      const text = String(node.textContent || "").replace(/\s+/g, " ").trim();
       const hasTestCardText = /Test card/i.test(text) || /4242\s*4242/i.test(text);
+      const isSmallTestNode = hasTestCardText && text.length <= 90 && node.children.length <= 2;
 
-      if (!hasTestCardText || !isSmallNode) return;
+      if (!isSmallTestNode) return;
+      if (node === outerWrap || node === card || node === grid || node === rightPanel || node === qrShell) return;
+      if (node.querySelector("#qrBox") || node.closest("#qrBox")) return;
 
       let target = node;
-      for (let i = 0; i < 2; i += 1) {
-        if (!target.parentElement || target.parentElement === paymentModal) break;
-        const parentText = String(target.parentElement.textContent || "").trim();
-        const parentLooksOnlyLikeTestCard = /Test card/i.test(parentText) && parentText.length < 120;
-        if (parentLooksOnlyLikeTestCard) target = target.parentElement;
+      if (node.parentElement && node.parentElement !== paymentModal) {
+        const parentText = String(node.parentElement.textContent || "").replace(/\s+/g, " ").trim();
+        if (/Test card/i.test(parentText) && parentText.length <= 90) {
+          target = node.parentElement;
+        }
       }
 
-      target.classList.add("fc-payment-hidden");
+      if (target !== outerWrap && target !== card && target !== grid && target !== rightPanel && target !== qrShell) {
+        target.classList.add("fc-payment-hidden");
+      }
     });
-
-    const rightPanel = paymentModal.querySelector(".space-y-3");
-    if (rightPanel) {
-      rightPanel.classList.remove("fc-payment-hidden");
-    }
   }
 
   async function openPayment(orderId) {
