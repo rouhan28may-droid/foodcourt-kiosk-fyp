@@ -75,6 +75,7 @@
   let notifiedPendingOrderIds = new Set();
   let recentlyAlertedPendingOrderIds = new Set();
   let lastBellPlayedAt = 0;
+  let activeBellAudios = [];
   let titleResetTimer = null;
   const originalDocumentTitle = document.title;
 
@@ -249,26 +250,49 @@
 
   function playOrderBell() {
     const now = Date.now();
-    if (now - lastBellPlayedAt < 1300) return;
+
+    // Keep a very small guard only to stop duplicate rings from the fast 500ms refresh.
+    // New orders placed normally after this will always play the custom MP3 again.
+    if (now - lastBellPlayedAt < 650) return;
     lastBellPlayedAt = now;
 
     unlockRestaurantSound();
 
     try {
-      if (!restaurantBellAudio) {
-        restaurantBellAudio = new Audio(ORDER_BELL_SOUND_PATH);
-        restaurantBellAudio.preload = "auto";
-        restaurantBellAudio.volume = 0.95;
-      }
+      // Create a fresh Audio object every time. Reusing one audio element can fail
+      // after the first play on Chromium/Raspberry Pi, causing fallback beeps.
+      const audio = new Audio(`${ORDER_BELL_SOUND_PATH}?v=custom-bell-2`);
+      audio.preload = "auto";
+      audio.volume = 1.0;
+      audio.currentTime = 0;
 
-      restaurantBellAudio.currentTime = 0;
-      const playPromise = restaurantBellAudio.play();
+      const cleanup = () => {
+        activeBellAudios = activeBellAudios.filter((item) => item !== audio);
+        try {
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+        } catch {}
+      };
+
+      audio.addEventListener("ended", cleanup, { once: true });
+      audio.addEventListener("error", () => {
+        console.warn("restaurant.js: custom order-bell.mp3 could not be played. Check assets/sounds/order-bell.mp3 path.");
+        cleanup();
+      }, { once: true });
+
+      activeBellAudios.push(audio);
+
+      const playPromise = audio.play();
 
       if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(() => playGeneratedOrderBell());
+        playPromise.catch((err) => {
+          console.warn("restaurant.js: custom order bell play was blocked/failed", err);
+          cleanup();
+        });
       }
-    } catch {
-      playGeneratedOrderBell();
+    } catch (err) {
+      console.warn("restaurant.js: custom order bell failed", err);
     }
   }
 
