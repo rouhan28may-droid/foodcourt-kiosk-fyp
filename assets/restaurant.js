@@ -24,8 +24,8 @@
   const revenue = $("revenue");
   const bestSeller = $("bestSeller");
 
-  // 12-second restaurant approval flow
-  const APPROVAL_WINDOW_SECONDS = 12;
+  // 20-second restaurant approval flow
+  const APPROVAL_WINDOW_SECONDS = 20;
   const APPROVAL_WINDOW_MS = APPROVAL_WINDOW_SECONDS * 1000;
 
   const approvalWindowLabel = $("approvalWindowLabel");
@@ -66,6 +66,17 @@
   }
 
   let restaurantId = readSession().restaurantId || null;
+
+  const ORDER_BELL_SOUND_PATH = "assets/sounds/order-bell.mp3";
+  let restaurantAudioContext = null;
+  let restaurantBellAudio = null;
+  let restaurantSoundEnabled = false;
+  let pendingOrderBellInitialized = false;
+  let notifiedPendingOrderIds = new Set();
+  let recentlyAlertedPendingOrderIds = new Set();
+  let lastBellPlayedAt = 0;
+  let titleResetTimer = null;
+  const originalDocumentTitle = document.title;
 
   function saveSess() {
     localStorage.setItem(sessKey, JSON.stringify({ restaurantId }));
@@ -128,6 +139,183 @@
       if (typeof FC.nowISO === "function") return FC.nowISO();
     } catch {}
     return new Date().toISOString();
+  }
+
+  function injectRestaurantBellStyles() {
+    if (document.getElementById("restaurantBellStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "restaurantBellStyles";
+    style.textContent = `
+      .fc-new-pending-order {
+        position: relative;
+        border-color: rgba(249, 115, 22, .95) !important;
+        box-shadow:
+          0 0 0 3px rgba(249, 115, 22, .20),
+          0 18px 42px rgba(249, 115, 22, .18) !important;
+        animation: fc-new-order-pulse 1.1s ease-in-out infinite;
+      }
+
+      .fc-new-order-badge {
+        color: #fff7ed !important;
+        background: rgba(249, 115, 22, .22) !important;
+        border-color: rgba(249, 115, 22, .75) !important;
+      }
+
+      @keyframes fc-new-order-pulse {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-2px); }
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+
+  function getRestaurantAudioContext() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+
+    if (!restaurantAudioContext) {
+      restaurantAudioContext = new AudioContextClass();
+    }
+
+    return restaurantAudioContext;
+  }
+
+  function unlockRestaurantSound() {
+    restaurantSoundEnabled = true;
+
+    try {
+      const ctx = getRestaurantAudioContext();
+      if (ctx && ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+    } catch {}
+
+    try {
+      if (!restaurantBellAudio) {
+        restaurantBellAudio = new Audio(ORDER_BELL_SOUND_PATH);
+        restaurantBellAudio.preload = "auto";
+        restaurantBellAudio.volume = 0.95;
+      }
+    } catch {}
+  }
+
+  function installRestaurantSoundUnlockHandlers() {
+    ["click", "touchstart", "keydown"].forEach((evt) => {
+      window.addEventListener(evt, unlockRestaurantSound, { passive: true });
+    });
+  }
+
+  function playGeneratedOrderBell() {
+    try {
+      const ctx = getRestaurantAudioContext();
+      if (!ctx) return;
+
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+
+      const now = ctx.currentTime;
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0.0001, now);
+      master.gain.exponentialRampToValueAtTime(0.45, now + 0.015);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + 1.15);
+      master.connect(ctx.destination);
+
+      const ring = (start, frequency) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(frequency, now + start);
+        gain.gain.setValueAtTime(0.0001, now + start);
+        gain.gain.exponentialRampToValueAtTime(1, now + start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + start + 0.36);
+
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(now + start);
+        osc.stop(now + start + 0.40);
+      };
+
+      ring(0.00, 880);
+      ring(0.28, 1174);
+      ring(0.58, 988);
+    } catch (err) {
+      console.warn("restaurant.js: generated bell failed", err);
+    }
+  }
+
+  function playOrderBell() {
+    const now = Date.now();
+    if (now - lastBellPlayedAt < 1300) return;
+    lastBellPlayedAt = now;
+
+    unlockRestaurantSound();
+
+    try {
+      if (!restaurantBellAudio) {
+        restaurantBellAudio = new Audio(ORDER_BELL_SOUND_PATH);
+        restaurantBellAudio.preload = "auto";
+        restaurantBellAudio.volume = 0.95;
+      }
+
+      restaurantBellAudio.currentTime = 0;
+      const playPromise = restaurantBellAudio.play();
+
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => playGeneratedOrderBell());
+      }
+    } catch {
+      playGeneratedOrderBell();
+    }
+  }
+
+  function flashRestaurantTitle(newCount) {
+    if (titleResetTimer) clearTimeout(titleResetTimer);
+
+    document.title = newCount > 1
+      ? `🔔 ${newCount} New Orders`
+      : "🔔 New Order Received";
+
+    titleResetTimer = setTimeout(() => {
+      document.title = originalDocumentTitle;
+    }, 5000);
+  }
+
+  function notifyNewPendingOrders(orders) {
+    const pending = safeArray(orders).filter((o) => o.status === "pending_approval");
+    const pendingIds = new Set(pending.map((o) => String(o.id || "")).filter(Boolean));
+
+    if (!pendingOrderBellInitialized) {
+      pendingOrderBellInitialized = true;
+      notifiedPendingOrderIds = new Set(pendingIds);
+      return;
+    }
+
+    const newPending = pending.filter((o) => {
+      const id = String(o.id || "");
+      return id && !notifiedPendingOrderIds.has(id);
+    });
+
+    if (!newPending.length) {
+      return;
+    }
+
+    newPending.forEach((order) => {
+      const id = String(order.id || "");
+      notifiedPendingOrderIds.add(id);
+      recentlyAlertedPendingOrderIds.add(id);
+
+      setTimeout(() => {
+        recentlyAlertedPendingOrderIds.delete(id);
+      }, 9000);
+    });
+
+    playOrderBell();
+    flashRestaurantTitle(newPending.length);
+    logSafe(`New pending order alert: ${newPending.map((o) => o.id).join(", ")}`);
   }
 
   async function seedSafe() {
@@ -220,7 +408,7 @@
       if (!approvalExpired(order)) continue;
 
       try {
-        await approveOrder(order.id, "auto_approved_after_12s");
+        await approveOrder(order.id, `auto_approved_after_${APPROVAL_WINDOW_SECONDS}s`);
         logSafe(`Order ${order.id} auto-approved after ${APPROVAL_WINDOW_SECONDS} seconds.`);
         changed = true;
       } catch (err) {
@@ -428,7 +616,8 @@
       const createdText = o.createdAt ? new Date(o.createdAt).toLocaleTimeString() : "";
 
       const div = document.createElement("div");
-      div.className = "p-4 rounded-2xl bg-white/5 border border-amber-400/20";
+      const isNewOrderAlert = recentlyAlertedPendingOrderIds.has(String(o.id || ""));
+      div.className = "p-4 rounded-2xl bg-white/5 border border-amber-400/20" + (isNewOrderAlert ? " fc-new-pending-order" : "");
       div.innerHTML = `
         <div class="flex items-start justify-between gap-4 flex-wrap">
           <div class="min-w-0 flex-1">
@@ -436,6 +625,7 @@
               <div class="font-semibold">${escapeHtml(o.id)}</div>
               ${serviceBadge(o)}
               <span class="pill badge-yellow">Pending Approval</span>
+              ${isNewOrderAlert ? `<span class="pill fc-new-order-badge">🔔 New Order</span>` : ""}
             </div>
 
             <div class="text-xs text-slate-400 mt-2">
@@ -1256,6 +1446,9 @@
     return true;
   }
 
+  injectRestaurantBellStyles();
+  installRestaurantSoundUnlockHandlers();
+
   if (approvalWindowLabel) {
     approvalWindowLabel.textContent = `${APPROVAL_WINDOW_SECONDS}s`;
   }
@@ -1345,6 +1538,8 @@
         orders = await getOrdersForRestaurantSafe();
       }
 
+      notifyNewPendingOrders(orders);
+
       renderSummary(orders);
       await renderPending(orders);
       await renderActive(orders);
@@ -1392,6 +1587,7 @@
 
       restaurantId = match.restaurantId;
       saveSess();
+      unlockRestaurantSound();
       showApp();
       await renderAll();
     };
