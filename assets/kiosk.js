@@ -2741,12 +2741,19 @@ async function browserPrintSlipOnly(orderId) {
     if (!paymentModal) return;
 
     const card = paymentModal.querySelector(".rounded-3xl.bg-slate-950");
-    if (card) card.classList.add("fc-payment-card");
+    if (card) {
+      card.classList.remove("fc-payment-hidden");
+      card.classList.add("fc-payment-card");
+    }
 
     const grid = paymentModal.querySelector(".grid");
-    if (grid) grid.classList.add("fc-payment-grid");
+    if (grid) {
+      grid.classList.remove("fc-payment-hidden");
+      grid.classList.add("fc-payment-grid");
+    }
 
     if (qrBox?.parentElement) {
+      qrBox.parentElement.classList.remove("fc-payment-hidden");
       qrBox.parentElement.classList.add("fc-qr-shell");
     }
 
@@ -2754,21 +2761,42 @@ async function browserPrintSlipOnly(orderId) {
       simulatePayBtn.classList.add("hidden", "fc-payment-hidden");
       simulatePayBtn.disabled = true;
       simulatePayBtn.onclick = null;
+      simulatePayBtn.textContent = "";
     }
 
     if (simulateFailBtn) {
       simulateFailBtn.classList.add("hidden", "fc-payment-hidden");
       simulateFailBtn.disabled = true;
       simulateFailBtn.onclick = null;
+      simulateFailBtn.textContent = "";
     }
 
-    const textNodes = Array.from(paymentModal.querySelectorAll("div, span"));
-    textNodes.forEach((node) => {
+    /* Hide only the small test-card line, not the full payment modal/card.
+       Previous broad selector could hide the entire Stripe popup because parent
+       containers also contain the text "Test card / 4242" in textContent. */
+    const testCardCandidates = Array.from(paymentModal.querySelectorAll("div, span"));
+    testCardCandidates.forEach((node) => {
       const text = String(node.textContent || "").trim();
-      if (/Test card/i.test(text) || /4242 4242/i.test(text)) {
-        node.classList.add("fc-payment-hidden");
+      const isSmallNode = node.children.length <= 2;
+      const hasTestCardText = /Test card/i.test(text) || /4242\s*4242/i.test(text);
+
+      if (!hasTestCardText || !isSmallNode) return;
+
+      let target = node;
+      for (let i = 0; i < 2; i += 1) {
+        if (!target.parentElement || target.parentElement === paymentModal) break;
+        const parentText = String(target.parentElement.textContent || "").trim();
+        const parentLooksOnlyLikeTestCard = /Test card/i.test(parentText) && parentText.length < 120;
+        if (parentLooksOnlyLikeTestCard) target = target.parentElement;
       }
+
+      target.classList.add("fc-payment-hidden");
     });
+
+    const rightPanel = paymentModal.querySelector(".space-y-3");
+    if (rightPanel) {
+      rightPanel.classList.remove("fc-payment-hidden");
+    }
   }
 
   async function openPayment(orderId) {
