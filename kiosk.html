@@ -460,45 +460,5 @@
   <script src="assets/storage.js"></script>
   <script src="assets/app.js"></script>
   <script src="assets/kiosk.js"></script>
-  <script>
-  // Temporary restaurant logo test for Anonymous Shinwari tab
-  (function () {
-    const LOGO_PATH = "assets/images/restaurants/anonymous-shinwari-logo.png";
-
-    function applyAnonymousShinwariLogo() {
-      const buttons = Array.from(document.querySelectorAll("button"));
-
-      buttons.forEach((btn) => {
-        const text = (btn.textContent || "").trim();
-
-        if (!text.includes("Anonymous Shinwari")) return;
-        if (btn.dataset.logoApplied === "yes") return;
-
-        btn.dataset.logoApplied = "yes";
-        btn.classList.add("restaurant-tab-with-logo");
-
-        btn.innerHTML = `
-          <img
-            src="${LOGO_PATH}"
-            class="restaurant-tab-logo-test"
-            alt="Anonymous Shinwari logo"
-          />
-          <div class="restaurant-tab-text-wrap">
-            <div class="restaurant-tab-title">Anonymous Shinwari</div>
-            <div class="restaurant-tab-online">Online</div>
-          </div>
-        `;
-      });
-    }
-
-    applyAnonymousShinwariLogo();
-
-    const timer = setInterval(applyAnonymousShinwariLogo, 500);
-
-    setTimeout(() => {
-      clearInterval(timer);
-    }, 8000);
-  })();
-</script>
 </body>
 </html>
