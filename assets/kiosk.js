@@ -3,7 +3,7 @@
 
   const $ = (id) => document.getElementById(id);
 
-  const RESTAURANT_APPROVAL_SECONDS = 12;
+  const RESTAURANT_APPROVAL_SECONDS = 20;
   const RESTAURANT_APPROVAL_MS = RESTAURANT_APPROVAL_SECONDS * 1000;
 
   const KIOSK_IDLE_TIMEOUT_SECONDS = 90;
@@ -879,6 +879,91 @@
         color: #dbeafe;
         font-size: 14px;
         line-height: 1.45;
+      }
+
+
+      .fc-restaurant-tab {
+        min-width: 210px;
+        position: relative;
+        overflow: hidden;
+        transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease, opacity .15s ease;
+      }
+
+      .fc-restaurant-tab-open {
+        background: rgba(255,255,255,.075) !important;
+        border-color: rgba(34,197,94,.36) !important;
+        box-shadow: inset 0 0 0 1px rgba(34,197,94,.10);
+      }
+
+      .fc-restaurant-tab-open.fc-restaurant-tab-active {
+        background: linear-gradient(135deg, rgba(34,197,94,.17), rgba(255,255,255,.07)) !important;
+        border-color: rgba(34,197,94,.78) !important;
+        box-shadow: 0 0 0 3px rgba(34,197,94,.12), 0 14px 34px rgba(0,0,0,.24);
+      }
+
+      .fc-restaurant-tab-closed {
+        background: linear-gradient(135deg, rgba(127,29,29,.38), rgba(255,255,255,.04)) !important;
+        border: 2px solid rgba(248,113,113,.82) !important;
+        opacity: .86;
+        box-shadow: inset 0 0 0 1px rgba(248,113,113,.14);
+      }
+
+      .fc-restaurant-tab-closed::after {
+        content: "CLOSED";
+        position: absolute;
+        top: 8px;
+        right: -28px;
+        transform: rotate(32deg);
+        background: rgba(220,38,38,.96);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 950;
+        letter-spacing: .08em;
+        padding: 4px 34px;
+        border: 1px solid rgba(255,255,255,.25);
+        box-shadow: 0 8px 20px rgba(0,0,0,.25);
+      }
+
+      .fc-restaurant-tab-closed.fc-restaurant-tab-active {
+        opacity: 1;
+        background: linear-gradient(135deg, rgba(127,29,29,.50), rgba(255,255,255,.055)) !important;
+        border-color: rgba(248,113,113,1) !important;
+        box-shadow: 0 0 0 4px rgba(239,68,68,.16), 0 14px 34px rgba(0,0,0,.25);
+      }
+
+      .fc-restaurant-status-open,
+      .fc-restaurant-status-closed {
+        margin-top: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 950;
+        letter-spacing: .06em;
+      }
+
+      .fc-restaurant-status-open {
+        color: #86efac;
+        background: rgba(34,197,94,.14);
+        border: 1px solid rgba(34,197,94,.34);
+      }
+
+      .fc-restaurant-status-closed {
+        color: #fecaca;
+        background: rgba(239,68,68,.18);
+        border: 1px solid rgba(248,113,113,.45);
+      }
+
+      .fc-restaurant-status-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        display: inline-block;
+        background: currentColor;
+        box-shadow: 0 0 14px currentColor;
       }
 
       @media (max-width: 820px) {
@@ -2261,14 +2346,23 @@
     elTabs.innerHTML = "";
 
     restaurants.forEach((r) => {
+      const isOpen = !!r.online;
+      const isActive = r.id === activeRestaurantId;
       const btn = document.createElement("button");
+
       btn.className =
-        "px-4 py-2 rounded-2xl border border-white/10 text-sm " +
-        (r.id === activeRestaurantId ? "bg-white/10" : "bg-white/5 hover:bg-white/10");
+        "px-4 py-2 rounded-2xl border text-sm fc-restaurant-tab " +
+        (isOpen ? "fc-restaurant-tab-open " : "fc-restaurant-tab-closed ") +
+        (isActive ? "fc-restaurant-tab-active" : "");
+
+      btn.setAttribute("aria-label", `${r.name || "Restaurant"} is ${isOpen ? "open" : "closed"}`);
 
       btn.innerHTML = `
-        <div class="font-semibold">${r.name || "Restaurant"}</div>
-        <div class="text-xs text-slate-400">${r.online ? "Online" : "Offline"}</div>
+        <div class="font-semibold">${escapeHtml(r.name || "Restaurant")}</div>
+        <div class="${isOpen ? "fc-restaurant-status-open" : "fc-restaurant-status-closed"}">
+          <span class="fc-restaurant-status-dot"></span>
+          <span>${isOpen ? "OPEN" : "CLOSED"}</span>
+        </div>
       `;
 
       btn.onclick = async () => {
@@ -2332,8 +2426,26 @@
 
     elMenu.innerHTML = "";
 
+    if (!r.online) {
+      const closedNotice = document.createElement("div");
+      closedNotice.className = "sm:col-span-2 xl:col-span-3 rounded-3xl border border-rose-400/40 bg-rose-500/12 p-5 text-rose-100";
+      closedNotice.innerHTML = `
+        <div class="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-rose-200">Restaurant Closed</div>
+            <div class="text-xl font-semibold mt-1">${escapeHtml(r.name || "This restaurant")} is currently closed.</div>
+            <div class="text-sm text-rose-100/90 mt-2">Please choose another open restaurant from the tabs above.</div>
+          </div>
+          <div class="pill badge-red">CLOSED</div>
+        </div>
+      `;
+      elMenu.appendChild(closedNotice);
+    }
+
     if (!filtered.length) {
-      elMenu.innerHTML = `<div class="text-sm text-slate-400">No matching items found.</div>`;
+      if (r.online) {
+        elMenu.innerHTML = `<div class="text-sm text-slate-400">No matching items found.</div>`;
+      }
       return;
     }
 
@@ -2361,7 +2473,7 @@
         </div>
         <div class="mt-4 flex items-center justify-between">
           <div class="text-xs ${available ? "text-emerald-300" : "text-rose-300"}">
-            ${available ? "Available" : (r.online ? "Out of stock" : "Restaurant offline")}
+            ${available ? "Available" : (r.online ? "Out of stock" : "Restaurant Closed")}
           </div>
           <button class="${available ? "btn-primary" : "btn-ghost opacity-40 cursor-not-allowed"} text-sm rounded-full px-4" ${available ? "" : "disabled"}>
             +
@@ -3742,7 +3854,7 @@ async function browserPrintSlipOnly(orderId) {
       }
 
       if (!r.online) {
-        alertSafe("Restaurant is offline right now.");
+        alertSafe("This restaurant is closed right now. Please choose another open restaurant.");
         return;
       }
 
