@@ -8,6 +8,12 @@
 
   const KIOSK_IDLE_TIMEOUT_SECONDS = 90;
   const KIOSK_POSTER_AD_SECONDS = 5;
+  const TABLE_BUTTON_VALUES = [
+    ...Array.from({ length: 10 }, (_, i) => `A${i + 1}`),
+    ...Array.from({ length: 10 }, (_, i) => `B${i + 1}`),
+    ...Array.from({ length: 10 }, (_, i) => `C${i + 1}`),
+    ...Array.from({ length: 10 }, (_, i) => `D${i + 1}`)
+  ];
 
   const KIOSK_ADS = [
     {
@@ -228,26 +234,25 @@
     if (!qrBox) return;
 
     qrBox.innerHTML = "";
-    qrBox.style.cursor = "pointer";
+    qrBox.style.cursor = "default";
+    qrBox.onclick = null;
+    qrBox.setAttribute("aria-label", "Stripe payment QR code. Scan with phone to complete payment.");
 
     try {
       new QRCode(qrBox, {
         text: checkoutUrl,
-        width: 220,
-        height: 220
+        width: 340,
+        height: 340,
+        correctLevel: QRCode.CorrectLevel.M
       });
     } catch (err) {
       console.error("kiosk.js: Stripe QR render failed", err);
       qrBox.innerHTML = `
         <div class="text-xs text-slate-900 break-all p-3">
-          ${escapeHtml(checkoutUrl)}
+          Payment QR could not be displayed. Please ask staff for help.
         </div>
       `;
     }
-
-    qrBox.onclick = () => {
-      window.location.href = checkoutUrl;
-    };
   }
 
   async function finalizeStripePaidOrder(orderId, stripeSessionData) {
@@ -469,6 +474,16 @@
   const printBtn = $("printBtn");
   const doneBtn = $("doneBtn");
 
+  const restaurantApprovalModal = $("restaurantApprovalModal");
+  const approvalCountdown = $("approvalCountdown");
+  const approvalProgressBar = $("approvalProgressBar");
+  const approvalWaitTitle = $("approvalWaitTitle");
+  const approvalWaitMessage = $("approvalWaitMessage");
+  const approvalWaitSubMessage = $("approvalWaitSubMessage");
+  const approvalStatusBadge = $("approvalStatusBadge");
+  const approvalRejectionBox = $("approvalRejectionBox");
+  const approvalAcceptedBox = $("approvalAcceptedBox");
+
   const adsOverlay = $("adsOverlay");
   const adTitle = $("adTitle");
   const adSubtitle = $("adSubtitle");
@@ -678,6 +693,129 @@
     document.head.appendChild(style);
   }
 
+  function injectKioskCustomerFlowStyles() {
+    if (document.getElementById("kioskCustomerFlowStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "kioskCustomerFlowStyles";
+    style.textContent = `
+      #tableNumberInput {
+        cursor: default !important;
+        caret-color: transparent !important;
+        user-select: none;
+      }
+
+      .fc-table-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .fc-table-btn {
+        min-height: 44px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(255,255,255,.06);
+        color: #f8fafc;
+        font-weight: 850;
+        font-size: 14px;
+        touch-action: manipulation;
+        transition: background-color .12s ease, border-color .12s ease, transform .12s ease;
+      }
+
+      .fc-table-btn:hover,
+      .fc-table-btn.fc-table-active {
+        background: rgba(249,115,22,.22);
+        border-color: rgba(249,115,22,.82);
+        color: #fff7ed;
+        box-shadow: 0 0 0 3px rgba(249,115,22,.12);
+      }
+
+      .fc-table-btn.fc-table-active {
+        transform: translateY(-1px);
+      }
+
+      #restaurantApprovalModal {
+        z-index: 70 !important;
+      }
+
+      #restaurantApprovalModal > div {
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      #paymentModal .fc-payment-card {
+        max-width: 780px !important;
+        width: min(780px, calc(100vw - 36px)) !important;
+      }
+
+      #paymentModal .fc-payment-grid {
+        grid-template-columns: minmax(320px, 380px) minmax(240px, 1fr) !important;
+        align-items: center !important;
+      }
+
+      #paymentModal .fc-qr-shell {
+        min-height: 382px !important;
+        padding: 18px !important;
+      }
+
+      #qrBox {
+        width: 340px !important;
+        height: 340px !important;
+        max-width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+
+      #qrBox canvas,
+      #qrBox img {
+        width: 340px !important;
+        height: 340px !important;
+        max-width: 100% !important;
+        max-height: 100% !important;
+      }
+
+      .fc-payment-hidden {
+        display: none !important;
+      }
+
+      .fc-payment-customer-note {
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.055);
+        border-radius: 18px;
+        padding: 14px;
+        color: #dbeafe;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 820px) {
+        .fc-table-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        #paymentModal .fc-payment-grid {
+          grid-template-columns: 1fr !important;
+        }
+
+        #paymentModal .fc-qr-shell {
+          min-height: 350px !important;
+        }
+
+        #qrBox,
+        #qrBox canvas,
+        #qrBox img {
+          width: 310px !important;
+          height: 310px !important;
+        }
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+
   function getFullscreenElement() {
     return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
   }
@@ -810,6 +948,7 @@
 
   injectKioskFullscreenStyles();
   injectRestaurantApprovalStyles();
+  injectKioskCustomerFlowStyles();
 
   if (fullscreenBtn) {
     fullscreenBtn.onclick = async () => {
@@ -1243,6 +1382,57 @@
     renderCart();
   }
 
+  function ensureTableSelectionGrid() {
+    if (!tableNumberWrap || !tableNumberInput) return null;
+
+    tableNumberInput.readOnly = true;
+    tableNumberInput.setAttribute("aria-readonly", "true");
+    tableNumberInput.setAttribute("autocomplete", "off");
+    tableNumberInput.placeholder = "Select table below";
+
+    let grid = $("tableNumberGrid");
+    if (grid) return grid;
+
+    grid = document.createElement("div");
+    grid.id = "tableNumberGrid";
+    grid.className = "fc-table-grid";
+    tableNumberInput.insertAdjacentElement("afterend", grid);
+    return grid;
+  }
+
+  function selectTableNumber(value) {
+    serviceType = "dine_in";
+    tableNumber = String(value || "").trim();
+
+    if (tableNumberInput) {
+      tableNumberInput.value = tableNumber;
+    }
+
+    saveSession();
+    renderServicePanel();
+    renderCart();
+  }
+
+  function renderTableSelectionGrid() {
+    const grid = ensureTableSelectionGrid();
+    if (!grid) return;
+
+    grid.innerHTML = "";
+
+    TABLE_BUTTON_VALUES.forEach((value) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fc-table-btn" + (String(tableNumber || "") === value ? " fc-table-active" : "");
+      btn.textContent = value;
+      btn.setAttribute("aria-pressed", String(String(tableNumber || "") === value));
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        selectTableNumber(value);
+      });
+      grid.appendChild(btn);
+    });
+  }
+
   function getServiceSelection() {
     const type = serviceType;
     const table = String(tableNumberInput?.value ?? tableNumber ?? "").trim();
@@ -1284,6 +1474,8 @@
     if (tableNumberInput && tableNumberInput.value !== tableNumber) {
       tableNumberInput.value = tableNumber;
     }
+
+    renderTableSelectionGrid();
 
     const selectedClasses = ["border-indigo-400/70", "bg-indigo-500/15", "ring-1", "ring-indigo-400/40"];
     const normalClasses = ["border-white/10", "bg-white/5"];
@@ -2146,7 +2338,52 @@
     elCheckout.classList.toggle("opacity-50", disabled);
   }
 
+  function showRestaurantApprovalPopup(order = {}, restaurant = null, svcText = "") {
+    if (!restaurantApprovalModal) return false;
+
+    const secondsLeft = approvalSecondsLeft(order);
+    const elapsedProgress = approvalProgressPercent(order);
+    const remainingProgress = Math.max(0, Math.min(100, 100 - elapsedProgress));
+
+    restaurantApprovalModal.classList.remove("hidden");
+
+    if (approvalCountdown) approvalCountdown.textContent = String(secondsLeft);
+    if (approvalProgressBar) approvalProgressBar.style.width = `${remainingProgress}%`;
+    if (approvalStatusBadge) approvalStatusBadge.textContent = "Pending";
+
+    if (approvalWaitTitle) {
+      approvalWaitTitle.textContent = "Restaurant is checking your order...";
+    }
+
+    if (approvalWaitMessage) {
+      approvalWaitMessage.innerHTML = `
+        Order <span class="pill">${escapeHtml(order.id || "")}</span>
+        sent to <span class="pill">${escapeHtml(restaurant?.name || "Restaurant")}</span>
+        • <span class="pill">${escapeHtml(svcText || serviceText(order))}</span>
+      `;
+    }
+
+    if (approvalWaitSubMessage) {
+      approvalWaitSubMessage.innerHTML = `
+        Please wait while the restaurant checks item availability. If there is no response within
+        ${RESTAURANT_APPROVAL_SECONDS} seconds, the order will be accepted automatically.
+      `;
+    }
+
+    if (approvalRejectionBox) approvalRejectionBox.classList.add("hidden");
+    if (approvalAcceptedBox) approvalAcceptedBox.classList.add("hidden");
+
+    return true;
+  }
+
+  function hideRestaurantApprovalPopup() {
+    if (restaurantApprovalModal) {
+      restaurantApprovalModal.classList.add("hidden");
+    }
+  }
+
   function hideFlow() {
+    hideRestaurantApprovalPopup();
     if (elFlowPanel) elFlowPanel.classList.add("hidden");
   }
 
@@ -2163,54 +2400,18 @@
     if (order.status === "pending_approval") {
       scheduleRestaurantAutoAccept(order);
 
-      const secondsLeft = approvalSecondsLeft(order);
-      const progress = approvalProgressPercent(order);
+      showRestaurantApprovalPopup(order, r, svcText);
 
-      elFlowPanel.innerHTML = `
-        <div class="fc-approval-card rounded-3xl border border-white/10 bg-white/5 p-5">
-          <div class="grid md:grid-cols-[160px_1fr] gap-5 items-center relative z-10">
-            <div class="text-center">
-              <div class="fc-cooking-stage" aria-hidden="true">
-                <div class="fc-steam s1"></div>
-                <div class="fc-steam s2"></div>
-                <div class="fc-steam s3"></div>
-                <div class="fc-pot-lid"></div>
-                <div class="fc-pot"></div>
-                <div class="fc-pot-flame"></div>
-              </div>
-              <div class="mt-2 pill badge-yellow">Pending Approval</div>
-            </div>
+      if (elFlowPanel) {
+        elFlowPanel.innerHTML = "";
+        elFlowPanel.classList.add("hidden");
+      }
 
-            <div>
-              <div class="text-xs uppercase tracking-widest text-slate-400">Order Sent to Restaurant</div>
-              <div class="text-2xl font-semibold mt-1">Restaurant is checking your order<span class="fc-dot-loader"><span>.</span><span>.</span><span>.</span></span></div>
-              <div class="text-sm text-slate-300 mt-2">
-                Order <span class="pill">${escapeHtml(order.id)}</span>
-                sent to <span class="pill">${escapeHtml(r?.name || "Restaurant")}</span>
-                • <span class="pill">${escapeHtml(svcText)}</span>
-              </div>
-
-              <div class="mt-5">
-                <div class="flex items-center justify-between gap-3 text-sm">
-                  <span class="text-slate-300">Auto-accept if restaurant does not respond</span>
-                  <span class="pill">${secondsLeft}s left</span>
-                </div>
-                <div class="fc-progress-track mt-2">
-                  <div class="fc-progress-fill" style="width:${progress}%"></div>
-                </div>
-              </div>
-
-              <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
-                Please wait while the restaurant checks item availability. The restaurant can approve or reject this order with a valid reason. If there is no response within ${RESTAURANT_APPROVAL_SECONDS} seconds, the order will be accepted automatically.
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
       return;
     }
 
     clearRestaurantAutoAccept(order.id);
+    hideRestaurantApprovalPopup();
 
     if (order.status === "rejected") {
       const reason = rejectionReasonOf(order) || "Food item is not available right now.";
@@ -2448,6 +2649,40 @@ async function browserPrintSlipOnly(orderId) {
   }
   }
 
+  function prepareStripeCustomerPaymentUi() {
+    if (!paymentModal) return;
+
+    const card = paymentModal.querySelector(".rounded-3xl.bg-slate-950");
+    if (card) card.classList.add("fc-payment-card");
+
+    const grid = paymentModal.querySelector(".grid");
+    if (grid) grid.classList.add("fc-payment-grid");
+
+    if (qrBox?.parentElement) {
+      qrBox.parentElement.classList.add("fc-qr-shell");
+    }
+
+    if (simulatePayBtn) {
+      simulatePayBtn.classList.add("hidden", "fc-payment-hidden");
+      simulatePayBtn.disabled = true;
+      simulatePayBtn.onclick = null;
+    }
+
+    if (simulateFailBtn) {
+      simulateFailBtn.classList.add("hidden", "fc-payment-hidden");
+      simulateFailBtn.disabled = true;
+      simulateFailBtn.onclick = null;
+    }
+
+    const textNodes = Array.from(paymentModal.querySelectorAll("div, span"));
+    textNodes.forEach((node) => {
+      const text = String(node.textContent || "").trim();
+      if (/Test card/i.test(text) || /4242 4242/i.test(text)) {
+        node.classList.add("fc-payment-hidden");
+      }
+    });
+  }
+
   async function openPayment(orderId) {
     const order = await getOrderSafe(orderId);
     if (!order) return;
@@ -2461,6 +2696,7 @@ async function browserPrintSlipOnly(orderId) {
     currentStripeCheckoutUrl = "";
 
     if (paymentModal) paymentModal.classList.remove("hidden");
+    prepareStripeCustomerPaymentUi();
 
     if (qrBox) {
       qrBox.innerHTML = `
@@ -2476,21 +2712,21 @@ async function browserPrintSlipOnly(orderId) {
     }
 
     if (payCountdown) {
-      payCountdown.textContent = "Stripe";
+      payCountdown.textContent = "Secure QR";
     }
 
     if (payStatus) {
-      payStatus.textContent = "Creating secure Stripe payment session...";
+      payStatus.textContent = "Creating secure payment QR...";
     }
 
     if (simulateFailBtn) {
-      simulateFailBtn.classList.add("hidden");
+      simulateFailBtn.classList.add("hidden", "fc-payment-hidden");
     }
 
     if (simulatePayBtn) {
-      simulatePayBtn.classList.remove("hidden");
+      simulatePayBtn.classList.add("hidden", "fc-payment-hidden");
       simulatePayBtn.disabled = true;
-      simulatePayBtn.textContent = "Preparing Stripe...";
+      simulatePayBtn.onclick = null;
     }
 
     if (payInterval) clearInterval(payInterval);
@@ -2538,16 +2774,18 @@ async function browserPrintSlipOnly(orderId) {
 
       showStripeQr(stripeSession.url);
 
+      if (payCountdown) {
+        payCountdown.textContent = "Waiting for scan";
+      }
+
       if (payStatus) {
-        payStatus.textContent = "Scan this QR code to pay with Stripe sandbox, or tap Open Stripe Checkout.";
+        payStatus.textContent = "Scan this QR code with your phone to complete payment securely.";
       }
 
       if (simulatePayBtn) {
-        simulatePayBtn.disabled = false;
-        simulatePayBtn.textContent = "Open Stripe Checkout";
-        simulatePayBtn.onclick = () => {
-          window.location.href = stripeSession.url;
-        };
+        simulatePayBtn.classList.add("hidden", "fc-payment-hidden");
+        simulatePayBtn.disabled = true;
+        simulatePayBtn.onclick = null;
       }
 
       startStripePolling(orderId, stripeSession.sessionId);
@@ -2559,12 +2797,9 @@ async function browserPrintSlipOnly(orderId) {
       }
 
       if (simulatePayBtn) {
-        simulatePayBtn.disabled = false;
-        simulatePayBtn.textContent = "Retry Stripe Payment";
-        simulatePayBtn.onclick = async () => {
-          currentStripeCheckoutUrl = "";
-          await openPayment(orderId);
-        };
+        simulatePayBtn.classList.add("hidden", "fc-payment-hidden");
+        simulatePayBtn.disabled = true;
+        simulatePayBtn.onclick = null;
       }
     }
 
@@ -2596,15 +2831,9 @@ async function browserPrintSlipOnly(orderId) {
   }
 
   if (simulatePayBtn) {
-    simulatePayBtn.textContent = "Open Stripe Checkout";
-    simulatePayBtn.onclick = () => {
-      if (!currentStripeCheckoutUrl) {
-        if (payStatus) payStatus.textContent = "Stripe Checkout is still loading...";
-        return;
-      }
-
-      window.location.href = currentStripeCheckoutUrl;
-    };
+    simulatePayBtn.classList.add("hidden", "fc-payment-hidden");
+    simulatePayBtn.disabled = true;
+    simulatePayBtn.onclick = null;
   }
 
   function escapeHtml(value = "") {
@@ -3309,6 +3538,13 @@ async function browserPrintSlipOnly(orderId) {
   }
 
   if (tableNumberInput) {
+    tableNumberInput.readOnly = true;
+    tableNumberInput.addEventListener("keydown", (e) => {
+      e.preventDefault();
+    });
+    tableNumberInput.addEventListener("paste", (e) => {
+      e.preventDefault();
+    });
     tableNumberInput.addEventListener("input", () => {
       tableNumber = String(tableNumberInput.value || "").trim();
       saveSession();
