@@ -230,19 +230,40 @@
     return data;
   }
 
+  function stripeQrSize() {
+    const w = Number(window.innerWidth || 1024);
+    const h = Number(window.innerHeight || 768);
+
+    if (w <= 820) {
+      return Math.max(280, Math.min(340, Math.floor(w - 96)));
+    }
+
+    if (h <= 760) return 340;
+    if (h <= 900) return 370;
+
+    return 400;
+  }
+
   function showStripeQr(checkoutUrl) {
     if (!qrBox) return;
 
+    const qrSize = stripeQrSize();
+
     qrBox.innerHTML = "";
     qrBox.style.cursor = "default";
+    qrBox.style.setProperty("--fc-stripe-qr-size", `${qrSize}px`);
     qrBox.onclick = null;
     qrBox.setAttribute("aria-label", "Stripe payment QR code. Scan with phone to complete payment.");
+
+    if (qrBox.parentElement) {
+      qrBox.parentElement.style.setProperty("--fc-stripe-qr-size", `${qrSize}px`);
+    }
 
     try {
       new QRCode(qrBox, {
         text: checkoutUrl,
-        width: 340,
-        height: 340,
+        width: qrSize,
+        height: qrSize,
         correctLevel: QRCode.CorrectLevel.M
       });
     } catch (err) {
@@ -475,6 +496,7 @@
   const doneBtn = $("doneBtn");
 
   const restaurantApprovalModal = $("restaurantApprovalModal");
+  const approvalAnimation = $("approvalAnimation");
   const approvalCountdown = $("approvalCountdown");
   const approvalProgressBar = $("approvalProgressBar");
   const approvalWaitTitle = $("approvalWaitTitle");
@@ -745,34 +767,80 @@
         -webkit-backdrop-filter: blur(10px);
       }
 
+      #approvalAnimation.fc-cooking-stage {
+        width: 150px;
+        height: 150px;
+      }
+
+      #approvalAnimation .fc-pot {
+        left: 20px;
+        right: 20px;
+        bottom: 28px;
+        height: 52px;
+      }
+
+      #approvalAnimation .fc-pot-lid {
+        left: 32px;
+        right: 32px;
+        bottom: 82px;
+      }
+
+      #approvalAnimation .fc-pot-flame {
+        left: 57px;
+        bottom: 8px;
+      }
+
+      #approvalAnimation .fc-steam {
+        bottom: 98px;
+      }
+
+      #approvalAnimation .fc-steam.s1 { left: 51px; }
+      #approvalAnimation .fc-steam.s2 { left: 70px; }
+      #approvalAnimation .fc-steam.s3 { left: 89px; }
+
+      #paymentModal {
+        overflow-y: auto !important;
+      }
+
+      #paymentModal > div {
+        min-height: 100vh !important;
+        padding-top: 18px !important;
+        padding-bottom: 18px !important;
+      }
+
       #paymentModal .fc-payment-card {
-        max-width: 780px !important;
-        width: min(780px, calc(100vw - 36px)) !important;
+        max-width: 900px !important;
+        width: min(900px, calc(100vw - 36px)) !important;
+        max-height: calc(100vh - 36px) !important;
+        overflow-y: auto !important;
       }
 
       #paymentModal .fc-payment-grid {
-        grid-template-columns: minmax(320px, 380px) minmax(240px, 1fr) !important;
+        grid-template-columns: minmax(360px, 430px) minmax(260px, 1fr) !important;
         align-items: center !important;
       }
 
       #paymentModal .fc-qr-shell {
-        min-height: 382px !important;
+        min-height: calc(var(--fc-stripe-qr-size, 380px) + 36px) !important;
         padding: 18px !important;
+        overflow: visible !important;
       }
 
       #qrBox {
-        width: 340px !important;
-        height: 340px !important;
+        width: var(--fc-stripe-qr-size, 380px) !important;
+        height: var(--fc-stripe-qr-size, 380px) !important;
         max-width: 100% !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+        overflow: visible !important;
       }
 
       #qrBox canvas,
-      #qrBox img {
-        width: 340px !important;
-        height: 340px !important;
+      #qrBox img,
+      #qrBox table {
+        width: var(--fc-stripe-qr-size, 380px) !important;
+        height: var(--fc-stripe-qr-size, 380px) !important;
         max-width: 100% !important;
         max-height: 100% !important;
       }
@@ -800,15 +868,20 @@
           grid-template-columns: 1fr !important;
         }
 
+        #paymentModal .fc-payment-card {
+          width: min(94vw, 640px) !important;
+        }
+
         #paymentModal .fc-qr-shell {
-          min-height: 350px !important;
+          min-height: calc(var(--fc-stripe-qr-size, 320px) + 32px) !important;
         }
 
         #qrBox,
         #qrBox canvas,
-        #qrBox img {
-          width: 310px !important;
-          height: 310px !important;
+        #qrBox img,
+        #qrBox table {
+          width: var(--fc-stripe-qr-size, 320px) !important;
+          height: var(--fc-stripe-qr-size, 320px) !important;
         }
       }
     `;
@@ -2338,6 +2411,20 @@
     elCheckout.classList.toggle("opacity-50", disabled);
   }
 
+  function renderApprovalCookingAnimation() {
+    if (!approvalAnimation) return;
+
+    approvalAnimation.className = "fc-cooking-stage";
+    approvalAnimation.innerHTML = `
+      <div class="fc-steam s1"></div>
+      <div class="fc-steam s2"></div>
+      <div class="fc-steam s3"></div>
+      <div class="fc-pot-lid"></div>
+      <div class="fc-pot"></div>
+      <div class="fc-pot-flame"></div>
+    `;
+  }
+
   function showRestaurantApprovalPopup(order = {}, restaurant = null, svcText = "") {
     if (!restaurantApprovalModal) return false;
 
@@ -2346,6 +2433,7 @@
     const remainingProgress = Math.max(0, Math.min(100, 100 - elapsedProgress));
 
     restaurantApprovalModal.classList.remove("hidden");
+    renderApprovalCookingAnimation();
 
     if (approvalCountdown) approvalCountdown.textContent = String(secondsLeft);
     if (approvalProgressBar) approvalProgressBar.style.width = `${remainingProgress}%`;
