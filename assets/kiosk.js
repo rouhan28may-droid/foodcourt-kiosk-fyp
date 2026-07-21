@@ -883,20 +883,29 @@
 
 
       #restaurantTabs {
-        width: 100%;
+        width: 100% !important;
+        max-width: none !important;
+        flex: 1 1 100% !important;
         display: grid !important;
-        grid-template-columns: repeat(5, minmax(118px, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
         gap: 10px !important;
-        align-items: stretch;
+        align-items: stretch !important;
+      }
+
+      #restaurantTabs + .text-sm,
+      #restaurantTabs + .flex {
+        margin-top: 8px !important;
       }
 
       .fc-restaurant-tab {
+        width: 100% !important;
         min-width: 0 !important;
-        min-height: 58px !important;
+        max-width: none !important;
+        min-height: 54px !important;
         position: relative;
         overflow: hidden;
-        padding: 8px 10px !important;
-        border-radius: 18px !important;
+        padding: 7px 8px !important;
+        border-radius: 16px !important;
         text-align: center !important;
         transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease, opacity .15s ease;
       }
@@ -906,7 +915,7 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 13.5px !important;
+        font-size: 12.5px !important;
         line-height: 1.1;
       }
 
@@ -960,8 +969,8 @@
         justify-content: center;
         gap: 5px;
         border-radius: 999px;
-        padding: 3px 8px;
-        font-size: 10.5px;
+        padding: 2px 7px;
+        font-size: 9.5px;
         font-weight: 950;
         letter-spacing: .055em;
       }
@@ -989,13 +998,13 @@
 
       @media (min-width: 1024px) {
         aside.lg\:col-span-4 > .glass {
-          margin-top: 12px;
+          margin-top: 26px !important;
         }
       }
 
-      @media (max-width: 1180px) {
+      @media (max-width: 1180px) and (min-width: 821px) {
         #restaurantTabs {
-          grid-template-columns: repeat(4, minmax(110px, 1fr));
+          grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
         }
       }
 
@@ -2384,6 +2393,15 @@
 
     elTabs.innerHTML = "";
 
+    // Force exactly 5 restaurant boxes per row on kiosk/laptop screens.
+    // With 10 restaurants this becomes exactly 2 rows.
+    elTabs.style.setProperty("display", "grid", "important");
+    elTabs.style.setProperty("grid-template-columns", "repeat(5, minmax(0, 1fr))", "important");
+    elTabs.style.setProperty("gap", "10px", "important");
+    elTabs.style.setProperty("width", "100%", "important");
+    elTabs.style.setProperty("max-width", "none", "important");
+    elTabs.style.setProperty("flex", "1 1 100%", "important");
+
     restaurants.forEach((r) => {
       const isOpen = !!r.online;
       const isActive = r.id === activeRestaurantId;
@@ -2395,6 +2413,9 @@
         (isActive ? "fc-restaurant-tab-active" : "");
 
       btn.setAttribute("aria-label", `${r.name || "Restaurant"} is ${isOpen ? "open" : "closed"}`);
+      btn.style.setProperty("width", "100%", "important");
+      btn.style.setProperty("min-width", "0", "important");
+      btn.style.setProperty("max-width", "none", "important");
 
       btn.innerHTML = `
         <div class="font-semibold">${escapeHtml(r.name || "Restaurant")}</div>
