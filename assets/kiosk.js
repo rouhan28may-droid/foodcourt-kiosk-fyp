@@ -6,6 +6,57 @@
   const RESTAURANT_APPROVAL_SECONDS = 12;
   const RESTAURANT_APPROVAL_MS = RESTAURANT_APPROVAL_SECONDS * 1000;
 
+  const KIOSK_IDLE_TIMEOUT_SECONDS = 90;
+  const KIOSK_POSTER_AD_SECONDS = 5;
+
+  const KIOSK_ADS = [
+    {
+      id: "main-video",
+      type: "video",
+      src: "assets/ads/kiosk-main-video.mp4",
+      title: "Food Court Deals",
+      subtitle: "Watch today’s offers while the kiosk is idle.",
+      offer: "Fresh Deals",
+      restaurant: "Food Court Kiosk"
+    },
+    {
+      id: "burger-20-off",
+      type: "image",
+      src: "assets/ads/burger-20-off.jpg",
+      title: "Burger Deal",
+      subtitle: "Get a delicious burger deal from your favorite food court restaurant.",
+      offer: "20% OFF",
+      restaurant: "Burger Special"
+    },
+    {
+      id: "shinwari-special",
+      type: "image",
+      src: "assets/ads/shinwari-special.jpg",
+      title: "Anonymous Shinwari Special",
+      subtitle: "Enjoy traditional Shinwari taste with today’s special item.",
+      offer: "Special Item",
+      restaurant: "Anonymous Shinwari"
+    },
+    {
+      id: "pizza-deal",
+      type: "image",
+      src: "assets/ads/pizza-deal.jpg",
+      title: "Pizza Deal",
+      subtitle: "Hot, cheesy and fresh pizza offer for food court customers.",
+      offer: "20% OFF",
+      restaurant: "Pizza Deal"
+    },
+    {
+      id: "combo-offer",
+      type: "image",
+      src: "assets/ads/combo-offer.jpg",
+      title: "Combo Offer",
+      subtitle: "Order more, save more with a food court combo deal.",
+      offer: "Combo Deal",
+      restaurant: "Food Court Combo"
+    }
+  ];
+
   function safeArray(v) {
     return Array.isArray(v) ? v : [];
   }
@@ -206,6 +257,24 @@
       throw new Error("Order not found after Stripe payment.");
     }
 
+    if (order.status === "timed_out") {
+      elFlowPanel.innerHTML = `
+        <div class="rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div class="text-xs uppercase tracking-widest text-amber-200">Order Timed Out</div>
+              <div class="text-xl font-semibold mt-1">This unpaid order was closed due to inactivity.</div>
+              <div class="text-sm text-slate-300 mt-2">
+                The kiosk has been reset for the next customer. Please start a new order.
+              </div>
+            </div>
+            <div class="pill badge-yellow">Timed Out</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     if (["paid", "preparing", "ready", "completed"].includes(order.status)) {
       if (payInterval) clearInterval(payInterval);
       payInterval = null;
@@ -403,6 +472,15 @@
   const adsOverlay = $("adsOverlay");
   const adTitle = $("adTitle");
   const adSubtitle = $("adSubtitle");
+  const kioskAdVideo = $("kioskAdVideo");
+  const kioskAdImage = $("kioskAdImage");
+  const kioskAdFallback = $("kioskAdFallback");
+  const kioskAdLabel = $("kioskAdLabel");
+  const kioskAdOffer = $("kioskAdOffer");
+  const kioskAdRestaurant = $("kioskAdRestaurant");
+  const kioskAdProgressBar = $("kioskAdProgressBar");
+  const kioskAdDots = $("kioskAdDots");
+  const kioskAdStartBtn = $("kioskAdStartBtn");
   const fullscreenBtn = $("fullscreenBtn");
   const kioskTopBar = $("kioskTopBar");
   const kioskLockOverlay = $("kioskLockOverlay");
@@ -804,6 +882,11 @@
   let idleSeconds = 0;
   let adsIdx = 0;
   let adTimer = null;
+  let adProgressTimer = null;
+  let adProgressStartedAt = 0;
+  let adProgressDurationMs = 0;
+  let adsActive = false;
+  let idleTimeoutInProgress = false;
 
   let renderBusy = false;
   let rerenderRequested = false;
@@ -905,7 +988,43 @@
   }
 
   function isFinalOrderStatus(status) {
-    return ["approved", "awaiting_payment", "awaiting_cash_payment", "paid", "preparing", "ready", "completed", "rejected", "cancelled"].includes(String(status || "").toLowerCase());
+    return ["approved", "awaiting_payment", "awaiting_cash_payment", "paid", "preparing", "ready", "completed", "rejected", "cancelled", "timed_out"].includes(String(status || "").toLowerCase());
+  }
+
+  function canTimeoutOrderStatus(status) {
+    return ["pending_approval", "approved", "awaiting_payment", "awaiting_cash_payment"].includes(String(status || "").toLowerCase());
+  }
+
+  async function markCurrentUnpaidOrderTimedOut() {
+    if (!awaitingOrderId) return;
+
+    const orderId = awaitingOrderId;
+
+    try {
+      const order = await getOrderSafe(orderId);
+      if (!order) return;
+
+      if (!canTimeoutOrderStatus(order.status)) return;
+
+      clearRestaurantAutoAccept(order.id);
+
+      const timeoutAt = nowISO();
+      const payment = {
+        ...safeObject(order.payment),
+        timedOutAt: timeoutAt,
+        timeoutReason: `Customer inactive for ${KIOSK_IDLE_TIMEOUT_SECONDS} seconds`,
+        abandonedBy: "kiosk_idle_timeout"
+      };
+
+      await updateOrderSafe(order.id, {
+        status: "timed_out",
+        payment
+      });
+
+      logSafe(`Order ${order.id} timed out because customer was inactive for ${KIOSK_IDLE_TIMEOUT_SECONDS} seconds.`);
+    } catch (err) {
+      console.error("kiosk.js: timed-out order update failed", err);
+    }
   }
 
   async function autoAcceptPendingOrder(orderId) {
@@ -1227,41 +1346,252 @@
     return cats;
   }
 
-  function resetIdle() {
+  function normalizedAds() {
+    return KIOSK_ADS.filter((ad) => ad && ad.src && ad.type);
+  }
+
+  function clearAdTimers() {
+    if (adTimer) clearTimeout(adTimer);
+    adTimer = null;
+
+    if (adProgressTimer) clearInterval(adProgressTimer);
+    adProgressTimer = null;
+  }
+
+  function resetAdProgress() {
+    if (kioskAdProgressBar) {
+      kioskAdProgressBar.style.width = "0%";
+    }
+
+    if (adProgressTimer) clearInterval(adProgressTimer);
+    adProgressTimer = null;
+  }
+
+  function startAdProgress(durationMs) {
+    resetAdProgress();
+
+    adProgressStartedAt = Date.now();
+    adProgressDurationMs = Math.max(600, Number(durationMs || 0));
+
+    const tick = () => {
+      const elapsed = Date.now() - adProgressStartedAt;
+      const pct = Math.min(100, Math.round((elapsed / adProgressDurationMs) * 100));
+      if (kioskAdProgressBar) kioskAdProgressBar.style.width = `${pct}%`;
+
+      if (pct >= 100 && adProgressTimer) {
+        clearInterval(adProgressTimer);
+        adProgressTimer = null;
+      }
+    };
+
+    tick();
+    adProgressTimer = setInterval(tick, 120);
+  }
+
+  function renderAdDots(total, activeIndex) {
+    if (!kioskAdDots) return;
+
+    kioskAdDots.innerHTML = "";
+
+    for (let i = 0; i < total; i += 1) {
+      const dot = document.createElement("span");
+      dot.className = "kiosk-ad-dot" + (i === activeIndex ? " active" : "");
+      kioskAdDots.appendChild(dot);
+    }
+  }
+
+  function stopAdMedia() {
+    if (kioskAdVideo) {
+      try {
+        kioskAdVideo.pause();
+      } catch {}
+      kioskAdVideo.removeAttribute("src");
+      kioskAdVideo.load();
+      kioskAdVideo.classList.add("hidden");
+      kioskAdVideo.onended = null;
+      kioskAdVideo.onerror = null;
+    }
+
+    if (kioskAdImage) {
+      kioskAdImage.removeAttribute("src");
+      kioskAdImage.classList.add("hidden");
+      kioskAdImage.onerror = null;
+    }
+
+    if (kioskAdFallback) {
+      kioskAdFallback.classList.add("hidden");
+    }
+  }
+
+  function showAdFallback(ad = {}) {
+    stopAdMedia();
+
+    if (kioskAdFallback) {
+      kioskAdFallback.classList.remove("hidden");
+      kioskAdFallback.innerHTML = `
+        <div class="text-7xl">🍽️</div>
+        <div class="mt-5 text-4xl font-black">${escapeHtml(ad.title || "Food Court Deals")}</div>
+        <div class="mt-3 text-xl text-slate-200">${escapeHtml(ad.subtitle || "Touch the screen to start ordering.")}</div>
+      `;
+    }
+
+    startAdProgress(KIOSK_POSTER_AD_SECONDS * 1000);
+
+    adTimer = setTimeout(() => {
+      showNextAd();
+    }, KIOSK_POSTER_AD_SECONDS * 1000);
+  }
+
+  function renderAdMeta(ad = {}) {
+    if (kioskAdLabel) {
+      kioskAdLabel.textContent = ad.type === "video" ? "Idle Mode • Video Advertisement" : "Idle Mode • Food Promotion";
+    }
+
+    if (adTitle) adTitle.textContent = ad.title || "Food Court Advertisement";
+    if (adSubtitle) adSubtitle.textContent = ad.subtitle || "Touch anywhere to start a fresh order.";
+    if (kioskAdOffer) kioskAdOffer.textContent = ad.offer || "Today’s Deals";
+    if (kioskAdRestaurant) kioskAdRestaurant.textContent = ad.restaurant || "Food Court Kiosk";
+
+    trackAdImpressionSafe(ad.id || `ad-${adsIdx}`);
+  }
+
+  function showNextAd() {
+    const ads = normalizedAds();
+
+    if (!adsOverlay || !ads.length || !adsActive) return;
+
+    clearAdTimers();
+    stopAdMedia();
+
+    const index = adsIdx % ads.length;
+    const ad = ads[index];
+    adsIdx = (adsIdx + 1) % ads.length;
+
+    renderAdDots(ads.length, index);
+    renderAdMeta(ad);
+
+    if (ad.type === "video" && kioskAdVideo) {
+      kioskAdVideo.classList.remove("hidden");
+      kioskAdVideo.muted = true;
+      kioskAdVideo.playsInline = true;
+      kioskAdVideo.loop = false;
+      kioskAdVideo.src = ad.src;
+
+      kioskAdVideo.onloadedmetadata = () => {
+        const duration = Number(kioskAdVideo.duration || 0);
+        startAdProgress((duration > 0 ? duration : 12) * 1000);
+      };
+
+      kioskAdVideo.onended = () => {
+        showNextAd();
+      };
+
+      kioskAdVideo.onerror = () => {
+        showAdFallback(ad);
+      };
+
+      const playPromise = kioskAdVideo.play();
+
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          showAdFallback(ad);
+        });
+      }
+
+      startAdProgress(12000);
+      return;
+    }
+
+    if (ad.type === "image" && kioskAdImage) {
+      kioskAdImage.classList.remove("hidden");
+      kioskAdImage.src = ad.src;
+      kioskAdImage.alt = ad.title || "Food Court advertisement";
+      kioskAdImage.onerror = () => {
+        showAdFallback(ad);
+      };
+
+      startAdProgress(KIOSK_POSTER_AD_SECONDS * 1000);
+
+      adTimer = setTimeout(() => {
+        showNextAd();
+      }, KIOSK_POSTER_AD_SECONDS * 1000);
+      return;
+    }
+
+    showAdFallback(ad);
+  }
+
+  async function clearCustomerSessionForIdleTimeout() {
+    await markCurrentUnpaidOrderTimedOut();
+
+    awaitingOrderId = null;
+    currentPayOrderId = null;
+    currentReceiptOrderId = null;
+    currentStripeCheckoutUrl = "";
+    autoStripeStartedForOrderId = null;
+    autoCashSlipStartedForOrderId = null;
+    autoCashPaidReceiptOpenedForOrderId = null;
+    autoPrintedReceiptOrderIds = new Set();
+
+    cart = [];
+    resetServiceSelection();
+    resetPaymentMethodSelection();
+
+    if (payInterval) clearInterval(payInterval);
+    payInterval = null;
+
+    if (paymentModal) paymentModal.classList.add("hidden");
+    if (receiptModal) receiptModal.classList.add("hidden");
+    if (itemDetailModal) closeItemDetailModal();
+
+    saveSession();
+    renderCart();
+    hideFlow();
+
+    try {
+      await renderAll();
+    } catch (err) {
+      console.warn("kiosk.js: render after idle cleanup failed", err);
+    }
+  }
+
+  function resetIdle(evt) {
     idleSeconds = 0;
-    if (adsOverlay && !adsOverlay.classList.contains("hidden")) {
+
+    if (adsActive && adsOverlay && !adsOverlay.classList.contains("hidden")) {
       hideAds();
     }
   }
 
   function hideAds() {
+    adsActive = false;
+    clearAdTimers();
+    stopAdMedia();
+    resetAdProgress();
+
     if (adsOverlay) adsOverlay.classList.add("hidden");
-    if (adTimer) clearInterval(adTimer);
-    adTimer = null;
+    document.body.classList.remove("overflow-hidden");
   }
 
-  function showAds() {
-    const s = safeState();
-    const enabledAds = safeArray(s.ads).filter((a) => a && a.enabled);
+  async function showAds() {
+    if (!adsOverlay || adsActive || idleTimeoutInProgress) return;
 
-    if (!enabledAds.length || !adsOverlay || !adTitle || !adSubtitle) return;
+    idleTimeoutInProgress = true;
 
-    const renderAd = () => {
-      const ad = enabledAds[adsIdx % enabledAds.length];
-      if (!ad) return;
-      adTitle.textContent = ad.title || "";
-      adSubtitle.textContent = ad.subtitle || "";
-      trackAdImpressionSafe(ad.id);
-    };
+    try {
+      await clearCustomerSessionForIdleTimeout();
+    } finally {
+      idleTimeoutInProgress = false;
+    }
 
+    const ads = normalizedAds();
+    if (!ads.length) return;
+
+    adsActive = true;
     adsOverlay.classList.remove("hidden");
-    renderAd();
+    document.body.classList.add("overflow-hidden");
 
-    if (adTimer) clearInterval(adTimer);
-    adTimer = setInterval(() => {
-      adsIdx = (adsIdx + 1) % enabledAds.length;
-      renderAd();
-    }, 5000);
+    showNextAd();
   }
 
   ["mousemove", "mousedown", "touchstart", "keydown", "scroll"].forEach((evt) => {
@@ -1270,14 +1600,28 @@
 
   if (adsOverlay) {
     adsOverlay.addEventListener("click", resetIdle);
+    adsOverlay.addEventListener("touchstart", resetIdle, { passive: true });
   }
 
-  setInterval(() => {
+  if (kioskAdStartBtn) {
+    kioskAdStartBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      resetIdle(e);
+    });
+  }
+
+  setInterval(async () => {
+    if (adsActive || idleTimeoutInProgress) return;
+
     const s = safeState();
-    const afterSeconds = Number(s.settings?.idleAdsAfterSeconds || 240);
+    const afterSeconds = Number(s.settings?.idleAdsAfterSeconds || KIOSK_IDLE_TIMEOUT_SECONDS);
+    const effectiveSeconds = Number.isFinite(afterSeconds) && afterSeconds > 0 ? afterSeconds : KIOSK_IDLE_TIMEOUT_SECONDS;
+
     idleSeconds += 1;
-    if (idleSeconds >= afterSeconds) {
-      showAds();
+
+    if (idleSeconds >= effectiveSeconds) {
+      idleSeconds = 0;
+      await showAds();
     }
   }, 1000);
 
@@ -1717,7 +2061,7 @@
       card.innerHTML = `
         ${img ? `
           <div class="-m-4 mb-4 overflow-hidden rounded-t-2xl bg-white/5">
-            <img src="${escapeHtml(img)}" alt="${escapeHtml(m.name || "Food item")}" class="w-full h-36 object-cover">
+            <img src="${escapeHtml(img)}" alt="${escapeHtml(m.name || "Food item")}" loading="lazy" decoding="async" class="w-full h-36 object-cover">
           </div>
         ` : ""}
         <div class="flex items-start justify-between gap-3">
@@ -2979,7 +3323,7 @@ async function browserPrintSlipOnly(orderId) {
 
       if (awaitingOrderId) {
         const existing = await getOrderSafe(awaitingOrderId);
-        if (existing && !["rejected", "cancelled", "completed"].includes(String(existing.status || "").toLowerCase())) {
+        if (existing && !["rejected", "cancelled", "completed", "timed_out"].includes(String(existing.status || "").toLowerCase())) {
           renderFlow(existing);
           alertSafe("Please finish the current order request before creating a new order.");
           return;
