@@ -882,11 +882,32 @@
       }
 
 
+      #restaurantTabs {
+        width: 100%;
+        display: grid !important;
+        grid-template-columns: repeat(5, minmax(118px, 1fr));
+        gap: 10px !important;
+        align-items: stretch;
+      }
+
       .fc-restaurant-tab {
-        min-width: 210px;
+        min-width: 0 !important;
+        min-height: 58px !important;
         position: relative;
         overflow: hidden;
+        padding: 8px 10px !important;
+        border-radius: 18px !important;
+        text-align: center !important;
         transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease, opacity .15s ease;
+      }
+
+      .fc-restaurant-tab .font-semibold {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13.5px !important;
+        line-height: 1.1;
       }
 
       .fc-restaurant-tab-open {
@@ -911,17 +932,17 @@
       .fc-restaurant-tab-closed::after {
         content: "CLOSED";
         position: absolute;
-        top: 8px;
-        right: -28px;
+        top: 5px;
+        right: -24px;
         transform: rotate(32deg);
         background: rgba(220,38,38,.96);
         color: #fff;
-        font-size: 10px;
+        font-size: 8px;
         font-weight: 950;
-        letter-spacing: .08em;
-        padding: 4px 34px;
+        letter-spacing: .07em;
+        padding: 2px 28px;
         border: 1px solid rgba(255,255,255,.25);
-        box-shadow: 0 8px 20px rgba(0,0,0,.25);
+        box-shadow: 0 6px 14px rgba(0,0,0,.22);
       }
 
       .fc-restaurant-tab-closed.fc-restaurant-tab-active {
@@ -933,16 +954,16 @@
 
       .fc-restaurant-status-open,
       .fc-restaurant-status-closed {
-        margin-top: 6px;
+        margin-top: 4px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 7px;
+        gap: 5px;
         border-radius: 999px;
-        padding: 4px 10px;
-        font-size: 12px;
+        padding: 3px 8px;
+        font-size: 10.5px;
         font-weight: 950;
-        letter-spacing: .06em;
+        letter-spacing: .055em;
       }
 
       .fc-restaurant-status-open {
@@ -958,12 +979,30 @@
       }
 
       .fc-restaurant-status-dot {
-        width: 9px;
-        height: 9px;
+        width: 7px;
+        height: 7px;
         border-radius: 999px;
         display: inline-block;
         background: currentColor;
-        box-shadow: 0 0 14px currentColor;
+        box-shadow: 0 0 10px currentColor;
+      }
+
+      @media (min-width: 1024px) {
+        aside.lg\:col-span-4 > .glass {
+          margin-top: 12px;
+        }
+      }
+
+      @media (max-width: 1180px) {
+        #restaurantTabs {
+          grid-template-columns: repeat(4, minmax(110px, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        #restaurantTabs {
+          grid-template-columns: repeat(2, minmax(120px, 1fr));
+        }
       }
 
       @media (max-width: 820px) {
