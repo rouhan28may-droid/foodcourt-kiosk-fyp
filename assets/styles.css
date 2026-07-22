@@ -1237,3 +1237,272 @@ body.cart-extra-readable #cartList .text-sm{
     min-width: 128px !important;
   }
 }
+
+/* =========================================================
+   Admin Dashboard Tabs Clean Layout Patch
+   Purpose:
+   - Make admin dashboard tabs look professional
+   - Keep Overview / Restaurants / Payments / Hardware / Reports / Logs clean
+   - Improve selected restaurant management layout
+   - Reduce long messy scrolling and improve readability
+   ========================================================= */
+
+/* Admin tab bar */
+[data-admin-tab-btn]{
+  position: relative;
+  min-height: 48px !important;
+  white-space: nowrap;
+  isolation: isolate;
+  overflow: hidden;
+  background: rgba(255,255,255,.065) !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  color: #cbd5e1 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05) !important;
+  transition: background-color .14s ease, border-color .14s ease, color .14s ease, transform .14s ease !important;
+}
+
+[data-admin-tab-btn]:hover{
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.095) !important;
+  border-color: rgba(249,115,22,.42) !important;
+  color: #ffffff !important;
+}
+
+[data-admin-tab-btn][aria-selected="true"]{
+  background:
+    radial-gradient(circle at 14% 0%, rgba(251,146,60,.42), transparent 40%),
+    linear-gradient(135deg, rgba(249,115,22,.95), rgba(234,88,12,.86)) !important;
+  border-color: rgba(251,146,60,.88) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 18px 40px rgba(249,115,22,.20),
+    inset 0 1px 0 rgba(255,255,255,.20) !important;
+}
+
+[data-admin-tab-btn][aria-selected="true"]::after{
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 7px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.75);
+  z-index: -1;
+}
+
+/* Tab container card */
+#appBox > .glass:has([data-admin-tab-btn]),
+#appBox .glass:has([data-admin-tab-panel]){
+  border-radius: 1.6rem !important;
+}
+
+/* Tab panels */
+[data-admin-tab-panel]{
+  animation: admin-panel-in .16s ease-out;
+}
+
+@keyframes admin-panel-in{
+  from{ opacity: .35; transform: translateY(6px); }
+  to{ opacity: 1; transform: translateY(0); }
+}
+
+[data-admin-tab-panel] > .glass,
+[data-admin-tab-panel] .glass{
+  background:
+    radial-gradient(circle at 10% 0%, rgba(249,115,22,.10), transparent 34%),
+    linear-gradient(180deg, rgba(30,41,59,.94), rgba(15,23,42,.96)) !important;
+  border: 1px solid rgba(255,255,255,.16) !important;
+}
+
+/* Overview quick action cards */
+[data-admin-tab-jump]{
+  min-height: 96px;
+  background:
+    linear-gradient(180deg, rgba(51,65,85,.80), rgba(30,41,59,.88)) !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06) !important;
+}
+
+[data-admin-tab-jump]:hover{
+  border-color: rgba(249,115,22,.50) !important;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249,115,22,.18), transparent 42%),
+    linear-gradient(180deg, rgba(51,65,85,.92), rgba(30,41,59,.96)) !important;
+}
+
+/* Cleaner selected restaurant dashboard */
+#restaurantsPanel .lg\:grid-cols-12,
+#restaurantsPanel .grid.lg\:grid-cols-12{
+  align-items: start;
+}
+
+#restaurantsPanel [data-admin-select-restaurant]{
+  min-height: 86px;
+  border-radius: 18px !important;
+  background:
+    linear-gradient(180deg, rgba(51,65,85,.72), rgba(30,41,59,.88)) !important;
+  border: 1px solid rgba(255,255,255,.13) !important;
+}
+
+#restaurantsPanel [data-admin-select-restaurant]:hover{
+  background:
+    radial-gradient(circle at 10% 0%, rgba(249,115,22,.15), transparent 38%),
+    linear-gradient(180deg, rgba(51,65,85,.92), rgba(30,41,59,.96)) !important;
+  border-color: rgba(249,115,22,.42) !important;
+}
+
+#restaurantsPanel [data-admin-select-restaurant].border-orange-400\/50,
+#restaurantsPanel [data-admin-select-restaurant][class*="border-orange"]{
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249,115,22,.22), transparent 40%),
+    linear-gradient(180deg, rgba(71,58,47,.92), rgba(40,47,64,.96)) !important;
+  border-color: rgba(249,115,22,.72) !important;
+  box-shadow:
+    0 0 0 1px rgba(249,115,22,.18),
+    0 14px 34px rgba(0,0,0,.18) !important;
+}
+
+#restaurantsPanel [data-admin-select-restaurant] .pill{
+  padding: .28rem .55rem;
+  font-size: .72rem;
+  font-weight: 900;
+}
+
+/* Selected restaurant detail panel */
+#restaurantsPanel .lg\:col-span-8 > .rounded-2xl,
+#restaurantsPanel .lg\:col-span-8 > div{
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249,115,22,.12), transparent 34%),
+    linear-gradient(180deg, rgba(37,49,70,.95), rgba(15,23,42,.96)) !important;
+  border: 1px solid rgba(255,255,255,.16) !important;
+  box-shadow: 0 18px 46px rgba(0,0,0,.26) !important;
+}
+
+/* Menu availability rows inside admin */
+#restaurantsPanel [data-admin-toggle-menu-item]{
+  min-height: 38px !important;
+  border-radius: 999px !important;
+}
+
+#restaurantsPanel [data-admin-toggle-menu-item]::before{
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: .9;
+}
+
+#restaurantsPanel .max-h-\[52vh\],
+#restaurantsPanel .max-h-\[68vh\]{
+  scrollbar-width: thin;
+}
+
+/* Payment tab summary cards */
+#cashCounterPanel > .grid:first-child > div,
+#analyticsPanel .grid > div,
+#adminDevicesPanel > div,
+#adminDeviceLogs > div,
+#adsPanel > div,
+#logPanel > div{
+  background:
+    linear-gradient(180deg, rgba(51,65,85,.78), rgba(30,41,59,.90)) !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05) !important;
+}
+
+#cashCounterPanel .rounded-2xl,
+#analyticsPanel .rounded-2xl,
+#adminDevicesPanel .rounded-2xl,
+#adminDeviceLogs .rounded-xl,
+#adsPanel .rounded-2xl,
+#logPanel .rounded-2xl{
+  border-color: rgba(255,255,255,.14) !important;
+}
+
+/* Cash confirmation order cards */
+#cashCounterPanel [data-confirm-cash]{
+  min-height: 50px !important;
+  border-radius: 1rem !important;
+}
+
+#cashCounterPanel input.tws-input{
+  min-height: 48px !important;
+}
+
+/* Hardware tab button grid */
+#adminSimulateLatencyBtn,
+#adminTestPrintBtn,
+#adminConsumePaperBtn,
+#adminGatewaySuccessBtn,
+#adminGatewayFailBtn,
+#adminClearDeviceLogsBtn,
+#adminLockKioskBtn{
+  min-height: 46px !important;
+}
+
+/* Reports tab: keep export button prominent */
+#exportAllBtn{
+  background: linear-gradient(135deg, #fb923c, #ea580c) !important;
+  color: #fff !important;
+  border-color: rgba(255,255,255,.20) !important;
+}
+
+/* Logs tab readability */
+#logPanel,
+#adminDeviceLogs{
+  max-height: 65vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+#logPanel > div,
+#adminDeviceLogs > div{
+  word-break: break-word;
+}
+
+/* Admin scanner modal */
+#cashQrScannerModal .bg-slate-950{
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249,115,22,.13), transparent 36%),
+    linear-gradient(180deg, rgba(15,23,42,.98), rgba(2,6,23,.99)) !important;
+}
+
+#cashQrReader{
+  overflow: hidden;
+  border-radius: 1rem;
+}
+
+/* Better mobile/admin responsiveness */
+@media (max-width: 1024px){
+  [data-admin-tab-btn]{
+    min-width: 132px;
+  }
+
+  #restaurantsPanel .lg\:col-span-4,
+  #restaurantsPanel .lg\:col-span-8{
+    grid-column: span 12 / span 12 !important;
+  }
+}
+
+@media (max-width: 640px){
+  [data-admin-tab-btn]{
+    min-width: 118px;
+    padding: .7rem .85rem !important;
+    font-size: .78rem !important;
+  }
+
+  #appBox{
+    gap: 1rem !important;
+  }
+
+  #restaurantsPanel [data-admin-select-restaurant]{
+    min-height: 78px;
+  }
+
+  #cashCounterPanel .grid,
+  #restaurantsPanel .grid{
+    gap: .75rem !important;
+  }
+}
