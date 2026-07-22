@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Status</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-white flex items-center justify-center px-6">
+  <div class="max-w-md w-full text-center rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl">
+    <div id="statusIcon" class="text-5xl mb-4">✅</div>
+
+    <h1 id="statusTitle" class="text-2xl font-semibold">
+      Payment Successful
+    </h1>
+
+    <p id="statusMessage" class="text-slate-300 mt-3">
+      Thank you. Your payment has been received.
+    </p>
+
+    <p id="statusHint" class="text-slate-400 text-sm mt-5">
+      You may close this page and collect your receipt from the kiosk.
+    </p>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const cancelled = params.get("cancelled") === "1";
+
+    if (cancelled) {
+      document.getElementById("statusIcon").textContent = "⚠️";
+      document.getElementById("statusTitle").textContent = "Payment Not Completed";
+      document.getElementById("statusMessage").textContent = "Your payment was cancelled or not completed.";
+      document.getElementById("statusHint").textContent = "You may close this page and try again from the kiosk.";
+    }
+  </script>
+</body>
+</html>

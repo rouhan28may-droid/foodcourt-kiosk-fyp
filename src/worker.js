@@ -109,12 +109,12 @@ async function createCheckoutSession(request, env) {
 
     params.append(
       "success_url",
-      `${siteUrl}/kiosk.html?stripe_success=1&order_id=${encodeURIComponent(order.id)}&session_id={CHECKOUT_SESSION_ID}`
+      `${siteUrl}/payment-success.html?order_id=${encodeURIComponent(order.id)}&session_id={CHECKOUT_SESSION_ID}`
     );
 
     params.append(
       "cancel_url",
-      `${siteUrl}/kiosk.html?stripe_cancel=1&order_id=${encodeURIComponent(order.id)}`
+      `${siteUrl}/payment-success.html?cancelled=1&order_id=${encodeURIComponent(order.id)}`
     );
 
     const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
