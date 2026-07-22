@@ -39,6 +39,7 @@
     </section>
 
     <section id="appBox" class="hidden space-y-6">
+      <!-- Always-visible KPI cards -->
       <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="glass p-5 rounded-3xl">
           <div class="text-xs uppercase tracking-widest text-slate-400">Revenue Today</div>
@@ -65,94 +66,80 @@
         </div>
       </div>
 
-      <div class="grid lg:grid-cols-12 gap-6">
-        <section class="lg:col-span-7 space-y-6">
-          <div class="glass p-5 rounded-3xl">
-            <div class="flex items-center justify-between gap-3 flex-wrap">
+      <!-- Clean admin tabs -->
+      <div class="glass rounded-3xl p-3 sticky top-[73px] z-30">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <button type="button" data-admin-tab-btn="overview" class="admin-tab-btn rounded-2xl px-4 py-3 text-sm font-semibold border border-white/10 bg-orange-500 text-white">
+            Overview
+          </button>
+          <button type="button" data-admin-tab-btn="restaurants" class="admin-tab-btn rounded-2xl px-4 py-3 text-sm font-semibold border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10">
+            Restaurants
+          </button>
+          <button type="button" data-admin-tab-btn="payments" class="admin-tab-btn rounded-2xl px-4 py-3 text-sm font-semibold border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10">
+            Payments
+          </button>
+          <button type="button" data-admin-tab-btn="hardware" class="admin-tab-btn rounded-2xl px-4 py-3 text-sm font-semibold border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10">
+            Hardware
+          </button>
+          <button type="button" data-admin-tab-btn="reports" class="admin-tab-btn rounded-2xl px-4 py-3 text-sm font-semibold border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10">
+            Reports
+          </button>
+          <button type="button" data-admin-tab-btn="logs" class="admin-tab-btn rounded-2xl px-4 py-3 text-sm font-semibold border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10">
+            Logs
+          </button>
+        </div>
+      </div>
+
+      <!-- Overview -->
+      <section data-admin-tab-panel="overview" class="space-y-6">
+        <div class="grid lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-7 glass p-5 rounded-3xl">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <div class="text-lg font-semibold">Restaurant Management</div>
-                <div class="text-sm text-slate-400">
-                  Toggle restaurant online mode, item availability, monitor sales, and review approval/rejection activity.
+                <div class="text-lg font-semibold">Overview</div>
+                <div class="text-sm text-slate-400 mt-1">
+                  Quick control center for the food court kiosk system.
                 </div>
               </div>
+              <div class="pill badge-green">Live Dashboard</div>
+            </div>
 
-              <button id="exportAllBtn" class="btn-ghost text-sm">
-                Export Full Monthly Report (XLSX)
+            <div class="mt-5 grid sm:grid-cols-2 gap-3">
+              <button type="button" data-admin-tab-jump="payments" class="rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10 transition">
+                <div class="text-sm font-semibold">Payments</div>
+                <div class="text-xs text-slate-400 mt-1">Cash QR, awaiting payment, abandoned orders</div>
+              </button>
+
+              <button type="button" data-admin-tab-jump="hardware" class="rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10 transition">
+                <div class="text-sm font-semibold">Hardware</div>
+                <div class="text-xs text-slate-400 mt-1">Printer, paper, heartbeat, test print</div>
+              </button>
+
+              <button type="button" data-admin-tab-jump="restaurants" class="rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10 transition">
+                <div class="text-sm font-semibold">Restaurants</div>
+                <div class="text-xs text-slate-400 mt-1">Open/closed status and menu availability</div>
+              </button>
+
+              <button type="button" data-admin-tab-jump="reports" class="rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10 transition">
+                <div class="text-sm font-semibold">Reports</div>
+                <div class="text-xs text-slate-400 mt-1">Monthly Excel, sales, add-ons, rejections</div>
               </button>
             </div>
 
-            <div class="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
+            <div class="mt-5 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
               <div class="flex items-start gap-3">
-                <div class="text-2xl">⏱️</div>
+                <div class="text-2xl">⚠️</div>
                 <div>
-                  <div class="text-sm font-semibold text-amber-100">12-Second Approval Rule</div>
+                  <div class="text-sm font-semibold text-amber-100">Needs Attention</div>
                   <div class="text-xs text-amber-100/80 mt-1">
-                    Customer orders first go to the restaurant as pending approval. If the restaurant does not approve or reject
-                    within 12 seconds, the order is automatically accepted.
+                    Check Payments for cash confirmations and abandoned orders. Check Hardware for printer/paper heartbeat.
                   </div>
                 </div>
               </div>
             </div>
-
-            <div id="restaurantsPanel" class="mt-4 space-y-3"></div>
           </div>
 
-          <div class="glass p-5 rounded-3xl">
-            <div class="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <div class="text-lg font-semibold">Cash Counter / Payment Verification</div>
-                <div class="text-sm text-slate-400">
-                  Confirm cash payments, enter amount received, and calculate change given.
-                </div>
-              </div>
-              <div class="flex items-center gap-2 flex-wrap">
-                <button id="scanCashQrBtn" class="btn-primary text-sm">Scan Cash QR</button>
-                <div class="pill badge-yellow">Staff PIN required</div>
-              </div>
-            </div>
-
-            <div id="cashCounterPanel" class="mt-4 space-y-3"></div>
-          </div>
-
-          <div class="glass p-5 rounded-3xl">
-            <div class="text-lg font-semibold">Sales Analytics</div>
-            <div class="text-sm text-slate-400 mt-1">
-              Best-sellers, item breakdown, payment type, add-ons, service type, restaurant ranking, and approval/rejection monitor.
-            </div>
-
-            <div id="analyticsPanel" class="mt-4"></div>
-          </div>
-        </section>
-
-        <aside class="lg:col-span-5 space-y-6">
-          <div class="glass p-5 rounded-3xl">
-            <div class="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <div class="text-lg font-semibold">Hardware Console</div>
-                <div id="adminHardwareHealthLabel" class="text-xl font-semibold mt-2">—</div>
-                <div id="adminHardwareIssues" class="text-sm text-slate-300 mt-2"></div>
-              </div>
-              <button id="adminLockKioskBtn" class="btn-ghost text-sm">Lock/Unlock Kiosk</button>
-            </div>
-
-            <div class="mt-4 grid sm:grid-cols-2 gap-2">
-              <button id="adminSimulateLatencyBtn" class="btn-ghost text-sm">Simulate Latency</button>
-              <button id="adminTestPrintBtn" class="btn-primary text-sm">Test Print</button>
-              <button id="adminConsumePaperBtn" class="btn-ghost text-sm">Consume Paper</button>
-              <button id="adminGatewaySuccessBtn" class="btn-ghost text-sm">Gateway Success</button>
-              <button id="adminGatewayFailBtn" class="btn-ghost text-sm">Gateway Failure</button>
-              <button id="adminClearDeviceLogsBtn" class="btn-ghost text-sm">Clear Device Logs</button>
-            </div>
-
-            <div id="adminDevicesPanel" class="mt-4 space-y-2"></div>
-
-            <div class="mt-5">
-              <div class="text-sm font-semibold">Device Logs</div>
-              <div id="adminDeviceLogs" class="mt-3 space-y-2"></div>
-            </div>
-          </div>
-
-          <div class="glass p-5 rounded-3xl">
+          <div class="lg:col-span-5 glass p-5 rounded-3xl">
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <div class="text-lg font-semibold">Advertisements</div>
@@ -166,15 +153,123 @@
 
             <div id="adsPanel" class="mt-4 space-y-2"></div>
           </div>
+        </div>
+      </section>
 
-          <div class="glass p-5 rounded-3xl">
-            <div class="text-lg font-semibold">System Log</div>
-            <div class="text-sm text-slate-400 mt-1">Recent system actions</div>
+      <!-- Restaurants -->
+      <section data-admin-tab-panel="restaurants" class="hidden space-y-6">
+        <div class="glass p-5 rounded-3xl">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-lg font-semibold">Restaurant Management</div>
+              <div class="text-sm text-slate-400">
+                Toggle restaurant online mode, item availability, monitor sales, and review approval/rejection activity.
+              </div>
+            </div>
 
-            <div id="logPanel" class="mt-4 space-y-2"></div>
+            <button type="button" data-admin-tab-jump="reports" class="btn-ghost text-sm">
+              Open Reports
+            </button>
           </div>
-        </aside>
-      </div>
+
+          <div class="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
+            <div class="flex items-start gap-3">
+              <div class="text-2xl">⏱️</div>
+              <div>
+                <div class="text-sm font-semibold text-amber-100">20-Second Approval Rule</div>
+                <div class="text-xs text-amber-100/80 mt-1">
+                  Customer orders first go to the restaurant as pending approval. If the restaurant does not approve or reject
+                  within 20 seconds, the order is automatically accepted.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="restaurantsPanel" class="mt-4 space-y-3"></div>
+        </div>
+      </section>
+
+      <!-- Payments -->
+      <section data-admin-tab-panel="payments" class="hidden space-y-6">
+        <div class="glass p-5 rounded-3xl">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-lg font-semibold">Cash Counter / Payment Verification</div>
+              <div class="text-sm text-slate-400">
+                Confirm cash payments, scan receipt QR, review awaiting payment and abandoned orders.
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button id="scanCashQrBtn" class="btn-primary text-sm">Scan Cash QR</button>
+              <div class="pill badge-yellow">Staff PIN required</div>
+            </div>
+          </div>
+
+          <div id="cashCounterPanel" class="mt-4 space-y-3"></div>
+        </div>
+      </section>
+
+      <!-- Hardware -->
+      <section data-admin-tab-panel="hardware" class="hidden space-y-6">
+        <div class="glass p-5 rounded-3xl">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-lg font-semibold">Hardware Console</div>
+              <div id="adminHardwareHealthLabel" class="text-xl font-semibold mt-2">—</div>
+              <div id="adminHardwareIssues" class="text-sm text-slate-300 mt-2"></div>
+            </div>
+            <button id="adminLockKioskBtn" class="btn-ghost text-sm">Lock/Unlock Kiosk</button>
+          </div>
+
+          <div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            <button id="adminSimulateLatencyBtn" class="btn-ghost text-sm">Simulate Latency</button>
+            <button id="adminTestPrintBtn" class="btn-primary text-sm">Test Print</button>
+            <button id="adminConsumePaperBtn" class="btn-ghost text-sm">Consume Paper</button>
+            <button id="adminGatewaySuccessBtn" class="btn-ghost text-sm">Gateway Success</button>
+            <button id="adminGatewayFailBtn" class="btn-ghost text-sm">Gateway Failure</button>
+            <button id="adminClearDeviceLogsBtn" class="btn-ghost text-sm">Clear Device Logs</button>
+          </div>
+
+          <div id="adminDevicesPanel" class="mt-4 space-y-2"></div>
+
+          <div class="mt-5">
+            <div class="text-sm font-semibold">Device Logs</div>
+            <div id="adminDeviceLogs" class="mt-3 space-y-2"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Reports -->
+      <section data-admin-tab-panel="reports" class="hidden space-y-6">
+        <div class="glass p-5 rounded-3xl">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-lg font-semibold">Reports & Sales Analytics</div>
+              <div class="text-sm text-slate-400 mt-1">
+                Best-sellers, item breakdown, payment type, add-ons, service type, restaurant ranking, approval/rejection, and timed-out orders.
+              </div>
+            </div>
+
+            <button id="exportAllBtn" class="btn-primary text-sm">
+              Export Full Monthly Report (XLSX)
+            </button>
+          </div>
+
+          <div id="analyticsPanel" class="mt-4"></div>
+        </div>
+      </section>
+
+      <!-- Logs -->
+      <section data-admin-tab-panel="logs" class="hidden space-y-6">
+        <div class="glass p-5 rounded-3xl">
+          <div class="text-lg font-semibold">System Log</div>
+          <div class="text-sm text-slate-400 mt-1">
+            Recent system actions, payment events, printer events, and admin activity.
+          </div>
+
+          <div id="logPanel" class="mt-4 space-y-2"></div>
+        </div>
+      </section>
     </section>
   </main>
 
@@ -207,6 +302,65 @@
       </div>
     </div>
   </div>
+
+  <script>
+    (function () {
+      const ACTIVE_CLASSES = ["bg-orange-500", "text-white", "border-orange-400/60", "shadow-lg", "shadow-orange-950/30"];
+      const INACTIVE_CLASSES = ["bg-white/5", "text-slate-300", "border-white/10", "hover:bg-white/10"];
+
+      function setAdminTab(tab) {
+        const panels = document.querySelectorAll("[data-admin-tab-panel]");
+        const buttons = document.querySelectorAll("[data-admin-tab-btn]");
+
+        const availableTabs = Array.from(panels).map((panel) => panel.getAttribute("data-admin-tab-panel"));
+        const selected = availableTabs.includes(tab) ? tab : "overview";
+
+        panels.forEach((panel) => {
+          const isActive = panel.getAttribute("data-admin-tab-panel") === selected;
+          panel.classList.toggle("hidden", !isActive);
+        });
+
+        buttons.forEach((btn) => {
+          const isActive = btn.getAttribute("data-admin-tab-btn") === selected;
+          btn.classList.remove(...ACTIVE_CLASSES, ...INACTIVE_CLASSES);
+          btn.classList.add(...(isActive ? ACTIVE_CLASSES : INACTIVE_CLASSES));
+          btn.setAttribute("aria-selected", String(isActive));
+        });
+
+        try {
+          localStorage.setItem("fc_admin_active_tab", selected);
+        } catch {}
+
+        try {
+          window.dispatchEvent(new CustomEvent("fc:admin-tab-changed", { detail: { tab: selected } }));
+        } catch {}
+      }
+
+      window.FC_ADMIN_SHOW_TAB = setAdminTab;
+
+      document.addEventListener("DOMContentLoaded", () => {
+        document.querySelectorAll("[data-admin-tab-btn]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            setAdminTab(btn.getAttribute("data-admin-tab-btn") || "overview");
+          });
+        });
+
+        document.querySelectorAll("[data-admin-tab-jump]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            setAdminTab(btn.getAttribute("data-admin-tab-jump") || "overview");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
+        });
+
+        let saved = "overview";
+        try {
+          saved = localStorage.getItem("fc_admin_active_tab") || "overview";
+        } catch {}
+
+        setAdminTab(saved);
+      });
+    })();
+  </script>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="assets/supabaseclient.js"></script>
