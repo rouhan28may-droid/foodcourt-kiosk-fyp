@@ -484,6 +484,7 @@
   function statusBadge(status) {
     if (status === "pending_approval") return `<span class="pill badge-yellow">PENDING</span>`;
     if (status === "rejected") return `<span class="pill badge-red">REJECTED</span>`;
+    if (status === "timed_out") return `<span class="pill badge-red">TIMED OUT</span>`;
     if (status === "awaiting_payment") return `<span class="pill badge-yellow">AWAIT PAY</span>`;
     if (["paid", "preparing", "ready", "completed"].includes(status)) {
       return `<span class="pill badge-green">${String(status).toUpperCase()}</span>`;
@@ -877,7 +878,64 @@
   }
 
   function reportCurrency(value) {
-    return Number(value || 0);
+    const n = Number(value || 0);
+    const amount = Number.isFinite(n) ? n : 0;
+    const rounded = Math.round(amount);
+    const sign = rounded < 0 ? "-" : "";
+    const formatted = Math.abs(rounded).toLocaleString("en-PK");
+    return `${sign}Rs ${formatted}`;
+  }
+
+  function reportNumber(value) {
+    const n = Number(value || 0);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function rejectionReasonOf(order = {}) {
+    const payment = safeObject(order.payment);
+
+    return String(
+      order.rejectReason ||
+      order.rejectionReason ||
+      order.rejectedReason ||
+      order.reject_reason ||
+      order.rejection_reason ||
+      payment.rejectReason ||
+      payment.rejectionReason ||
+      ""
+    ).trim();
+  }
+
+  function timeoutReasonOf(order = {}) {
+    const payment = safeObject(order.payment);
+
+    return String(
+      order.timeoutReason ||
+      order.timedOutReason ||
+      order.timeout_reason ||
+      order.timed_out_reason ||
+      payment.timeoutReason ||
+      payment.timedOutReason ||
+      payment.timeout_reason ||
+      payment.timed_out_reason ||
+      ""
+    ).trim();
+  }
+
+  function timedOutAtOf(order = {}) {
+    const payment = safeObject(order.payment);
+
+    return (
+      order.timedOutAt ||
+      order.timed_out_at ||
+      order.timeoutAt ||
+      order.timeout_at ||
+      payment.timedOutAt ||
+      payment.timed_out_at ||
+      payment.timeoutAt ||
+      payment.timeout_at ||
+      ""
+    );
   }
 
   function normalizePaymentMethod(value) {
@@ -929,6 +987,7 @@
     }
 
     if (status === "rejected") return "Rejected";
+    if (status === "timed_out") return "Timed Out / Abandoned";
     if (status === "pending_approval") return "Pending Approval";
     if (status === "approved") return "Approved - Payment Pending";
     if (status === "awaiting_payment") return method === "cash" ? "Cash Pending" : "Online Pending";
@@ -1116,6 +1175,8 @@
           takeaway: 0,
           cash: 0,
           online: 0,
+          rejected: 0,
+          timed_out: 0,
           revenue: 0,
           tax: 0
         };
@@ -1130,6 +1191,8 @@
       if (serviceTypeOf(order) === "takeaway") stats[day].takeaway += 1;
       if (method === "cash") stats[day].cash += 1;
       if (method === "online") stats[day].online += 1;
+      if (String(order.status || "").toLowerCase() === "rejected") stats[day].rejected += 1;
+      if (String(order.status || "").toLowerCase() === "timed_out") stats[day].timed_out += 1;
       if (paidActive) {
         stats[day].revenue += Number(order.total || 0);
         stats[day].tax += Number(order.tax || 0);
@@ -1186,6 +1249,8 @@
 
     const totalRevenue = paidOrActive.reduce((sum, o) => sum + Number(o.total || 0), 0);
     const totalTax = paidOrActive.reduce((sum, o) => sum + Number(o.tax || 0), 0);
+    const rejectedOrders = monthOrders.filter((o) => String(o.status || "").toLowerCase() === "rejected");
+    const timedOutOrders = monthOrders.filter((o) => String(o.status || "").toLowerCase() === "timed_out");
     const dineInCount = paidOrActive.filter((o) => serviceTypeOf(o) === "dine_in").length;
     const takeawayCount = paidOrActive.filter((o) => serviceTypeOf(o) === "takeaway").length;
     const cashOrders = paidOrActive.filter((o) => paymentMethodOf(o) === "cash");
@@ -1221,6 +1286,8 @@
       ["Total Tax Collected", reportCurrency(totalTax)],
       ["Total Orders This Month", monthOrders.length],
       ["Paid / Active Orders", paidOrActive.length],
+      ["Rejected Orders", rejectedOrders.length],
+      ["Timed Out / Abandoned Orders", timedOutOrders.length],
       ["Dine In Orders", dineInCount],
       ["Takeaway Orders", takeawayCount],
       ["Cash Orders", cashOrders.length],
@@ -1232,7 +1299,7 @@
       ["Best Add-on", bestAddon],
       [],
       ["Daily Summary"],
-      ["Date", "Orders", "Paid / Active", "Dine In", "Takeaway", "Cash", "Online", "Revenue", "Tax"]
+      ["Date", "Orders", "Paid / Active", "Dine In", "Takeaway", "Cash", "Online", "Rejected", "Timed Out", "Revenue", "Tax"]
     ];
 
     dailyStats.forEach((d) => {
@@ -1244,6 +1311,8 @@
         d.takeaway,
         d.cash,
         d.online,
+        d.rejected,
+        d.timed_out,
         reportCurrency(d.revenue),
         reportCurrency(d.tax)
       ]);
@@ -1272,7 +1341,10 @@
       "Items Summary",
       "Add-ons Summary",
       "Total Dish Qty",
-      "Unique Dishes"
+      "Unique Dishes",
+      "Rejection Reason",
+      "Timeout / Abandoned Reason",
+      "Timed Out At"
     ]);
 
     monthOrders.forEach((o) => {
@@ -1295,7 +1367,10 @@
         itemsSummary(o),
         orderAddonsSummary(o),
         totalDishQty(o),
-        uniqueDishCount(o)
+        uniqueDishCount(o),
+        rejectionReasonOf(o),
+        timeoutReasonOf(o),
+        timeOnly(timedOutAtOf(o))
       ]);
     });
 
@@ -1321,12 +1396,44 @@
         "Add-ons",
         "Qty",
         "Unit Price",
-        "Line Total"
+        "Line Total",
+        "Rejection Reason",
+        "Timeout / Abandoned Reason",
+        "Timed Out At"
       ]
     ];
 
     monthOrders.forEach((o) => {
-      safeArray(o.items).forEach((it) => {
+      const orderItems = safeArray(o.items);
+
+      if (!orderItems.length) {
+        lineRows.push([
+          o.id,
+          restaurantName,
+          serviceTypeLabel(o),
+          tableNumberOf(o),
+          serviceLabel(o),
+          paymentMethodLabel(o),
+          paymentStatusLabel(o),
+          dateOnly(o.createdAt),
+          timeOnly(o.createdAt),
+          timeOnly(o.approvedAt),
+          timeOnly(o.paidAt),
+          prepMinutes(o),
+          o.status || "",
+          "",
+          "",
+          0,
+          reportCurrency(0),
+          reportCurrency(0),
+          rejectionReasonOf(o),
+          timeoutReasonOf(o),
+          timeOnly(timedOutAtOf(o))
+        ]);
+        return;
+      }
+
+      orderItems.forEach((it) => {
         const qty = Number(it.qty || 0);
         const unitPrice = Number(it.price || 0);
 
@@ -1348,7 +1455,10 @@
           itemAddonsSummary(it),
           qty,
           reportCurrency(unitPrice),
-          reportCurrency(qty * unitPrice)
+          reportCurrency(qty * unitPrice),
+          rejectionReasonOf(o),
+          timeoutReasonOf(o),
+          timeOnly(timedOutAtOf(o))
         ]);
       });
     });
@@ -1419,20 +1529,20 @@
 
     const summarySheet = createSheet(
       summaryRows,
-      [24, 18, 16, 16, 16, 14, 14, 14, 14, 20, 18, 16, 12, 12, 12, 52, 42, 14, 14],
-      monthOrders.length ? `A${ordersHeaderRowIndex + 1}:S${summaryRows.length}` : undefined
+      [24, 18, 16, 16, 16, 14, 14, 14, 14, 20, 18, 16, 12, 12, 12, 52, 42, 14, 14, 32, 34, 18],
+      monthOrders.length ? `A${ordersHeaderRowIndex + 1}:V${summaryRows.length}` : undefined
     );
-    addMerge(summarySheet, 0, 0, 0, 18);
-    addMerge(summarySheet, 1, 0, 1, 18);
-    addMerge(summarySheet, 2, 0, 2, 18);
+    addMerge(summarySheet, 0, 0, 0, 21);
+    addMerge(summarySheet, 1, 0, 1, 21);
+    addMerge(summarySheet, 2, 0, 2, 21);
 
     const lineSheet = createSheet(
       lineRows,
-      [22, 18, 15, 14, 22, 18, 18, 14, 14, 14, 14, 16, 16, 28, 40, 8, 12, 12],
-      `A4:R${lineRows.length}`
+      [22, 18, 15, 14, 22, 18, 18, 14, 14, 14, 14, 16, 16, 28, 40, 8, 12, 12, 32, 34, 18],
+      `A4:U${lineRows.length}`
     );
-    addMerge(lineSheet, 0, 0, 0, 17);
-    addMerge(lineSheet, 1, 0, 1, 17);
+    addMerge(lineSheet, 0, 0, 0, 20);
+    addMerge(lineSheet, 1, 0, 1, 20);
 
     const itemSheet = createSheet(
       itemRows,
