@@ -28,6 +28,12 @@
   const APPROVAL_WINDOW_SECONDS = 20;
   const APPROVAL_WINDOW_MS = APPROVAL_WINDOW_SECONDS * 1000;
 
+  // Restaurant-side safety flush for abandoned/unpaid orders.
+  // Kiosk already clears after idle ads, but this also protects restaurant dashboard
+  // if the customer leaves the payment screen or the kiosk session does not complete cleanup.
+  const ORDER_ABANDON_TIMEOUT_SECONDS = 90;
+  const ORDER_ABANDON_TIMEOUT_MS = ORDER_ABANDON_TIMEOUT_SECONDS * 1000;
+
   const approvalWindowLabel = $("approvalWindowLabel");
   const rejectModal = $("rejectModal");
   const rejectOrderId = $("rejectOrderId");
@@ -118,6 +124,69 @@
 
   function approvalExpired(order = {}) {
     return approvalElapsedMs(order) >= APPROVAL_WINDOW_MS;
+  }
+
+  function dateMs(value) {
+    if (!value) return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function canAbandonOrderStatus(status) {
+    return [
+      "pending_approval",
+      "approved",
+      "awaiting_payment",
+      "awaiting_cash_payment"
+    ].includes(String(status || "").toLowerCase());
+  }
+
+  function orderAbandonStartMs(order = {}) {
+    const payment = safeObject(order.payment);
+
+    return (
+      dateMs(payment.awaitingPaymentAt) ||
+      dateMs(payment.cashSlipPrintedAt) ||
+      dateMs(payment.createdAt) ||
+      dateMs(payment.created_at) ||
+      dateMs(order.approvedAt) ||
+      dateMs(order.approved_at) ||
+      dateMs(order.approvalRespondedAt) ||
+      dateMs(order.approval_responded_at) ||
+      dateMs(order.approvalRequestedAt) ||
+      dateMs(order.approval_requested_at) ||
+      dateMs(order.createdAt) ||
+      dateMs(order.created_at) ||
+      Date.now()
+    );
+  }
+
+  function orderAbandonSecondsElapsed(order = {}) {
+    return Math.max(0, Math.floor((Date.now() - orderAbandonStartMs(order)) / 1000));
+  }
+
+  function orderAbandonExpired(order = {}) {
+    if (!canAbandonOrderStatus(order.status)) return false;
+    return (Date.now() - orderAbandonStartMs(order)) >= ORDER_ABANDON_TIMEOUT_MS;
+  }
+
+  function orderAbandonReason(order = {}) {
+    const elapsed = orderAbandonSecondsElapsed(order);
+    const status = String(order.status || "").toLowerCase();
+
+    if (status === "pending_approval") {
+      return `Restaurant request abandoned after ${elapsed} seconds without completing approval/payment flow.`;
+    }
+
+    if (status === "approved") {
+      return `Customer did not continue to payment within ${elapsed} seconds after approval.`;
+    }
+
+    if (status === "awaiting_payment" || status === "awaiting_cash_payment") {
+      return `Customer did not complete payment within ${elapsed} seconds.`;
+    }
+
+    return `Order abandoned after ${elapsed} seconds.`;
   }
 
   function logSafe(message) {
@@ -437,6 +506,43 @@
         changed = true;
       } catch (err) {
         console.error("restaurant.js: auto approval failed", err);
+      }
+    }
+
+    return changed;
+  }
+
+  async function timeoutAbandonedUnpaidOrders(orders) {
+    const candidates = safeArray(orders).filter((order) =>
+      order?.id && orderAbandonExpired(order)
+    );
+
+    let changed = false;
+
+    for (const order of candidates) {
+      const timedOutAt = nowISO();
+      const reason = orderAbandonReason(order);
+
+      try {
+        await updateOrderSafe(order.id, {
+          status: "timed_out",
+          timedOutAt,
+          timeoutReason: reason,
+          payment: {
+            ...safeObject(order.payment),
+            timedOutAt,
+            timeoutReason: reason,
+            abandonedBy: "restaurant_dashboard_timeout_safety",
+            timeoutAfterSeconds: ORDER_ABANDON_TIMEOUT_SECONDS
+          }
+        });
+
+        notifiedPendingOrderIds.delete(order.id);
+        recentlyAlertedPendingOrderIds.delete(order.id);
+        logSafe(`Order ${order.id} timed out on restaurant dashboard: ${reason}`);
+        changed = true;
+      } catch (err) {
+        console.error("restaurant.js: timeout abandoned order failed", err);
       }
     }
 
@@ -1669,6 +1775,11 @@
 
       const autoApproved = await autoApproveExpiredPendingOrders(orders);
       if (autoApproved) {
+        orders = await getOrdersForRestaurantSafe();
+      }
+
+      const abandonedTimedOut = await timeoutAbandonedUnpaidOrders(orders);
+      if (abandonedTimedOut) {
         orders = await getOrdersForRestaurantSafe();
       }
 
