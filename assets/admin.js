@@ -73,6 +73,13 @@
   let cashCounterScannedTokens = {};
   let cashQrScanner = null;
   let cashQrScannerRunning = false;
+  let selectedAdminRestaurantId = "";
+
+  try {
+    selectedAdminRestaurantId = localStorage.getItem("fc_admin_selected_restaurant_id") || "";
+  } catch {
+    selectedAdminRestaurantId = "";
+  }
 
   try {
     const sess = JSON.parse(localStorage.getItem(sessKey) || "{}");
@@ -143,8 +150,9 @@
     } catch {}
 
     const state = getStateSafe();
-    const n = Number(state.settings?.approvalWindowSeconds || 12);
-    return Number.isFinite(n) && n > 0 ? n : 12;
+    const n = Number(state.settings?.approvalWindowSeconds || 20);
+    if (n === 12) return 20;
+    return Number.isFinite(n) && n > 0 ? n : 20;
   }
 
   function orderApprovalStart(order = {}) {
@@ -299,6 +307,8 @@
         approvalMode: order.approval_mode || payment.approvalMode || "",
         rejectedAt: order.rejected_at || payment.rejectedAt || null,
         rejectedByRestaurantId: order.rejected_by_restaurant_id || payment.rejectedByRestaurantId || null,
+        timedOutAt: order.timed_out_at || payment.timedOutAt || payment.timed_out_at || null,
+        timeoutReason: order.timeout_reason || payment.timeoutReason || payment.timeout_reason || "",
         approvedAt: order.approved_at || payment.approvedAt || null,
         paidAt: order.paid_at || null,
         payment
@@ -330,6 +340,8 @@
       approvalMode: order.approvalMode || payment.approvalMode || "",
       rejectedAt: order.rejectedAt || payment.rejectedAt || null,
       rejectedByRestaurantId: order.rejectedByRestaurantId || payment.rejectedByRestaurantId || null,
+      timedOutAt: order.timedOutAt || payment.timedOutAt || payment.timed_out_at || null,
+      timeoutReason: order.timeoutReason || payment.timeoutReason || payment.timeout_reason || "",
       approvedAt: order.approvedAt || payment.approvedAt || null,
       paidAt: order.paidAt || null,
       payment
@@ -463,106 +475,203 @@
   async function renderRestaurants(data) {
     if (!restaurantsPanel) return;
 
+    const restaurants = safeArr(data.restaurants);
     restaurantsPanel.innerHTML = "";
 
-    if (!data.restaurants.length) {
+    if (!restaurants.length) {
       restaurantsPanel.innerHTML = `<div class="text-sm text-slate-400">No restaurants loaded.</div>`;
       return;
     }
 
-    for (const r of data.restaurants) {
-      const restOrdersToday = data.orders.filter((o) =>
-        o.restaurantId === r.id &&
-        isToday(o.createdAt) &&
-        !["pending_approval", "rejected", "awaiting_payment"].includes(o.status)
-      );
+    const hasSelected = restaurants.some((r) => String(r.id) === String(selectedAdminRestaurantId));
+    if (!selectedAdminRestaurantId || !hasSelected) {
+      selectedAdminRestaurantId = restaurants[0]?.id || "";
+    }
 
-      const sold = restOrdersToday.reduce((sum, o) => sum + Number(o.total || 0), 0);
-      const dineInCount = restOrdersToday.filter((o) => o.serviceType === "dine_in").length;
-      const takeawayCount = restOrdersToday.filter((o) => o.serviceType === "takeaway").length;
-      const pendingApprovalCount = data.orders.filter((o) => o.restaurantId === r.id && o.status === "pending_approval").length;
-      const rejectedTodayCount = data.orders.filter((o) => o.restaurantId === r.id && isToday(o.createdAt) && o.status === "rejected").length;
-      const autoAcceptedTodayCount = data.orders.filter((o) =>
-        o.restaurantId === r.id &&
-        isToday(o.createdAt) &&
-        String(o.approvalMode || o.payment?.approvalMode || "").toLowerCase().includes("auto")
-      ).length;
+    try {
+      localStorage.setItem("fc_admin_selected_restaurant_id", selectedAdminRestaurantId);
+    } catch {}
 
-      const menu = safeArr(r.menu);
+    const selectedRestaurant = restaurants.find((r) => String(r.id) === String(selectedAdminRestaurantId)) || restaurants[0];
+    const paidStatuses = new Set(["paid", "preparing", "ready", "completed"]);
 
-      const div = document.createElement("div");
-      div.className = "p-4 rounded-2xl bg-white/5 border border-white/10";
-      div.innerHTML = `
-        <div class="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div class="font-semibold">${r.name || "Restaurant"}</div>
-            <div class="text-xs text-slate-400 mt-1">${r.tagline || ""}</div>
-            <div class="text-sm text-slate-300 mt-2">
-              Sales today: <span class="pill">${money(sold)}</span>
+    const restaurantStats = (r) => {
+      const restOrders = safeArr(data.orders).filter((o) => String(o.restaurantId) === String(r.id));
+      const today = restOrders.filter((o) => isToday(o.createdAt));
+      const paidToday = today.filter((o) => paidStatuses.has(String(o.status || "").toLowerCase()));
+
+      return {
+        totalToday: today.length,
+        paidToday: paidToday.length,
+        revenueToday: paidToday.reduce((sum, o) => sum + Number(o.total || 0), 0),
+        dineInToday: paidToday.filter((o) => o.serviceType === "dine_in").length,
+        takeawayToday: paidToday.filter((o) => o.serviceType === "takeaway").length,
+        pendingApproval: restOrders.filter((o) => o.status === "pending_approval").length,
+        awaitingPayment: restOrders.filter((o) => ["approved", "awaiting_payment", "awaiting_cash_payment"].includes(String(o.status || "").toLowerCase())).length,
+        rejectedToday: today.filter((o) => o.status === "rejected").length,
+        timedOutToday: today.filter((o) => o.status === "timed_out").length,
+        autoAcceptedToday: today.filter((o) => String(o.approvalMode || o.payment?.approvalMode || "").toLowerCase().includes("auto")).length
+      };
+    };
+
+    const selectedStats = restaurantStats(selectedRestaurant);
+    const selectedMenu = safeArr(selectedRestaurant?.menu);
+    const onlineText = selectedRestaurant?.online ? "OPEN" : "CLOSED";
+    const enabledCount = selectedMenu.filter((m) => m.available).length;
+    const disabledCount = selectedMenu.length - enabledCount;
+
+    restaurantsPanel.innerHTML = `
+      <div class="grid lg:grid-cols-12 gap-4">
+        <div class="lg:col-span-4">
+          <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold">Restaurants</div>
+                <div class="text-xs text-slate-400 mt-1">Select one restaurant to manage.</div>
+              </div>
+              <span class="pill">${restaurants.length}</span>
             </div>
-            <div class="text-xs text-slate-400 mt-2">
-              Dine In: <span class="text-slate-200">${dineInCount}</span>
-              • Takeaway: <span class="text-slate-200">${takeawayCount}</span>
+
+            <div class="mt-3 space-y-2 max-h-[68vh] overflow-y-auto pr-1">
+              ${restaurants.map((r) => {
+                const st = restaurantStats(r);
+                const active = String(r.id) === String(selectedRestaurant?.id);
+                return `
+                  <button type="button" data-admin-select-restaurant="${escapeHtml(r.id)}"
+                    class="w-full text-left rounded-2xl border ${active ? "border-orange-400/50 bg-orange-500/10" : "border-white/10 bg-white/5 hover:bg-white/10"} p-3 transition">
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="min-w-0">
+                        <div class="font-semibold truncate">${escapeHtml(r.name || "Restaurant")}</div>
+                        <div class="text-xs text-slate-400 mt-1 truncate">${escapeHtml(r.tagline || "")}</div>
+                      </div>
+                      <span class="pill ${r.online ? "badge-green" : "badge-red"}">${r.online ? "OPEN" : "CLOSED"}</span>
+                    </div>
+                    <div class="mt-2 grid grid-cols-3 gap-1 text-[11px] text-slate-300">
+                      <span class="rounded-xl bg-white/5 px-2 py-1">Pay ${st.awaitingPayment}</span>
+                      <span class="rounded-xl bg-white/5 px-2 py-1">Pend ${st.pendingApproval}</span>
+                      <span class="rounded-xl bg-white/5 px-2 py-1">Out ${st.timedOutToday}</span>
+                    </div>
+                  </button>
+                `;
+              }).join("")}
             </div>
-            <div class="text-xs text-slate-400 mt-2">
-              Pending Approval: <span class="pill badge-yellow">${pendingApprovalCount}</span>
-              Rejected Today: <span class="pill badge-red">${rejectedTodayCount}</span>
-              Auto Accepted: <span class="pill badge-green">${autoAcceptedTodayCount}</span>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="pill ${r.online ? "badge-green" : "badge-red"}">
-              ${r.online ? "ONLINE" : "OFFLINE"}
-            </span>
-            <button class="btn-ghost text-sm" data-toggle>Toggle</button>
           </div>
         </div>
 
-        <div class="mt-4">
-          <div class="text-xs text-slate-400 uppercase tracking-widest">Availability</div>
-          <div class="mt-2 grid sm:grid-cols-2 gap-2">
-            ${menu.slice(0, 6).map((m) => `
-              <div class="flex items-center justify-between gap-2 p-2 rounded-xl bg-white/5 border border-white/10">
-                <div class="text-xs min-w-0 truncate">${m.name}</div>
-                <button class="${m.available ? "btn-ghost" : "btn-primary"} text-xs px-3 py-1.5" data-item="${m.id}">
-                  ${m.available ? "Disable" : "Enable"}
+        <div class="lg:col-span-8">
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div class="min-w-0">
+                <div class="text-xs uppercase tracking-widest text-slate-400">Selected Restaurant</div>
+                <div class="text-2xl font-semibold mt-1 truncate">${escapeHtml(selectedRestaurant?.name || "Restaurant")}</div>
+                <div class="text-sm text-slate-400 mt-1">${escapeHtml(selectedRestaurant?.tagline || "")}</div>
+              </div>
+
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="pill ${selectedRestaurant?.online ? "badge-green" : "badge-red"}">${onlineText}</span>
+                <button type="button" class="btn-ghost text-sm" data-admin-toggle-selected-restaurant>
+                  ${selectedRestaurant?.online ? "Close Restaurant" : "Open Restaurant"}
                 </button>
               </div>
-            `).join("")}
+            </div>
+
+            <div class="mt-5 grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-3">
+                <div class="text-xs uppercase tracking-widest text-slate-400">Sales Today</div>
+                <div class="text-lg font-semibold mt-1">${money(selectedStats.revenueToday)}</div>
+              </div>
+              <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-3">
+                <div class="text-xs uppercase tracking-widest text-slate-400">Orders</div>
+                <div class="text-lg font-semibold mt-1">${selectedStats.totalToday}</div>
+              </div>
+              <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-3">
+                <div class="text-xs uppercase tracking-widest text-slate-400">Awaiting Pay</div>
+                <div class="text-lg font-semibold mt-1">${selectedStats.awaitingPayment}</div>
+              </div>
+              <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-3">
+                <div class="text-xs uppercase tracking-widest text-slate-400">Timed Out</div>
+                <div class="text-lg font-semibold mt-1">${selectedStats.timedOutToday}</div>
+              </div>
+            </div>
+
+            <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/25 p-3">
+              <div class="flex items-center gap-2 flex-wrap text-xs text-slate-300">
+                <span class="pill badge-yellow">Pending Approval: ${selectedStats.pendingApproval}</span>
+                <span class="pill badge-red">Rejected Today: ${selectedStats.rejectedToday}</span>
+                <span class="pill badge-green">Auto Accepted: ${selectedStats.autoAcceptedToday}</span>
+                <span class="pill">Dine In: ${selectedStats.dineInToday}</span>
+                <span class="pill">Takeaway: ${selectedStats.takeawayToday}</span>
+              </div>
+            </div>
+
+            <div class="mt-6 flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="text-sm font-semibold">Menu Availability</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  Showing all ${selectedMenu.length} items for this restaurant only. Enabled: ${enabledCount} • Disabled: ${disabledCount}
+                </div>
+              </div>
+              <div class="pill">Cleaner selected view</div>
+            </div>
+
+            <div class="mt-3 grid sm:grid-cols-2 gap-2 max-h-[52vh] overflow-y-auto pr-1">
+              ${selectedMenu.length ? selectedMenu.map((m) => `
+                <div class="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/45 p-3">
+                  <div class="min-w-0">
+                    <div class="text-sm font-semibold truncate">${escapeHtml(m.name || "Item")}</div>
+                    <div class="text-xs text-slate-400 mt-1 truncate">${escapeHtml(m.category || "General")} • ${money(m.price || 0)}</div>
+                  </div>
+                  <button type="button" class="${m.available ? "btn-ghost" : "btn-primary"} text-xs px-3 py-2 shrink-0" data-admin-toggle-menu-item="${escapeHtml(m.id)}">
+                    ${m.available ? "Disable" : "Enable"}
+                  </button>
+                </div>
+              `).join("") : `
+                <div class="sm:col-span-2 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
+                  No menu items loaded for this restaurant.
+                </div>
+              `}
+            </div>
           </div>
-          <div class="text-xs text-slate-400 mt-2">Showing 6 items for demo.</div>
         </div>
-      `;
+      </div>
+    `;
 
-      const toggleBtn = div.querySelector("[data-toggle]");
-      if (toggleBtn) {
-        toggleBtn.onclick = async () => {
-          try {
-            if (typeof FC.toggleRestaurantOnline === "function") {
-              await Promise.resolve(FC.toggleRestaurantOnline(r.id));
-            }
-          } catch (err) {
-            console.error("admin.js: toggle restaurant failed", err);
+    restaurantsPanel.querySelectorAll("[data-admin-select-restaurant]").forEach((btn) => {
+      btn.onclick = async () => {
+        selectedAdminRestaurantId = btn.getAttribute("data-admin-select-restaurant") || "";
+        try {
+          localStorage.setItem("fc_admin_selected_restaurant_id", selectedAdminRestaurantId);
+        } catch {}
+        await renderAll();
+      };
+    });
+
+    const toggleSelectedBtn = restaurantsPanel.querySelector("[data-admin-toggle-selected-restaurant]");
+    if (toggleSelectedBtn && selectedRestaurant) {
+      toggleSelectedBtn.onclick = async () => {
+        try {
+          if (typeof FC.toggleRestaurantOnline === "function") {
+            await Promise.resolve(FC.toggleRestaurantOnline(selectedRestaurant.id));
           }
-          await renderAll();
-        };
-      }
-
-      div.querySelectorAll("[data-item]").forEach((btn) => {
-        btn.onclick = async () => {
-          try {
-            if (typeof FC.toggleMenuItem === "function") {
-              await Promise.resolve(FC.toggleMenuItem(r.id, btn.getAttribute("data-item")));
-            }
-          } catch (err) {
-            console.error("admin.js: toggle menu item failed", err);
-          }
-          await renderAll();
-        };
-      });
-
-      restaurantsPanel.appendChild(div);
+        } catch (err) {
+          console.error("admin.js: toggle selected restaurant failed", err);
+        }
+        await renderAll();
+      };
     }
+
+    restaurantsPanel.querySelectorAll("[data-admin-toggle-menu-item]").forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          if (typeof FC.toggleMenuItem === "function" && selectedRestaurant) {
+            await Promise.resolve(FC.toggleMenuItem(selectedRestaurant.id, btn.getAttribute("data-admin-toggle-menu-item")));
+          }
+        } catch (err) {
+          console.error("admin.js: toggle selected menu item failed", err);
+        }
+        await renderAll();
+      };
+    });
   }
 
   function renderAnalytics(data) {
@@ -744,6 +853,7 @@
     if (status === "approved") return mode ? `${mode} - Payment Pending` : "Approved - Payment Pending";
     if (status === "pending_approval") return `Pending Approval (${orderApprovalSecondsLeft(order)}s left)`;
     if (status === "rejected") return `Rejected${order.rejectReason ? ` - ${order.rejectReason}` : ""}`;
+    if (status === "timed_out") return `Timed Out${order.timeoutReason ? ` - ${order.timeoutReason}` : ""}`;
     return status || "Unknown";
   }
 
@@ -898,6 +1008,69 @@
     }
 
     cashCounterPanel.innerHTML = "";
+
+    const awaitingPaymentOrders = safeArr(data.orders).filter((order) => {
+      const status = String(order?.status || "").toLowerCase();
+      const payment = safeObj(order?.payment);
+      return !payment.success && ["approved", "awaiting_payment", "awaiting_cash_payment"].includes(status);
+    });
+
+    const cashPendingOrders = allCashOrders.filter(adminCashPending);
+    const onlinePendingOrders = awaitingPaymentOrders.filter((order) => adminPaymentMethodOf(order) !== "cash");
+    const timedOutToday = safeArr(data.orders).filter((order) => String(order?.status || "").toLowerCase() === "timed_out" && isToday(order.createdAt));
+    const rejectedToday = safeArr(data.orders).filter((order) => String(order?.status || "").toLowerCase() === "rejected" && isToday(order.createdAt));
+
+    const attentionRows = [
+      ...cashPendingOrders.slice(0, 3).map((order) => ({ label: "Cash Pending", badge: "badge-yellow", order })),
+      ...onlinePendingOrders.slice(0, 3).map((order) => ({ label: "Online Pending", badge: "badge-yellow", order })),
+      ...timedOutToday.slice(0, 3).map((order) => ({ label: "Timed Out", badge: "badge-red", order })),
+      ...rejectedToday.slice(0, 3).map((order) => ({ label: "Rejected", badge: "badge-red", order }))
+    ].slice(0, 6);
+
+    cashCounterPanel.innerHTML = `
+      <div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-3">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Cash Pending</div>
+          <div class="text-xl font-semibold mt-1">${cashPendingOrders.length}</div>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-3">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Online Pending</div>
+          <div class="text-xl font-semibold mt-1">${onlinePendingOrders.length}</div>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-3">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Timed Out Today</div>
+          <div class="text-xl font-semibold mt-1">${timedOutToday.length}</div>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-3">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Rejected Today</div>
+          <div class="text-xl font-semibold mt-1">${rejectedToday.length}</div>
+        </div>
+      </div>
+
+      <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div class="text-sm font-semibold">Payment Attention</div>
+            <div class="text-xs text-slate-400 mt-1">Cash confirmations, online pending payments, abandoned and rejected orders.</div>
+          </div>
+          <span class="pill">Live</span>
+        </div>
+        <div class="mt-3 space-y-2">
+          ${attentionRows.length ? attentionRows.map((row) => `
+            <div class="flex items-center justify-between gap-3 rounded-xl bg-slate-950/35 border border-white/10 px-3 py-2 text-xs">
+              <div class="min-w-0 truncate">
+                <span class="pill ${row.badge}">${row.label}</span>
+                <span class="ml-2 text-slate-300">${escapeHtml(row.order.id || "")}</span>
+                <span class="ml-2 text-slate-500">${escapeHtml(restaurantNameById(data.restaurants, row.order.restaurantId))}</span>
+              </div>
+              <div class="font-semibold">${money(row.order.total || 0)}</div>
+            </div>
+          `).join("") : `<div class="text-sm text-slate-400">No payment issues right now.</div>`}
+        </div>
+      </div>
+
+      <div class="mt-4 text-sm font-semibold">Cash Confirmation</div>
+    `;
 
     if (cashCounterSelectedOrderId) {
       const banner = document.createElement("div");
@@ -1265,7 +1438,8 @@
   }
 
   function reportNumber(value) {
-    return Number(value || 0);
+    const n = Number(value || 0);
+    return `Rs ${Number.isFinite(n) ? n.toLocaleString("en-PK", { maximumFractionDigits: 0 }) : "0"}`;
   }
 
   function paidReportStatus(status) {
@@ -1722,6 +1896,7 @@
     if (status === "pending_approval") return "Pending Approval";
     if (status === "approved") return "Approved - Payment Pending";
     if (status === "rejected") return "Rejected";
+    if (status === "timed_out") return "Timed Out / Abandoned";
 
     return status || "Unknown";
   }
@@ -1853,23 +2028,30 @@
           online: 0,
           dine_in: 0,
           takeaway: 0,
+          rejected: 0,
+          timed_out: 0,
           tax: 0,
           revenue: 0
         };
       }
 
       const s = stats[day];
+      const status = String(order.status || "").toLowerCase();
       s.orders += 1;
       if (paidReportStatus(order.status)) s.paid += 1;
       if (advPaymentMethodOf(order) === "cash") s.cash += 1;
       else s.online += 1;
       if (order.serviceType === "dine_in") s.dine_in += 1;
       if (order.serviceType === "takeaway") s.takeaway += 1;
-      s.tax += Number(order.tax || 0);
-      s.revenue += Number(order.total || 0);
+      if (status === "rejected") s.rejected += 1;
+      if (status === "timed_out") s.timed_out += 1;
+      if (paidReportStatus(order.status)) {
+        s.tax += Number(order.tax || 0);
+        s.revenue += Number(order.total || 0);
+      }
     });
 
-    const rows = [["Date", "Orders", "Paid / Active", "Cash", "Online", "Dine In", "Takeaway", "Tax", "Revenue"]];
+    const rows = [["Date", "Orders", "Paid / Active", "Cash", "Online", "Dine In", "Takeaway", "Rejected", "Timed Out / Abandoned", "Tax", "Revenue"]];
     Object.values(stats)
       .sort((a, b) => String(a.date).localeCompare(String(b.date)))
       .forEach((d) => {
@@ -1881,6 +2063,8 @@
           d.online,
           d.dine_in,
           d.takeaway,
+          d.rejected,
+          d.timed_out,
           reportNumber(d.tax),
           reportNumber(d.revenue)
         ]);
@@ -2036,6 +2220,8 @@
       "Approval Requested At",
       "Approval Responded At",
       "Rejection Reason",
+      "Timeout / Abandoned Reason",
+      "Timed Out At",
       "Service Type",
       "Table Number",
       "Order Type",
@@ -2064,6 +2250,8 @@
         timeOnly(o.approvalRequestedAt || o.createdAt),
         timeOnly(o.approvalRespondedAt || o.rejectedAt || o.approvedAt),
         o.rejectReason || "",
+        o.timeoutReason || "",
+        timeOnly(o.timedOutAt),
         serviceTypeLabel(o),
         tableNumberOf(o),
         serviceSummary(o),
@@ -2093,6 +2281,8 @@
       "Payment Method",
       "Payment Status",
       "Approval Mode",
+      "Rejection Reason",
+      "Timeout / Abandoned Reason",
       "Service Type",
       "Table Number",
       "Order Type",
@@ -2119,6 +2309,8 @@
           advPaymentMethodLabel(o),
           advPaymentStatusLabel(o),
           approvalModeText(o),
+          o.rejectReason || "",
+          o.timeoutReason || "",
           serviceTypeLabel(o),
           tableNumberOf(o),
           serviceSummary(o),
@@ -2154,6 +2346,8 @@
 
     const cashOrders = paidOrders.filter((o) => advPaymentMethodOf(o) === "cash");
     const onlineOrders = paidOrders.filter((o) => advPaymentMethodOf(o) !== "cash");
+    const rejectedOrders = monthOrders.filter((o) => String(o.status || "").toLowerCase() === "rejected");
+    const timedOutOrders = monthOrders.filter((o) => String(o.status || "").toLowerCase() === "timed_out");
     const dineInCount = paidOrders.filter((o) => o.serviceType === "dine_in").length;
     const takeawayCount = paidOrders.filter((o) => o.serviceType === "takeaway").length;
     const notMarkedCount = paidOrders.filter((o) => !o.serviceType).length;
@@ -2172,6 +2366,8 @@
       ["Paid / Active Orders", paidOrders.length],
       ["Cash Orders", cashOrders.length],
       ["Online Orders", onlineOrders.length],
+      ["Rejected Orders", rejectedOrders.length],
+      ["Timed Out / Abandoned Orders", timedOutOrders.length],
       ["Total Subtotal", reportNumber(totalSubtotal)],
       ["Total Tax", reportNumber(totalTax)],
       ["Total Revenue", reportNumber(totalRevenue)],
@@ -2230,10 +2426,10 @@
     const logRows = buildLogRows(data);
 
     XLSX.utils.book_append_sheet(wb, summarySheet, "Executive Summary");
-    XLSX.utils.book_append_sheet(wb, createSheet(dailyRows, [14, 10, 14, 10, 10, 10, 10, 12, 14], `A1:I${dailyRows.length}`), "Daily Summary");
+    XLSX.utils.book_append_sheet(wb, createSheet(dailyRows, [14, 10, 14, 10, 10, 10, 10, 12, 18, 12, 14], `A1:K${dailyRows.length}`), "Daily Summary");
     XLSX.utils.book_append_sheet(wb, createSheet(restaurantRows, [24, 12, 14, 18, 12, 12, 10, 10, 12, 14, 14, 14, 30], `A1:M${restaurantRows.length}`), "Restaurant Summary");
-    XLSX.utils.book_append_sheet(wb, createSheet(orderRows, [22, 20, 16, 16, 18, 18, 18, 18, 32, 15, 14, 22, 14, 14, 14, 14, 16, 12, 12, 12, 55, 45, 14, 14], `A1:X${orderRows.length}`), "All Orders");
-    XLSX.utils.book_append_sheet(wb, createSheet(orderLineRows, [22, 20, 16, 16, 18, 18, 15, 14, 22, 14, 14, 14, 28, 34, 35, 8, 12, 12], `A1:R${orderLineRows.length}`), "Order Lines");
+    XLSX.utils.book_append_sheet(wb, createSheet(orderRows, [22, 20, 16, 16, 18, 18, 18, 18, 32, 36, 18, 15, 14, 22, 14, 14, 14, 14, 16, 12, 12, 12, 55, 45, 14, 14], `A1:Z${orderRows.length}`), "All Orders");
+    XLSX.utils.book_append_sheet(wb, createSheet(orderLineRows, [22, 20, 16, 16, 18, 18, 30, 36, 15, 14, 22, 14, 14, 14, 28, 34, 35, 8, 12, 12], `A1:T${orderLineRows.length}`), "Order Lines");
     XLSX.utils.book_append_sheet(wb, createSheet(itemRows, [20, 30, 14, 14, 14], `A1:E${itemRows.length}`), "Item Sales");
     XLSX.utils.book_append_sheet(wb, createSheet(addonRows, [20, 28, 14, 14, 18], `A1:E${addonRows.length}`), "Add-ons Sales");
     XLSX.utils.book_append_sheet(wb, createSheet(paymentRows, [20, 12, 14, 14, 14], `A1:E${paymentRows.length}`), "Payment Summary");
