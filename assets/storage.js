@@ -192,7 +192,7 @@ FC.defaultState = function () {
       taxRate: 0.13,
       idleAdsAfterSeconds: 240,
       paymentTimeoutSeconds: 180,
-      approvalWindowSeconds: 12,
+      approvalWindowSeconds: 20,
       kioskPin: "1234",
       staffPin: "1234"
     },
@@ -200,10 +200,49 @@ FC.defaultState = function () {
     orders: [],
     adMetrics: { impressions: {}, totalSeconds: 0 },
     devices: {
-      network: { online: true, latencyMs: 42 },
-      printer: { online: true, paper: 85, lastPrintAt: null },
-      paymentGateway: { online: true, provider: "Stripe / Cash Counter", lastVerifyAt: null },
-      kioskDisplay: { online: true, brightness: 75, locked: false },
+      network: {
+        online: true,
+        latencyMs: 42,
+        manuallyControlled: false,
+        lastHeartbeatAt: null,
+        lastSeenAt: null,
+        lastManualCheckAt: null,
+        lastNetworkCheckAt: null,
+        lastError: ""
+      },
+      printer: {
+        online: true,
+        manuallyControlled: false,
+        paper: 100,
+        paperPercent: 100,
+        paperRollMeters: 80,
+        paperUsedMeters: 0,
+        paperRemainingMeters: 80,
+        receiptAverageMeters: 0.35,
+        lowPaperThreshold: 15,
+        lowPaper: false,
+        lastPrintAt: null,
+        lastPaperUpdateAt: null
+      },
+      paymentGateway: {
+        online: true,
+        manuallyControlled: false,
+        provider: "Stripe / Cash Counter",
+        lastVerifyAt: null,
+        lastResult: "ready",
+        unavailableMessage: "Online payment is temporarily unavailable. Please choose cash payment or contact staff."
+      },
+      kioskDisplay: {
+        online: true,
+        manuallyControlled: false,
+        brightness: 75,
+        locked: false,
+        maintenanceMode: false,
+        outOfOrder: false,
+        lastHeartbeatAt: null,
+        lastSeenAt: null,
+        unavailableMessage: "Maintenance Break / Out of Order"
+      },
       localCache: { enabled: true, queuedOrders: 0 }
     },
     deviceLogs: [],
@@ -407,8 +446,8 @@ FC.uid = function (prefix = "ORD") {
 // ---------- Approval Helpers ----------
 FC.approvalWindowSeconds = function () {
   const s = FC.getState();
-  const n = Number(s.settings?.approvalWindowSeconds || 12);
-  return Number.isFinite(n) && n > 0 ? n : 12;
+  const n = Number(s.settings?.approvalWindowSeconds || 20);
+  return Number.isFinite(n) && n > 0 ? n : 20;
 };
 
 FC.approvalWindowMs = function () {
@@ -1082,53 +1121,354 @@ FC.resetAdMetrics = function () {
   FC.log("Ad metrics reset.");
 };
 
-// ---------- Hardware Layer (Simulated) ----------
+// ---------- Hardware Console / Device Control Layer ----------
+FC.HARDWARE_LOW_PAPER_PERCENT = 15;
+FC.HARDWARE_PAPER_ROLL_METERS = 80;
+FC.HARDWARE_RECEIPT_AVERAGE_METERS = 0.35;
+FC.HARDWARE_HEARTBEAT_STALE_MS = 30000;
+
+FC._clampPercent = function (value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n * 10) / 10));
+};
+
+FC._roundMeters = function (value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n * 100) / 100);
+};
+
+FC._normalizePrinterDevice = function (printer = {}) {
+  const p = FC._safeObject(printer);
+  const rollMeters = Number(p.paperRollMeters || FC.HARDWARE_PAPER_ROLL_METERS);
+  const safeRollMeters = Number.isFinite(rollMeters) && rollMeters > 0 ? rollMeters : FC.HARDWARE_PAPER_ROLL_METERS;
+
+  let paperPercent = FC._clampPercent(
+    p.paperPercent ??
+    p.paper ??
+    100
+  );
+
+  let usedMeters = Number(p.paperUsedMeters || 0);
+  if (!Number.isFinite(usedMeters) || usedMeters < 0) usedMeters = 0;
+
+  // If a percentage was manually set, keep meters consistent with the 80m roll.
+  const remainingMetersFromPercent = safeRollMeters * (paperPercent / 100);
+  const remainingMeters = FC._roundMeters(
+    p.paperRemainingMeters ??
+    remainingMetersFromPercent
+  );
+
+  if ("paperPercent" in p || "paper" in p) {
+    usedMeters = FC._roundMeters(safeRollMeters - remainingMetersFromPercent);
+  } else if ("paperUsedMeters" in p) {
+    paperPercent = FC._clampPercent(((safeRollMeters - usedMeters) / safeRollMeters) * 100);
+  }
+
+  return {
+    online: p.online !== false,
+    manuallyControlled: !!p.manuallyControlled,
+    paper: paperPercent,
+    paperPercent,
+    paperRollMeters: safeRollMeters,
+    paperUsedMeters: FC._roundMeters(usedMeters),
+    paperRemainingMeters: FC._roundMeters(safeRollMeters - usedMeters),
+    receiptAverageMeters: Number(p.receiptAverageMeters || FC.HARDWARE_RECEIPT_AVERAGE_METERS),
+    lowPaperThreshold: Number(p.lowPaperThreshold || FC.HARDWARE_LOW_PAPER_PERCENT),
+    lowPaper: paperPercent <= Number(p.lowPaperThreshold || FC.HARDWARE_LOW_PAPER_PERCENT),
+    lastPrintAt: p.lastPrintAt || null,
+    lastPaperUpdateAt: p.lastPaperUpdateAt || null,
+    updatedAt: p.updatedAt || null,
+    lastError: String(p.lastError || "")
+  };
+};
+
+FC._normalizeDevices = function (devices = {}) {
+  const base = FC.defaultState().devices;
+  const d = FC._safeObject(devices);
+
+  return {
+    network: {
+      ...base.network,
+      ...FC._safeObject(d.network)
+    },
+    printer: FC._normalizePrinterDevice({
+      ...base.printer,
+      ...FC._safeObject(d.printer)
+    }),
+    paymentGateway: {
+      ...base.paymentGateway,
+      ...FC._safeObject(d.paymentGateway)
+    },
+    kioskDisplay: {
+      ...base.kioskDisplay,
+      ...FC._safeObject(d.kioskDisplay)
+    },
+    localCache: {
+      ...base.localCache,
+      ...FC._safeObject(d.localCache)
+    }
+  };
+};
+
 FC.getDevices = function () {
   const s = FC.getState();
-  return s.devices || {};
+  return FC._normalizeDevices(s.devices || {});
+};
+
+FC.getDevice = function (deviceKey) {
+  return FC.getDevices()[deviceKey] || null;
 };
 
 FC.deviceLog = function (message, level = "INFO") {
   const s = FC.getState();
-  s.deviceLogs = s.deviceLogs || [];
-  s.deviceLogs.unshift({ at: FC.nowISO(), level, message });
+  s.deviceLogs = FC._safeArray(s.deviceLogs);
+  s.deviceLogs.unshift({ at: FC.nowISO(), level: String(level || "INFO"), message: String(message || "") });
   s.deviceLogs = s.deviceLogs.slice(0, 50);
   FC.setState(s);
 };
 
 FC.setDevice = function (deviceKey, patch) {
+  const key = String(deviceKey || "").trim();
+  if (!key) return null;
+
   const s = FC.getState();
-  s.devices = s.devices || {};
-  s.devices[deviceKey] = { ...(s.devices[deviceKey] || {}), ...patch };
+  s.devices = FC._normalizeDevices(s.devices || {});
+  const current = FC._safeObject(s.devices[key]);
+  const cleanPatch = FC._safeObject(patch);
+
+  let next = {
+    ...current,
+    ...cleanPatch,
+    updatedAt: cleanPatch.updatedAt || FC.nowISO()
+  };
+
+  if (key === "printer") {
+    next = FC._normalizePrinterDevice(next);
+  }
+
+  if (key === "kioskDisplay") {
+    next.maintenanceMode = cleanPatch.online === false ? true : !!next.maintenanceMode;
+    next.outOfOrder = cleanPatch.online === false ? true : !!next.outOfOrder;
+    if (cleanPatch.online === true) {
+      next.maintenanceMode = false;
+      next.outOfOrder = false;
+    }
+  }
+
+  if (key === "paymentGateway") {
+    next.unavailableMessage = next.unavailableMessage || "Online payment is temporarily unavailable. Please choose cash payment or contact staff.";
+  }
+
+  s.devices[key] = next;
   FC.setState(s);
-  FC.deviceLog(`${deviceKey} updated: ${JSON.stringify(patch)}`);
-  return s.devices[deviceKey];
+  return next;
+};
+
+FC.setDeviceOnline = function (deviceKey, online) {
+  const label = String(deviceKey || "device");
+  const updated = FC.setDevice(label, {
+    online: !!online,
+    manuallyControlled: true,
+    updatedAt: FC.nowISO()
+  });
+
+  FC.deviceLog(`${label} turned ${online ? "ON" : "OFF"}.`, online ? "INFO" : "WARN");
+  return updated;
 };
 
 FC.toggleDeviceOnline = function (deviceKey) {
   const d = FC.getDevices()[deviceKey];
   if (!d) return null;
-  return FC.setDevice(deviceKey, { online: !d.online });
+  return FC.setDeviceOnline(deviceKey, !d.online);
 };
 
-FC.simulateLatency = function () {
-  const ms = 20 + Math.floor(Math.random() * 180);
-  FC.setDevice("network", { latencyMs: ms });
-  return ms;
+FC.setPrinterPaperPercent = function (percent, reason = "Printer paper percentage updated") {
+  const nextPercent = FC._clampPercent(percent);
+  const rollMeters = FC.HARDWARE_PAPER_ROLL_METERS;
+  const usedMeters = FC._roundMeters(rollMeters * (1 - nextPercent / 100));
+
+  const updated = FC.setDevice("printer", {
+    paper: nextPercent,
+    paperPercent: nextPercent,
+    paperRollMeters: rollMeters,
+    paperUsedMeters: usedMeters,
+    paperRemainingMeters: FC._roundMeters(rollMeters - usedMeters),
+    lowPaper: nextPercent <= FC.HARDWARE_LOW_PAPER_PERCENT,
+    lastPaperUpdateAt: FC.nowISO()
+  });
+
+  FC.deviceLog(`${reason}: ${nextPercent}% remaining.`, nextPercent <= FC.HARDWARE_LOW_PAPER_PERCENT ? "WARN" : "INFO");
+  return updated;
+};
+
+FC.adjustPrinterPaperPercent = function (deltaPercent, reason = "Printer paper adjusted manually") {
+  const p = FC.getDevices().printer || {};
+  const current = FC._clampPercent(p.paperPercent ?? p.paper ?? 100);
+  return FC.setPrinterPaperPercent(current + Number(deltaPercent || 0), reason);
+};
+
+FC.resetPrinterPaper = function () {
+  return FC.setPrinterPaperPercent(100, "New 80m thermal paper roll installed/reset");
+};
+
+FC.consumePrinterPaperMeters = function (meters, reason = "Receipt printed") {
+  const p = FC.getDevices().printer || {};
+  const rollMeters = Number(p.paperRollMeters || FC.HARDWARE_PAPER_ROLL_METERS);
+  const safeRollMeters = Number.isFinite(rollMeters) && rollMeters > 0 ? rollMeters : FC.HARDWARE_PAPER_ROLL_METERS;
+  const usedBefore = Number(p.paperUsedMeters || 0);
+  const useMeters = Math.max(0, Number(meters || p.receiptAverageMeters || FC.HARDWARE_RECEIPT_AVERAGE_METERS));
+  const usedAfter = Math.min(safeRollMeters, usedBefore + useMeters);
+  const remainingMeters = Math.max(0, safeRollMeters - usedAfter);
+  const nextPercent = FC._clampPercent((remainingMeters / safeRollMeters) * 100);
+
+  const updated = FC.setDevice("printer", {
+    paper: nextPercent,
+    paperPercent: nextPercent,
+    paperRollMeters: safeRollMeters,
+    paperUsedMeters: FC._roundMeters(usedAfter),
+    paperRemainingMeters: FC._roundMeters(remainingMeters),
+    lowPaper: nextPercent <= FC.HARDWARE_LOW_PAPER_PERCENT,
+    lastPrintAt: FC.nowISO(),
+    lastPaperUpdateAt: FC.nowISO()
+  });
+
+  FC.deviceLog(
+    `${reason}: used ${FC._roundMeters(useMeters)}m, ${nextPercent}% paper remaining.`,
+    nextPercent <= FC.HARDWARE_LOW_PAPER_PERCENT ? "WARN" : "INFO"
+  );
+
+  if (nextPercent <= FC.HARDWARE_LOW_PAPER_PERCENT && nextPercent > 0) {
+    FC.deviceLog(`LOW PAPER: printer paper is ${nextPercent}%. Replace the 80m roll soon.`, "WARN");
+  }
+
+  if (nextPercent <= 0) {
+    FC.deviceLog("PRINTER OUT OF PAPER: printing should be stopped until a new roll is installed.", "ERROR");
+  }
+
+  return updated;
 };
 
 FC.simulatePrinterPaperUse = function () {
-  const d = FC.getDevices().printer || { paper: 100 };
-  const next = Math.max(0, (d.paper || 0) - (2 + Math.floor(Math.random() * 6)));
-  FC.setDevice("printer", { paper: next, lastPrintAt: FC.nowISO() });
-  if (next <= 10) FC.deviceLog("Printer paper low.", "WARN");
-  if (next === 0) FC.deviceLog("Printer out of paper.", "ERROR");
+  const p = FC.getDevices().printer || {};
+  const receiptMeters = Number(p.receiptAverageMeters || FC.HARDWARE_RECEIPT_AVERAGE_METERS);
+  return FC.consumePrinterPaperMeters(receiptMeters, "Receipt/test print paper consumed");
+};
+
+FC.canPrintReceipt = function () {
+  const p = FC.getDevices().printer || {};
+  const paper = FC._clampPercent(p.paperPercent ?? p.paper ?? 100);
+
+  if (!p.online) {
+    return { ok: false, reason: "Printer is turned OFF from admin hardware console." };
+  }
+
+  if (paper <= 0) {
+    return { ok: false, reason: "Printer is out of paper." };
+  }
+
+  return { ok: true, reason: "Printer ready." };
+};
+
+FC.canUseOnlinePayment = function () {
+  const g = FC.getDevices().paymentGateway || {};
+  if (!g.online) {
+    return {
+      ok: false,
+      reason: g.unavailableMessage || "Online payment is temporarily unavailable. Please choose cash payment or contact staff."
+    };
+  }
+
+  return { ok: true, reason: "Payment gateway online." };
+};
+
+FC.isKioskDisplayAvailable = function () {
+  const k = FC.getDevices().kioskDisplay || {};
+  if (!k.online || k.maintenanceMode || k.outOfOrder || k.locked) {
+    return {
+      ok: false,
+      reason: k.unavailableMessage || "Maintenance Break / Out of Order"
+    };
+  }
+
+  return { ok: true, reason: "Kiosk display active." };
+};
+
+FC.updateDeviceHeartbeat = function (deviceKey = "kioskDisplay", patch = {}) {
+  const now = FC.nowISO();
+  const key = String(deviceKey || "kioskDisplay");
+  const cleanPatch = FC._safeObject(patch);
+  const current = FC.getDevices()[key] || {};
+  const keepManualOff = current.manuallyControlled && current.online === false && cleanPatch.force !== true;
+
+  return FC.setDevice(key, {
+    online: keepManualOff ? false : cleanPatch.online !== false,
+    ...cleanPatch,
+    lastHeartbeatAt: now,
+    lastSeenAt: now,
+    updatedAt: now
+  });
+};
+
+FC.updateKioskHeartbeat = function (patch = {}) {
+  const now = FC.nowISO();
+  const cleanPatch = FC._safeObject(patch);
+  const devices = FC.getDevices();
+  const networkManualOff = devices.network?.manuallyControlled && devices.network?.online === false && cleanPatch.force !== true;
+  const displayManualOff = devices.kioskDisplay?.manuallyControlled && devices.kioskDisplay?.online === false && cleanPatch.force !== true;
+
+  FC.setDevice("network", {
+    online: networkManualOff ? false : cleanPatch.networkOnline !== false,
+    lastHeartbeatAt: now,
+    lastSeenAt: now,
+    lastNetworkCheckAt: now,
+    latencyMs: Number(cleanPatch.latencyMs || devices.network?.latencyMs || 42),
+    lastError: String(cleanPatch.lastError || "")
+  });
+
+  return FC.setDevice("kioskDisplay", {
+    online: displayManualOff ? false : cleanPatch.displayOnline !== false,
+    lastHeartbeatAt: now,
+    lastSeenAt: now,
+    updatedAt: now
+  });
+};
+
+FC.isHeartbeatStale = function (deviceKey = "network", maxAgeMs = FC.HARDWARE_HEARTBEAT_STALE_MS) {
+  const d = FC.getDevices()[deviceKey] || {};
+  const raw = d.lastHeartbeatAt || d.lastSeenAt || d.updatedAt || "";
+  if (!raw) return false;
+
+  const t = new Date(raw).getTime();
+  if (!Number.isFinite(t)) return false;
+
+  return Date.now() - t > Number(maxAgeMs || FC.HARDWARE_HEARTBEAT_STALE_MS);
+};
+
+FC.simulateLatency = function () {
+  const ms = 20 + Math.floor(Math.random() * 220);
+  FC.setDevice("network", {
+    latencyMs: ms,
+    online: true,
+    lastManualCheckAt: FC.nowISO()
+  });
+
+  if (ms > 150) FC.deviceLog(`High network latency simulated: ${ms}ms.`, "WARN");
+  else FC.deviceLog(`Network latency simulated: ${ms}ms.`, "INFO");
+
+  return ms;
 };
 
 FC.simulateGatewayVerify = function (success = true) {
-  FC.setDevice("paymentGateway", { lastVerifyAt: FC.nowISO() });
+  FC.setDevice("paymentGateway", {
+    online: !!success,
+    lastVerifyAt: FC.nowISO(),
+    lastResult: success ? "success" : "failure"
+  });
+
   FC.deviceLog(
-    success ? "Payment verified by gateway." : "Payment failed at gateway.",
+    success ? "Payment gateway verified successfully." : "Payment gateway failure simulated. Online payment is unavailable.",
     success ? "INFO" : "ERROR"
   );
 };
@@ -1136,16 +1476,19 @@ FC.simulateGatewayVerify = function (success = true) {
 FC.hardwareHealth = function () {
   const d = FC.getDevices();
   const issues = [];
+  const paper = FC._clampPercent(d.printer?.paperPercent ?? d.printer?.paper ?? 100);
+  const heartbeatStale = FC.isHeartbeatStale("network") || FC.isHeartbeatStale("kioskDisplay");
 
-  if (!d.network?.online) issues.push("Network offline");
-  if ((d.network?.latencyMs || 0) > 150) issues.push("High network latency");
+  if (!d.network?.online || heartbeatStale) issues.push("Network offline");
+  if (Number(d.network?.latencyMs || 0) > 150) issues.push("High network latency");
   if (!d.printer?.online) issues.push("Printer offline");
-  if ((d.printer?.paper ?? 100) <= 10) issues.push("Printer paper low");
+  if (paper <= FC.HARDWARE_LOW_PAPER_PERCENT && paper > 0) issues.push("Printer paper low");
+  if (paper <= 0) issues.push("Printer out of paper");
   if (!d.paymentGateway?.online) issues.push("Payment gateway offline");
-  if (!d.kioskDisplay?.online) issues.push("Kiosk display offline");
+  if (!d.kioskDisplay?.online || d.kioskDisplay?.maintenanceMode || d.kioskDisplay?.outOfOrder) issues.push("Kiosk display offline");
   if (d.kioskDisplay?.locked) issues.push("Kiosk is locked");
 
-  return { ok: issues.length === 0, issues };
+  return { ok: issues.length === 0, issues, paper, heartbeatStale };
 };
 
 // ---------- Realtime ----------

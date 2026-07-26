@@ -57,6 +57,36 @@
   const adminLockKioskBtn = document.getElementById("adminLockKioskBtn");
   const adminClearDeviceLogsBtn = document.getElementById("adminClearDeviceLogsBtn");
 
+  const adminHardwareWarningBox = document.getElementById("adminHardwareWarningBox");
+  const adminHardwareWarningTitle = document.getElementById("adminHardwareWarningTitle");
+  const adminHardwareWarningMessage = document.getElementById("adminHardwareWarningMessage");
+
+  const adminNetworkStatusBadge = document.getElementById("adminNetworkStatusBadge");
+  const adminNetworkLastSeen = document.getElementById("adminNetworkLastSeen");
+  const adminNetworkWarning = document.getElementById("adminNetworkWarning");
+  const adminNetworkOnlineBtn = document.getElementById("adminNetworkOnlineBtn");
+  const adminNetworkOfflineBtn = document.getElementById("adminNetworkOfflineBtn");
+
+  const adminPrinterStatusBadge = document.getElementById("adminPrinterStatusBadge");
+  const adminLowPaperWarning = document.getElementById("adminLowPaperWarning");
+  const adminPrinterPaperValue = document.getElementById("adminPrinterPaperValue");
+  const adminPrinterPaperBar = document.getElementById("adminPrinterPaperBar");
+  const adminPrinterOnlineBtn = document.getElementById("adminPrinterOnlineBtn");
+  const adminPrinterOfflineBtn = document.getElementById("adminPrinterOfflineBtn");
+  const adminPaperDownBtn = document.getElementById("adminPaperDownBtn");
+  const adminPaperUpBtn = document.getElementById("adminPaperUpBtn");
+  const adminPaperResetBtn = document.getElementById("adminPaperResetBtn");
+
+  const adminPaymentGatewayStatusBadge = document.getElementById("adminPaymentGatewayStatusBadge");
+  const adminPaymentGatewayWarning = document.getElementById("adminPaymentGatewayWarning");
+  const adminPaymentGatewayOnlineBtn = document.getElementById("adminPaymentGatewayOnlineBtn");
+  const adminPaymentGatewayOfflineBtn = document.getElementById("adminPaymentGatewayOfflineBtn");
+
+  const adminKioskDisplayStatusBadge = document.getElementById("adminKioskDisplayStatusBadge");
+  const adminKioskDisplayWarning = document.getElementById("adminKioskDisplayWarning");
+  const adminKioskDisplayOnlineBtn = document.getElementById("adminKioskDisplayOnlineBtn");
+  const adminKioskDisplayOfflineBtn = document.getElementById("adminKioskDisplayOfflineBtn");
+
   const scanCashQrBtn = document.getElementById("scanCashQrBtn");
   const cashQrScannerModal = document.getElementById("cashQrScannerModal");
   const cashQrReader = document.getElementById("cashQrReader");
@@ -86,6 +116,41 @@
     loggedIn = !!sess.loggedIn;
   } catch {
     loggedIn = false;
+  }
+
+  const HARDWARE_LOW_PAPER_PERCENT = 15;
+  const HARDWARE_PRINT_PAPER_STEP = 1;
+  const HARDWARE_KIOSK_HEARTBEAT_STALE_MS = 35000;
+
+  function clampPercent(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }
+
+  function formatLastSeen(value) {
+    if (!value) return "—";
+    const time = Date.parse(value);
+    if (!Number.isFinite(time)) return "—";
+
+    const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
+    if (seconds < 5) return "just now";
+    if (seconds < 60) return `${seconds}s ago`;
+
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes} min ago`;
+
+    return new Date(time).toLocaleString();
+  }
+
+  function setHidden(el, hidden) {
+    if (el) el.classList.toggle("hidden", !!hidden);
+  }
+
+  function setBadge(el, online, onlineText = "ONLINE", offlineText = "OFFLINE") {
+    if (!el) return;
+    el.textContent = online ? onlineText : offlineText;
+    el.className = `pill ${online ? "badge-green" : "badge-red"}`;
   }
 
   function getStateSafe() {
@@ -1218,55 +1283,150 @@
   }
 
   function adminGetDevices() {
+    const defaults = {
+      network: { online: true, latencyMs: 42, lastHeartbeatAt: "" },
+      printer: { online: true, paper: 100, paperPercent: 100, paperRollMeters: 80, lowPaper: false },
+      paymentGateway: { online: true, provider: "Stripe / Cash Counter", lastVerifyAt: null },
+      kioskDisplay: { online: true, brightness: 75, locked: false, maintenanceMode: false, outOfOrder: false },
+      localCache: { enabled: true, queuedOrders: 0 }
+    };
+
+    let devices = {};
     try {
-      if (typeof FC.getDevices === "function") return FC.getDevices() || {};
-    } catch {}
-    return safeObj(getStateSafe().devices);
+      if (typeof FC.getDevices === "function") devices = FC.getDevices() || {};
+      else devices = safeObj(getStateSafe().devices);
+    } catch {
+      devices = safeObj(getStateSafe().devices);
+    }
+
+    return {
+      ...defaults,
+      ...safeObj(devices),
+      network: { ...defaults.network, ...safeObj(devices.network) },
+      printer: { ...defaults.printer, ...safeObj(devices.printer) },
+      paymentGateway: { ...defaults.paymentGateway, ...safeObj(devices.paymentGateway) },
+      kioskDisplay: { ...defaults.kioskDisplay, ...safeObj(devices.kioskDisplay) },
+      localCache: { ...defaults.localCache, ...safeObj(devices.localCache) }
+    };
   }
 
   function adminDeviceHealth() {
-    try {
-      if (typeof FC.hardwareHealth === "function") return FC.hardwareHealth();
-    } catch {}
-
     const d = adminGetDevices();
     const issues = [];
-    if (!d.network?.online) issues.push("Network offline");
+    const paper = clampPercent(d.printer?.paper ?? d.printer?.paperPercent ?? 100);
+    const lastHeartbeatRaw = d.network?.lastHeartbeatAt || d.network?.lastSeenAt || d.kioskDisplay?.lastSeenAt || d.kioskDisplay?.lastHeartbeatAt || "";
+    const lastHeartbeatMs = lastHeartbeatRaw ? Date.parse(lastHeartbeatRaw) : NaN;
+    const heartbeatStale = Number.isFinite(lastHeartbeatMs) && (Date.now() - lastHeartbeatMs) > HARDWARE_KIOSK_HEARTBEAT_STALE_MS;
+
+    if (!d.network?.online || heartbeatStale) issues.push("Network offline");
     if (Number(d.network?.latencyMs || 0) > 150) issues.push("High network latency");
     if (!d.printer?.online) issues.push("Printer offline");
-    if (Number(d.printer?.paper ?? 100) <= 10) issues.push("Printer paper low");
+    if (paper <= HARDWARE_LOW_PAPER_PERCENT) issues.push("Printer paper low");
     if (!d.paymentGateway?.online) issues.push("Payment gateway offline");
     if (!d.kioskDisplay?.online) issues.push("Kiosk display offline");
     if (d.kioskDisplay?.locked) issues.push("Kiosk locked");
-    return { ok: issues.length === 0, issues };
+
+    return { ok: issues.length === 0, issues, heartbeatStale, paper };
   }
 
-  function adminSetDevice(key, patch) {
+  function adminDeviceLog(message, level = "INFO") {
     try {
-      if (typeof FC.setDevice === "function") return FC.setDevice(key, patch);
+      if (typeof FC.deviceLog === "function") {
+        FC.deviceLog(message, level);
+        return;
+      }
+    } catch (err) {
+      console.warn("admin.js: FC.deviceLog failed", err);
+    }
+
+    const st = getStateSafe();
+    st.deviceLogs = safeArr(st.deviceLogs);
+    st.deviceLogs.unshift({ at: nowISO(), level, message });
+    st.deviceLogs = st.deviceLogs.slice(0, 40);
+    saveStateSafe(st);
+  }
+
+  function adminSetDevice(key, patch, message = "") {
+    const cleanPatch = safeObj(patch);
+
+    try {
+      if (typeof FC.setDevice === "function") {
+        const updated = FC.setDevice(key, cleanPatch);
+        if (message) adminDeviceLog(message, cleanPatch.online === false ? "WARN" : "INFO");
+        return updated;
+      }
     } catch (err) {
       console.error("admin.js: setDevice failed", err);
     }
 
     const st = getStateSafe();
     st.devices = safeObj(st.devices);
-    st.devices[key] = { ...safeObj(st.devices[key]), ...safeObj(patch) };
+    st.devices[key] = {
+      ...safeObj(st.devices[key]),
+      ...cleanPatch,
+      updatedAt: nowISO()
+    };
     saveStateSafe(st);
+
+    if (message) adminDeviceLog(message, cleanPatch.online === false ? "WARN" : "INFO");
     return st.devices[key];
   }
 
+  function adminSetDeviceOnline(key, online, label) {
+    return adminSetDevice(
+      key,
+      { online: !!online, manuallyControlled: true, updatedAt: nowISO() },
+      `${label || key} turned ${online ? "ON" : "OFF"} from admin hardware console.`
+    );
+  }
+
   function adminToggleDevice(key) {
-    try {
-      if (typeof FC.toggleDeviceOnline === "function") return FC.toggleDeviceOnline(key);
-    } catch {}
     const d = adminGetDevices();
-    return adminSetDevice(key, { online: !d[key]?.online });
+    const labelMap = {
+      network: "Network",
+      printer: "Printer",
+      paymentGateway: "Payment gateway",
+      kioskDisplay: "Kiosk display"
+    };
+    return adminSetDeviceOnline(key, !d[key]?.online, labelMap[key] || key);
+  }
+
+  function adminSetPaperPercent(value, reason = "Paper percentage manually updated") {
+    const nextPaper = clampPercent(value);
+    const updated = adminSetDevice("printer", {
+      paper: nextPaper,
+      paperPercent: nextPaper,
+      paperRollMeters: 80,
+      lowPaper: nextPaper <= HARDWARE_LOW_PAPER_PERCENT,
+      updatedAt: nowISO()
+    }, `${reason}: ${nextPaper}% remaining.`);
+
+    if (nextPaper <= HARDWARE_LOW_PAPER_PERCENT) {
+      adminDeviceLog(`LOW PAPER: printer paper is ${nextPaper}%. Replace 80m thermal roll soon.`, "WARN");
+    }
+
+    return updated;
+  }
+
+  function adminConsumePrinterPaper(amount = HARDWARE_PRINT_PAPER_STEP, reason = "Printer paper consumed") {
+    const d = adminGetDevices();
+    const current = clampPercent(d.printer?.paper ?? d.printer?.paperPercent ?? 100);
+    return adminSetPaperPercent(current - Number(amount || 0), reason);
   }
 
   function renderHardwareConsole(data) {
     if (!adminHardwareHealthLabel && !adminDevicesPanel && !adminDeviceLogs) return;
 
+    const d = adminGetDevices();
     const health = adminDeviceHealth();
+    const paper = clampPercent(d.printer?.paper ?? d.printer?.paperPercent ?? 100);
+    const lastHeartbeatRaw = d.network?.lastHeartbeatAt || d.network?.lastSeenAt || d.kioskDisplay?.lastSeenAt || d.kioskDisplay?.lastHeartbeatAt || "";
+    const networkOnline = !!d.network?.online && !health.heartbeatStale;
+    const printerOnline = !!d.printer?.online;
+    const gatewayOnline = !!d.paymentGateway?.online;
+    const kioskOnline = !!d.kioskDisplay?.online;
+    const lowPaper = paper <= HARDWARE_LOW_PAPER_PERCENT;
+
     if (adminHardwareHealthLabel) {
       adminHardwareHealthLabel.innerHTML = health.ok
         ? `All Systems Normal <span class="pill badge-green">HEALTHY</span>`
@@ -1278,25 +1438,73 @@
       adminHardwareIssues.className = health.ok ? "text-sm text-emerald-300 mt-2" : "text-sm text-rose-300 mt-2";
     }
 
-    const d = adminGetDevices();
+    setHidden(adminHardwareWarningBox, health.ok);
+    if (!health.ok) {
+      setText(adminHardwareWarningTitle, "Hardware Attention Required");
+      setText(adminHardwareWarningMessage, health.issues.join(" • "));
+    }
+
+    setBadge(adminNetworkStatusBadge, networkOnline, "ONLINE", "NO NETWORK");
+    setText(adminNetworkLastSeen, `Last heartbeat: ${formatLastSeen(lastHeartbeatRaw)}`);
+    setHidden(adminNetworkWarning, networkOnline);
+
+    setBadge(adminPrinterStatusBadge, printerOnline, "ONLINE", "OFFLINE");
+    setHidden(adminLowPaperWarning, !lowPaper);
+    setText(adminPrinterPaperValue, `${paper}%`);
+    if (adminPrinterPaperBar) {
+      adminPrinterPaperBar.style.width = `${paper}%`;
+      adminPrinterPaperBar.className = `h-full rounded-full ${paper <= HARDWARE_LOW_PAPER_PERCENT ? "bg-red-500" : paper <= 30 ? "bg-amber-500" : "bg-green-500"}`;
+    }
+
+    setBadge(adminPaymentGatewayStatusBadge, gatewayOnline, "ONLINE", "OFFLINE");
+    setHidden(adminPaymentGatewayWarning, gatewayOnline);
+
+    setBadge(adminKioskDisplayStatusBadge, kioskOnline, "ONLINE", "MAINTENANCE");
+    setHidden(adminKioskDisplayWarning, kioskOnline);
+
     if (adminDevicesPanel) {
       const rows = [
-        ["network", "Network", `online=${!!d.network?.online} • latency=${Number(d.network?.latencyMs || 0)}ms`, !!d.network?.online],
-        ["printer", "Printer", `online=${!!d.printer?.online} • paper=${Number(d.printer?.paper ?? 0)}%`, !!d.printer?.online],
-        ["paymentGateway", "Payment Gateway", `provider=${d.paymentGateway?.provider || "Stripe / Cash Counter"} • online=${!!d.paymentGateway?.online}`, !!d.paymentGateway?.online],
-        ["kioskDisplay", "Kiosk Display", `online=${!!d.kioskDisplay?.online} • brightness=${Number(d.kioskDisplay?.brightness || 0)}% • locked=${!!d.kioskDisplay?.locked}`, !!d.kioskDisplay?.online],
-        ["localCache", "Local Cache", `enabled=${!!d.localCache?.enabled} • queuedOrders=${Number(d.localCache?.queuedOrders || 0)}`, true]
+        [
+          "network",
+          "Network",
+          `${networkOnline ? "Connected" : "No network"} • latency=${Number(d.network?.latencyMs || 0)}ms • heartbeat=${formatLastSeen(lastHeartbeatRaw)}`,
+          networkOnline
+        ],
+        [
+          "printer",
+          "Printer",
+          `${printerOnline ? "Ready" : "Printing blocked"} • paper=${paper}% • lowPaper=${lowPaper ? "yes" : "no"}`,
+          printerOnline && !lowPaper
+        ],
+        [
+          "paymentGateway",
+          "Payment Gateway",
+          `provider=${d.paymentGateway?.provider || "Stripe / Cash Counter"} • online=${gatewayOnline ? "yes" : "no"}`,
+          gatewayOnline
+        ],
+        [
+          "kioskDisplay",
+          "Kiosk Display",
+          `${kioskOnline ? "Customer dashboard active" : "Maintenance / Out of Order"} • locked=${!!d.kioskDisplay?.locked}`,
+          kioskOnline
+        ],
+        [
+          "localCache",
+          "Local Cache",
+          `enabled=${!!d.localCache?.enabled} • queuedOrders=${Number(d.localCache?.queuedOrders || 0)}`,
+          true
+        ]
       ];
 
       adminDevicesPanel.innerHTML = rows.map(([key, title, sub, online]) => `
-        <div class="p-3 rounded-2xl bg-white/5 border border-white/10">
+        <div class="p-3 rounded-2xl bg-white/5 border ${online ? "border-white/10" : "border-red-400/30"}">
           <div class="flex items-start justify-between gap-3 flex-wrap">
             <div class="min-w-0">
               <div class="font-semibold">${title}</div>
               <div class="text-xs text-slate-400 mt-1">${sub}</div>
             </div>
             <div class="flex items-center gap-2">
-              <span class="pill ${online ? "badge-green" : "badge-red"}">${online ? "ONLINE" : "OFFLINE"}</span>
+              <span class="pill ${online ? "badge-green" : "badge-red"}">${online ? "OK" : "ATTENTION"}</span>
               ${key !== "localCache" ? `<button class="btn-ghost text-xs px-3 py-2" data-admin-toggle-device="${key}">Toggle</button>` : ""}
             </div>
           </div>
@@ -1312,12 +1520,12 @@
     }
 
     if (adminDeviceLogs) {
-      const logs = safeArr(data.state?.deviceLogs).slice(0, 8);
+      const logs = safeArr(data.state?.deviceLogs).slice(0, 10);
       adminDeviceLogs.innerHTML = logs.length
         ? logs.map((l) => `
             <div class="p-2 rounded-xl bg-white/5 border border-white/10 text-xs">
               <div class="text-slate-400">${l.at ? new Date(l.at).toLocaleTimeString() : ""} • ${l.level || "INFO"}</div>
-              <div class="text-slate-200 mt-1">${l.message || ""}</div>
+              <div class="text-slate-200 mt-1">${escapeHtml(l.message || "")}</div>
             </div>
           `).join("")
         : `<div class="text-sm text-slate-400">No device events yet.</div>`;
@@ -2522,10 +2730,9 @@
   if (adminSimulateLatencyBtn) {
     adminSimulateLatencyBtn.onclick = async () => {
       try {
-        const ms = typeof FC.simulateLatency === "function"
-          ? FC.simulateLatency()
-          : Math.floor(Math.random() * 300) + 20;
-        if (ms > 150 && typeof FC.deviceLog === "function") FC.deviceLog("Latency spike detected from admin console.", "WARN");
+        const ms = Math.floor(Math.random() * 320) + 30;
+        adminSetDevice("network", { online: true, latencyMs: ms, lastManualCheckAt: nowISO() }, `Network latency simulated at ${ms}ms.`);
+        if (ms > 150) adminDeviceLog("Latency spike detected from admin console.", "WARN");
       } catch (err) {
         console.error("admin.js: simulate latency failed", err);
       }
@@ -2536,8 +2743,16 @@
   if (adminTestPrintBtn) {
     adminTestPrintBtn.onclick = async () => {
       try {
-        if (typeof FC.deviceLog === "function") FC.deviceLog("Admin sent test receipt to printer spool.", "INFO");
-        if (typeof FC.simulatePrinterPaperUse === "function") FC.simulatePrinterPaperUse();
+        const d = adminGetDevices();
+        if (!d.printer?.online) {
+          adminDeviceLog("Test print blocked because printer is OFF.", "WARN");
+          alert("Printer is OFF. Turn ON the printer from Hardware Console before test print.");
+          await renderAll();
+          return;
+        }
+
+        adminDeviceLog("Admin test print allowed. Paper percentage reduced by 1%.", "INFO");
+        adminConsumePrinterPaper(HARDWARE_PRINT_PAPER_STEP, "Test print paper usage");
       } catch (err) {
         console.error("admin.js: test print failed", err);
       }
@@ -2548,7 +2763,7 @@
   if (adminConsumePaperBtn) {
     adminConsumePaperBtn.onclick = async () => {
       try {
-        if (typeof FC.simulatePrinterPaperUse === "function") FC.simulatePrinterPaperUse();
+        adminConsumePrinterPaper(HARDWARE_PRINT_PAPER_STEP, "One receipt simulated from admin console");
       } catch (err) {
         console.error("admin.js: consume paper failed", err);
       }
@@ -2559,7 +2774,7 @@
   if (adminGatewaySuccessBtn) {
     adminGatewaySuccessBtn.onclick = async () => {
       try {
-        if (typeof FC.simulateGatewayVerify === "function") FC.simulateGatewayVerify(true);
+        adminSetDevice("paymentGateway", { online: true, provider: "Stripe / Cash Counter", lastVerifyAt: nowISO(), lastResult: "success" }, "Payment gateway marked SUCCESS and turned ON.");
       } catch (err) {
         console.error("admin.js: gateway success failed", err);
       }
@@ -2570,7 +2785,7 @@
   if (adminGatewayFailBtn) {
     adminGatewayFailBtn.onclick = async () => {
       try {
-        if (typeof FC.simulateGatewayVerify === "function") FC.simulateGatewayVerify(false);
+        adminSetDevice("paymentGateway", { online: false, provider: "Stripe / Cash Counter", lastVerifyAt: nowISO(), lastResult: "failed" }, "Payment gateway failure simulated. Online payment turned OFF.");
       } catch (err) {
         console.error("admin.js: gateway failure failed", err);
       }
@@ -2581,7 +2796,7 @@
   if (adminLockKioskBtn) {
     adminLockKioskBtn.onclick = async () => {
       const d = adminGetDevices();
-      adminSetDevice("kioskDisplay", { locked: !d.kioskDisplay?.locked });
+      adminSetDevice("kioskDisplay", { locked: !d.kioskDisplay?.locked, updatedAt: nowISO() }, `Kiosk ${!d.kioskDisplay?.locked ? "locked" : "unlocked"} from admin console.`);
       await renderAll();
     };
   }
@@ -2591,6 +2806,85 @@
       const st = getStateSafe();
       st.deviceLogs = [];
       saveStateSafe(st);
+      await renderAll();
+    };
+  }
+
+  if (adminNetworkOnlineBtn) {
+    adminNetworkOnlineBtn.onclick = async () => {
+      adminSetDevice("network", { online: true, manuallyControlled: true, latencyMs: 42, lastManualCheckAt: nowISO() }, "Network manually turned ON from admin console.");
+      await renderAll();
+    };
+  }
+
+  if (adminNetworkOfflineBtn) {
+    adminNetworkOfflineBtn.onclick = async () => {
+      adminSetDevice("network", { online: false, manuallyControlled: true, latencyMs: 0, lastManualCheckAt: nowISO() }, "Network manually turned OFF from admin console.");
+      await renderAll();
+    };
+  }
+
+  if (adminPrinterOnlineBtn) {
+    adminPrinterOnlineBtn.onclick = async () => {
+      adminSetDeviceOnline("printer", true, "Printer");
+      await renderAll();
+    };
+  }
+
+  if (adminPrinterOfflineBtn) {
+    adminPrinterOfflineBtn.onclick = async () => {
+      adminSetDeviceOnline("printer", false, "Printer");
+      await renderAll();
+    };
+  }
+
+  if (adminPaperDownBtn) {
+    adminPaperDownBtn.onclick = async () => {
+      const d = adminGetDevices();
+      adminSetPaperPercent(clampPercent(d.printer?.paper ?? d.printer?.paperPercent ?? 100) - 5, "Paper manually decreased");
+      await renderAll();
+    };
+  }
+
+  if (adminPaperUpBtn) {
+    adminPaperUpBtn.onclick = async () => {
+      const d = adminGetDevices();
+      adminSetPaperPercent(clampPercent(d.printer?.paper ?? d.printer?.paperPercent ?? 100) + 5, "Paper manually increased");
+      await renderAll();
+    };
+  }
+
+  if (adminPaperResetBtn) {
+    adminPaperResetBtn.onclick = async () => {
+      adminSetPaperPercent(100, "New 80m paper roll installed/reset");
+      await renderAll();
+    };
+  }
+
+  if (adminPaymentGatewayOnlineBtn) {
+    adminPaymentGatewayOnlineBtn.onclick = async () => {
+      adminSetDevice("paymentGateway", { online: true, provider: "Stripe / Cash Counter", lastVerifyAt: nowISO(), lastResult: "manual_on" }, "Payment gateway manually turned ON.");
+      await renderAll();
+    };
+  }
+
+  if (adminPaymentGatewayOfflineBtn) {
+    adminPaymentGatewayOfflineBtn.onclick = async () => {
+      adminSetDevice("paymentGateway", { online: false, provider: "Stripe / Cash Counter", lastVerifyAt: nowISO(), lastResult: "manual_off" }, "Payment gateway manually turned OFF. Online payments unavailable.");
+      await renderAll();
+    };
+  }
+
+  if (adminKioskDisplayOnlineBtn) {
+    adminKioskDisplayOnlineBtn.onclick = async () => {
+      adminSetDevice("kioskDisplay", { online: true, maintenanceMode: false, outOfOrder: false, updatedAt: nowISO() }, "Customer kiosk display turned ON.");
+      await renderAll();
+    };
+  }
+
+  if (adminKioskDisplayOfflineBtn) {
+    adminKioskDisplayOfflineBtn.onclick = async () => {
+      adminSetDevice("kioskDisplay", { online: false, maintenanceMode: true, outOfOrder: true, updatedAt: nowISO() }, "Customer kiosk display turned OFF. Maintenance / Out of Order mode enabled.");
       await renderAll();
     };
   }

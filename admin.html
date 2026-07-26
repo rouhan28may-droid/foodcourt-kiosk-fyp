@@ -212,28 +212,163 @@
       <!-- Hardware -->
       <section data-admin-tab-panel="hardware" class="hidden space-y-6">
         <div class="glass p-5 rounded-3xl">
-          <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <div class="text-lg font-semibold">Hardware Console</div>
               <div id="adminHardwareHealthLabel" class="text-xl font-semibold mt-2">—</div>
               <div id="adminHardwareIssues" class="text-sm text-slate-300 mt-2"></div>
+              <div class="text-xs text-slate-500 mt-1">
+                Control kiosk network state, printer availability, paper level, payment gateway, and customer display mode.
+              </div>
             </div>
-            <button id="adminLockKioskBtn" class="btn-ghost text-sm">Lock/Unlock Kiosk</button>
+
+            <div class="flex items-center gap-2 flex-wrap">
+              <button id="adminClearDeviceLogsBtn" class="btn-ghost text-sm">Clear Device Logs</button>
+            </div>
           </div>
 
-          <div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            <button id="adminSimulateLatencyBtn" class="btn-ghost text-sm">Simulate Latency</button>
-            <button id="adminTestPrintBtn" class="btn-primary text-sm">Test Print</button>
-            <button id="adminConsumePaperBtn" class="btn-ghost text-sm">Consume Paper</button>
-            <button id="adminGatewaySuccessBtn" class="btn-ghost text-sm">Gateway Success</button>
-            <button id="adminGatewayFailBtn" class="btn-ghost text-sm">Gateway Failure</button>
-            <button id="adminClearDeviceLogsBtn" class="btn-ghost text-sm">Clear Device Logs</button>
+          <!-- Hardware warning / attention banner -->
+          <div id="adminHardwareWarningBox" class="hidden mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-4">
+            <div class="flex items-start gap-3">
+              <div class="text-2xl">⚠️</div>
+              <div>
+                <div id="adminHardwareWarningTitle" class="text-sm font-semibold text-red-100">Hardware Attention Required</div>
+                <div id="adminHardwareWarningMessage" class="text-xs text-red-100/80 mt-1">
+                  One or more hardware services need attention.
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div id="adminDevicesPanel" class="mt-4 space-y-2"></div>
+          <!-- Main hardware control cards -->
+          <div class="mt-5 grid lg:grid-cols-2 gap-4">
+            <!-- Network -->
+            <div class="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="text-xs uppercase tracking-widest text-slate-400">Network</div>
+                  <div class="text-lg font-semibold mt-1">Raspberry Pi Internet / Wi-Fi</div>
+                  <div id="adminNetworkLastSeen" class="text-xs text-slate-400 mt-1">Last heartbeat: —</div>
+                </div>
+                <span id="adminNetworkStatusBadge" class="pill badge-green">ONLINE</span>
+              </div>
 
-          <div class="mt-5">
-            <div class="text-sm font-semibold">Device Logs</div>
+              <div id="adminNetworkWarning" class="hidden mt-3 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                No network detected. Customer ordering should be temporarily unavailable.
+              </div>
+
+              <div class="mt-4 grid sm:grid-cols-3 gap-2">
+                <button id="adminNetworkOnlineBtn" type="button" class="btn-primary text-sm">Turn ON</button>
+                <button id="adminNetworkOfflineBtn" type="button" class="btn-ghost text-sm">Turn OFF</button>
+                <button id="adminSimulateLatencyBtn" type="button" class="btn-ghost text-sm">Simulate Latency</button>
+              </div>
+
+              <div class="text-xs text-slate-400 mt-3">
+                Auto check will use kiosk heartbeat. If the Raspberry Pi cannot reach internet, admin will show offline after timeout.
+              </div>
+            </div>
+
+            <!-- Printer -->
+            <div class="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="text-xs uppercase tracking-widest text-slate-400">Printer</div>
+                  <div class="text-lg font-semibold mt-1">Thermal Receipt Printer</div>
+                  <div class="text-xs text-slate-400 mt-1">If OFF, kiosk will block receipt printing before print bridge.</div>
+                </div>
+                <span id="adminPrinterStatusBadge" class="pill badge-green">ONLINE</span>
+              </div>
+
+              <div id="adminLowPaperWarning" class="hidden mt-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                Low paper warning: paper is below 15%. Please replace the printer roll.
+              </div>
+
+              <div class="mt-4">
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-slate-300">Paper remaining</span>
+                  <span id="adminPrinterPaperValue" class="font-semibold">80%</span>
+                </div>
+                <div class="mt-2 h-3 rounded-full bg-slate-950/70 overflow-hidden border border-white/10">
+                  <div id="adminPrinterPaperBar" class="h-full rounded-full bg-green-500" style="width:80%"></div>
+                </div>
+                <div class="text-xs text-slate-500 mt-1">New roll reference: 80m = 100%. Percentage reduces after printing.</div>
+              </div>
+
+              <div class="mt-4 grid sm:grid-cols-3 gap-2">
+                <button id="adminPrinterOnlineBtn" type="button" class="btn-primary text-sm">Turn ON</button>
+                <button id="adminPrinterOfflineBtn" type="button" class="btn-ghost text-sm">Turn OFF</button>
+                <button id="adminTestPrintBtn" type="button" class="btn-primary text-sm">Test Print</button>
+                <button id="adminPaperDownBtn" type="button" class="btn-ghost text-sm">Paper -5%</button>
+                <button id="adminPaperUpBtn" type="button" class="btn-ghost text-sm">Paper +5%</button>
+                <button id="adminPaperResetBtn" type="button" class="btn-ghost text-sm">Reset 100%</button>
+                <button id="adminConsumePaperBtn" type="button" class="btn-ghost text-sm sm:col-span-3">Consume Paper / Simulate One Receipt</button>
+              </div>
+            </div>
+
+            <!-- Payment Gateway -->
+            <div class="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="text-xs uppercase tracking-widest text-slate-400">Payment Gateway</div>
+                  <div class="text-lg font-semibold mt-1">Stripe Online Payment</div>
+                  <div class="text-xs text-slate-400 mt-1">If OFF, online payment will be hidden/disabled on customer kiosk.</div>
+                </div>
+                <span id="adminPaymentGatewayStatusBadge" class="pill badge-green">ONLINE</span>
+              </div>
+
+              <div id="adminPaymentGatewayWarning" class="hidden mt-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                Online payment is temporarily unavailable. Customers should use cash payment.
+              </div>
+
+              <div class="mt-4 grid sm:grid-cols-2 gap-2">
+                <button id="adminPaymentGatewayOnlineBtn" type="button" class="btn-primary text-sm">Turn ON</button>
+                <button id="adminPaymentGatewayOfflineBtn" type="button" class="btn-ghost text-sm">Turn OFF</button>
+                <button id="adminGatewaySuccessBtn" type="button" class="btn-ghost text-sm">Gateway Success</button>
+                <button id="adminGatewayFailBtn" type="button" class="btn-ghost text-sm">Gateway Failure</button>
+              </div>
+            </div>
+
+            <!-- Kiosk Display -->
+            <div class="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="text-xs uppercase tracking-widest text-slate-400">Kiosk Display</div>
+                  <div class="text-lg font-semibold mt-1">Customer Dashboard Screen</div>
+                  <div class="text-xs text-slate-400 mt-1">If OFF, kiosk shows Maintenance Break / Out of Order overlay.</div>
+                </div>
+                <span id="adminKioskDisplayStatusBadge" class="pill badge-green">ONLINE</span>
+              </div>
+
+              <div id="adminKioskDisplayWarning" class="hidden mt-3 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                Customer kiosk display is disabled. Maintenance / Out of Order screen will be shown.
+              </div>
+
+              <div class="mt-4 grid sm:grid-cols-3 gap-2">
+                <button id="adminKioskDisplayOnlineBtn" type="button" class="btn-primary text-sm">Turn ON</button>
+                <button id="adminKioskDisplayOfflineBtn" type="button" class="btn-ghost text-sm">Turn OFF</button>
+                <button id="adminLockKioskBtn" type="button" class="btn-ghost text-sm">Lock/Unlock Kiosk</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live rendered device list from admin.js -->
+          <div class="mt-5 rounded-3xl border border-white/10 bg-slate-950/30 p-4">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="text-sm font-semibold">Live Device State</div>
+                <div class="text-xs text-slate-400 mt-1">Current saved status for network, printer, payment gateway, kiosk display, and local cache.</div>
+              </div>
+            </div>
+            <div id="adminDevicesPanel" class="mt-4 space-y-2"></div>
+          </div>
+
+          <div class="mt-5 rounded-3xl border border-white/10 bg-slate-950/30 p-4">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="text-sm font-semibold">Device Logs</div>
+                <div class="text-xs text-slate-400 mt-1">Printer, network, payment gateway, paper, and kiosk display events.</div>
+              </div>
+            </div>
             <div id="adminDeviceLogs" class="mt-3 space-y-2"></div>
           </div>
         </div>

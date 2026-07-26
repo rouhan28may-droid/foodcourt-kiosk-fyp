@@ -190,12 +190,400 @@
 
   function simulatePrinterPaperUseSafe() {
     try {
+      if (typeof FC.consumePrinterPaperMeters === "function") {
+        const devices = typeof FC.getDevices === "function" ? FC.getDevices() : {};
+        const printer = safeObject(devices.printer);
+        const meters = Number(printer.receiptAverageMeters || FC.HARDWARE_RECEIPT_AVERAGE_METERS || 0.35);
+        FC.consumePrinterPaperMeters(meters, "Receipt printed from customer kiosk");
+        return;
+      }
+
       if (typeof FC.simulatePrinterPaperUse === "function") {
         FC.simulatePrinterPaperUse();
       }
     } catch (err) {
       console.error("kiosk.js: simulatePrinterPaperUse failed", err);
     }
+  }
+
+  // ---------- Kiosk Hardware Console Integration ----------
+  const KIOSK_NETWORK_CHECK_MS = 5000;
+  const KIOSK_NETWORK_FETCH_TIMEOUT_MS = 3500;
+  let kioskHardwareWatchStarted = false;
+  let kioskNetworkProbeOk = true;
+  let kioskNetworkLastError = "";
+  let kioskNetworkLastLatencyMs = 0;
+
+  function getDevicesSafe() {
+    try {
+      if (typeof FC.getDevices === "function") return FC.getDevices() || {};
+    } catch (err) {
+      console.warn("kiosk.js: getDevices failed", err);
+    }
+
+    return safeObject(safeState().devices);
+  }
+
+  function getDeviceSafe(key) {
+    return safeObject(getDevicesSafe()[key]);
+  }
+
+  function getOnlinePaymentAvailability() {
+    try {
+      if (typeof FC.canUseOnlinePayment === "function") {
+        const res = FC.canUseOnlinePayment();
+        if (res && typeof res === "object") return { ok: !!res.ok, reason: String(res.reason || "") };
+      }
+    } catch (err) {
+      console.warn("kiosk.js: canUseOnlinePayment failed", err);
+    }
+
+    const gateway = getDeviceSafe("paymentGateway");
+    if (gateway.online === false) {
+      return {
+        ok: false,
+        reason: gateway.unavailableMessage || "Online payment is temporarily unavailable. Please choose cash payment or contact staff."
+      };
+    }
+
+    return { ok: true, reason: "Payment gateway online." };
+  }
+
+  function getPrinterAvailability() {
+    try {
+      if (typeof FC.canPrintReceipt === "function") {
+        const res = FC.canPrintReceipt();
+        if (res && typeof res === "object") return { ok: !!res.ok, reason: String(res.reason || "") };
+      }
+    } catch (err) {
+      console.warn("kiosk.js: canPrintReceipt failed", err);
+    }
+
+    const printer = getDeviceSafe("printer");
+    const paper = Number(printer.paperPercent ?? printer.paper ?? 100);
+
+    if (printer.online === false) {
+      return { ok: false, reason: "Printer is turned OFF from admin hardware console." };
+    }
+
+    if (Number.isFinite(paper) && paper <= 0) {
+      return { ok: false, reason: "Printer is out of paper." };
+    }
+
+    return { ok: true, reason: "Printer ready." };
+  }
+
+  function getKioskDisplayBlockReason() {
+    const display = getDeviceSafe("kioskDisplay");
+
+    if (display.online === false || display.maintenanceMode || display.outOfOrder) {
+      return display.unavailableMessage || "Maintenance Break / Out of Order";
+    }
+
+    return "";
+  }
+
+  function getNetworkBlockReason() {
+    const network = getDeviceSafe("network");
+
+    if (network.online === false || network.manuallyControlled === true && network.online === false) {
+      return "No Network. Network is turned OFF from admin hardware console.";
+    }
+
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return "No Internet Connection. Raspberry Pi Wi-Fi is disconnected.";
+    }
+
+    if (!kioskNetworkProbeOk) {
+      return kioskNetworkLastError || "No Internet Connection. Cloud server is not reachable.";
+    }
+
+    return "";
+  }
+
+  function getOrderingBlockReason() {
+    return getKioskDisplayBlockReason() || getNetworkBlockReason();
+  }
+
+  function injectKioskHardwareConsoleStyles() {
+    if (document.getElementById("kioskHardwareConsoleStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "kioskHardwareConsoleStyles";
+    style.textContent = `
+      .fc-hardware-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 28px;
+        background: radial-gradient(circle at 20% 15%, rgba(239,68,68,.22), transparent 34%),
+                    linear-gradient(135deg, rgba(2,6,23,.97), rgba(15,23,42,.98));
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        color: #f8fafc;
+        text-align: center;
+      }
+
+      .fc-hardware-overlay.fc-show {
+        display: flex;
+      }
+
+      .fc-hardware-card {
+        width: min(720px, 94vw);
+        border-radius: 32px;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(15,23,42,.82);
+        box-shadow: 0 34px 90px rgba(0,0,0,.55);
+        padding: 42px 34px;
+      }
+
+      .fc-hardware-icon {
+        width: 92px;
+        height: 92px;
+        margin: 0 auto 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: rgba(239,68,68,.16);
+        border: 1px solid rgba(248,113,113,.35);
+        font-size: 46px;
+      }
+
+      .fc-hardware-kicker {
+        color: #fecaca;
+        font-size: 13px;
+        font-weight: 950;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+      }
+
+      .fc-hardware-title {
+        margin-top: 10px;
+        font-size: clamp(28px, 4vw, 46px);
+        font-weight: 950;
+        line-height: 1.05;
+      }
+
+      .fc-hardware-message {
+        margin: 18px auto 0;
+        max-width: 560px;
+        color: #cbd5e1;
+        font-size: 18px;
+        line-height: 1.55;
+      }
+
+      .fc-hardware-sub {
+        margin-top: 18px;
+        color: #94a3b8;
+        font-size: 14px;
+      }
+
+      .fc-payment-option-disabled {
+        opacity: .46 !important;
+        cursor: not-allowed !important;
+        filter: grayscale(.45);
+      }
+
+      .fc-payment-option-disabled * {
+        pointer-events: none !important;
+      }
+
+      .fc-online-unavailable-note {
+        margin-top: 10px;
+        border: 1px solid rgba(251,191,36,.35);
+        background: rgba(251,191,36,.10);
+        color: #fde68a;
+        border-radius: 16px;
+        padding: 10px 12px;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+
+  function ensureKioskHardwareOverlays() {
+    injectKioskHardwareConsoleStyles();
+
+    let networkOverlay = document.getElementById("fcNoNetworkOverlay");
+    if (!networkOverlay) {
+      networkOverlay = document.createElement("div");
+      networkOverlay.id = "fcNoNetworkOverlay";
+      networkOverlay.className = "fc-hardware-overlay";
+      networkOverlay.innerHTML = `
+        <div class="fc-hardware-card">
+          <div class="fc-hardware-icon">📡</div>
+          <div class="fc-hardware-kicker">Network Offline</div>
+          <div class="fc-hardware-title">No Internet Connection</div>
+          <div class="fc-hardware-message" data-fc-network-message>Raspberry Pi is not connected with Wi-Fi or internet.</div>
+          <div class="fc-hardware-sub">Ordering is temporarily unavailable. Please contact staff.</div>
+        </div>
+      `;
+      document.body.appendChild(networkOverlay);
+    }
+
+    let maintenanceOverlay = document.getElementById("fcKioskMaintenanceOverlay");
+    if (!maintenanceOverlay) {
+      maintenanceOverlay = document.createElement("div");
+      maintenanceOverlay.id = "fcKioskMaintenanceOverlay";
+      maintenanceOverlay.className = "fc-hardware-overlay";
+      maintenanceOverlay.innerHTML = `
+        <div class="fc-hardware-card">
+          <div class="fc-hardware-icon">🛠️</div>
+          <div class="fc-hardware-kicker">Kiosk Display Disabled</div>
+          <div class="fc-hardware-title">Maintenance Break</div>
+          <div class="fc-hardware-message" data-fc-maintenance-message>Maintenance Break / Out of Order</div>
+          <div class="fc-hardware-sub">This customer dashboard has been turned OFF from the admin hardware console.</div>
+        </div>
+      `;
+      document.body.appendChild(maintenanceOverlay);
+    }
+
+    return { networkOverlay, maintenanceOverlay };
+  }
+
+  function updateOverlayState(el, show, messageSelector, message) {
+    if (!el) return;
+    el.classList.toggle("fc-show", !!show);
+    el.setAttribute("aria-hidden", show ? "false" : "true");
+    const msgEl = messageSelector ? el.querySelector(messageSelector) : null;
+    if (msgEl && message) msgEl.textContent = message;
+  }
+
+  function updateKioskHardwareUiState() {
+    const { networkOverlay, maintenanceOverlay } = ensureKioskHardwareOverlays();
+    const networkReason = getNetworkBlockReason();
+    const displayReason = getKioskDisplayBlockReason();
+
+    updateOverlayState(maintenanceOverlay, !!displayReason && !networkReason, "[data-fc-maintenance-message]", displayReason);
+    updateOverlayState(networkOverlay, !!networkReason, "[data-fc-network-message]", networkReason);
+
+    const paymentAvailability = getOnlinePaymentAvailability();
+    const onlineOk = !!paymentAvailability.ok;
+
+    if (!onlineOk && normalizePaymentMethod(paymentMethod) === "online") {
+      paymentMethod = "";
+      try { saveSession(); } catch {}
+    }
+
+    if (paymentMethodOnline) {
+      paymentMethodOnline.disabled = !onlineOk;
+      if (!onlineOk) paymentMethodOnline.checked = false;
+    }
+
+    if (onlinePaymentOption) {
+      onlinePaymentOption.classList.toggle("fc-payment-option-disabled", !onlineOk);
+      onlinePaymentOption.setAttribute("aria-disabled", onlineOk ? "false" : "true");
+      onlinePaymentOption.title = onlineOk ? "" : paymentAvailability.reason;
+    }
+
+    let note = document.getElementById("onlinePaymentUnavailableNote");
+    if (!onlineOk && paymentMethodPanel) {
+      if (!note) {
+        note = document.createElement("div");
+        note.id = "onlinePaymentUnavailableNote";
+        note.className = "fc-online-unavailable-note";
+        paymentMethodPanel.appendChild(note);
+      }
+      note.textContent = paymentAvailability.reason || "Online payment is temporarily unavailable. Please choose cash payment.";
+    } else if (note) {
+      note.remove();
+    }
+  }
+
+  async function checkKioskNetworkAndHeartbeat() {
+    const startedAt = Date.now();
+
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      kioskNetworkProbeOk = false;
+      kioskNetworkLastLatencyMs = 0;
+      kioskNetworkLastError = "No Internet Connection. Raspberry Pi Wi-Fi is disconnected.";
+
+      try {
+        if (typeof FC.updateKioskHeartbeat === "function") {
+          FC.updateKioskHeartbeat({ networkOnline: false, displayOnline: true, latencyMs: 0, lastError: kioskNetworkLastError });
+        }
+      } catch {}
+
+      updateKioskHardwareUiState();
+      return false;
+    }
+
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), KIOSK_NETWORK_FETCH_TIMEOUT_MS) : null;
+
+    try {
+      const url = `${window.location.origin}${window.location.pathname}?network_check=${Date.now()}`;
+      const res = await fetch(url, {
+        method: "HEAD",
+        cache: "no-store",
+        signal: controller ? controller.signal : undefined
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      kioskNetworkProbeOk = true;
+      kioskNetworkLastLatencyMs = Math.max(1, Date.now() - startedAt);
+      kioskNetworkLastError = "";
+
+      if (typeof FC.updateKioskHeartbeat === "function") {
+        FC.updateKioskHeartbeat({
+          networkOnline: true,
+          displayOnline: true,
+          latencyMs: kioskNetworkLastLatencyMs,
+          lastError: ""
+        });
+      }
+
+      updateKioskHardwareUiState();
+      return true;
+    } catch (err) {
+      kioskNetworkProbeOk = false;
+      kioskNetworkLastLatencyMs = 0;
+      kioskNetworkLastError = "No Internet Connection. Cloud server is not reachable.";
+
+      try {
+        if (typeof FC.updateKioskHeartbeat === "function") {
+          FC.updateKioskHeartbeat({ networkOnline: false, displayOnline: true, latencyMs: 0, lastError: String(err?.message || err || "network error") });
+        }
+      } catch {}
+
+      updateKioskHardwareUiState();
+      return false;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  function startKioskHardwareWatchers() {
+    if (kioskHardwareWatchStarted) return;
+    kioskHardwareWatchStarted = true;
+
+    ensureKioskHardwareOverlays();
+    updateKioskHardwareUiState();
+    checkKioskNetworkAndHeartbeat();
+
+    setInterval(() => {
+      updateKioskHardwareUiState();
+      checkKioskNetworkAndHeartbeat();
+    }, KIOSK_NETWORK_CHECK_MS);
+
+    window.addEventListener("online", () => {
+      kioskNetworkProbeOk = true;
+      kioskNetworkLastError = "";
+      checkKioskNetworkAndHeartbeat();
+    });
+
+    window.addEventListener("offline", () => {
+      kioskNetworkProbeOk = false;
+      kioskNetworkLastError = "No Internet Connection. Raspberry Pi Wi-Fi is disconnected.";
+      checkKioskNetworkAndHeartbeat();
+    });
   }
 
   async function createStripeCheckoutSession(order) {
@@ -1286,7 +1674,7 @@
 
     setTimeout(async () => {
       try {
-        await printReceiptOnly(orderId);
+        await printReceiptOnly(orderId, { auto: true });
       } catch (err) {
         console.error("kiosk.js: automatic bridge print failed", err);
       }
@@ -1541,6 +1929,16 @@
       };
     }
 
+    if (method === "online") {
+      const onlinePayment = getOnlinePaymentAvailability();
+      if (!onlinePayment.ok) {
+        return {
+          ok: false,
+          message: onlinePayment.reason || "Online payment is temporarily unavailable. Please choose cash payment."
+        };
+      }
+    }
+
     return {
       ok: true,
       paymentMethod: method,
@@ -1564,13 +1962,29 @@
       }
     };
 
-    const method = normalizePaymentMethod(paymentMethod);
+    const onlinePayment = getOnlinePaymentAvailability();
+    let method = normalizePaymentMethod(paymentMethod);
 
-    if (paymentMethodOnline) paymentMethodOnline.checked = method === "online";
+    if (!onlinePayment.ok && method === "online") {
+      paymentMethod = "";
+      method = "";
+      saveSession();
+    }
+
+    if (paymentMethodOnline) {
+      paymentMethodOnline.checked = method === "online" && onlinePayment.ok;
+      paymentMethodOnline.disabled = !onlinePayment.ok;
+    }
     if (paymentMethodCash) paymentMethodCash.checked = method === "cash";
 
-    applyOptionState(onlinePaymentOption, method === "online");
+    applyOptionState(onlinePaymentOption, method === "online" && onlinePayment.ok);
     applyOptionState(cashPaymentOption, method === "cash");
+
+    if (onlinePaymentOption) {
+      onlinePaymentOption.classList.toggle("fc-payment-option-disabled", !onlinePayment.ok);
+      onlinePaymentOption.setAttribute("aria-disabled", onlinePayment.ok ? "false" : "true");
+      onlinePaymentOption.title = onlinePayment.ok ? "" : onlinePayment.reason;
+    }
 
     if (paymentMethodSummary) {
       paymentMethodSummary.textContent = paymentMethodLabel(method);
@@ -1578,11 +1992,13 @@
 
     if (paymentMethodNote) {
       paymentMethodNote.textContent =
-        method === "cash"
-          ? "Cash order will print a staff confirmation QR and a customer tracking QR."
-          : method === "online"
-            ? "Online order will show Stripe QR and print a customer tracking QR after payment."
-            : "Cash orders print staff confirmation QR. Online orders show Stripe QR.";
+        !onlinePayment.ok
+          ? (onlinePayment.reason || "Online payment is temporarily unavailable. Please choose cash payment.")
+          : method === "cash"
+            ? "Cash order will print a staff confirmation QR and a customer tracking QR."
+            : method === "online"
+              ? "Online order will show Stripe QR and print a customer tracking QR after payment."
+              : "Cash orders print staff confirmation QR. Online orders show Stripe QR.";
     }
 
     if (paymentMethodError) {
@@ -3008,6 +3424,24 @@ async function browserPrintSlipOnly(orderId) {
       return;
     }
 
+    const onlinePayment = getOnlinePaymentAvailability();
+    if (!onlinePayment.ok) {
+      if (paymentModal) paymentModal.classList.add("hidden");
+      if (payStatus) payStatus.textContent = onlinePayment.reason || "Online payment is temporarily unavailable.";
+      if (elFlowPanel) {
+        elFlowPanel.classList.remove("hidden");
+        elFlowPanel.innerHTML = `
+          <div class="rounded-3xl border border-amber-400/25 bg-amber-500/10 p-5">
+            <div class="text-xs uppercase tracking-widest text-amber-200">Online Payment Unavailable</div>
+            <div class="text-xl font-semibold mt-1">Online payment is temporarily unavailable.</div>
+            <div class="text-sm text-slate-300 mt-2">${escapeHtml(onlinePayment.reason || "Please choose cash payment or contact staff.")}</div>
+          </div>
+        `;
+      }
+      alertSafe(onlinePayment.reason || "Online payment is temporarily unavailable. Please choose cash payment.");
+      return;
+    }
+
     currentPayOrderId = orderId;
     currentStripeCheckoutUrl = "";
 
@@ -3662,9 +4096,22 @@ async function browserPrintSlipOnly(orderId) {
     await renderReceiptPreview(orderId);
   }
 
-  async function printReceiptOnly(orderId) {
+  async function printReceiptOnly(orderId, options = {}) {
     const order = await getOrderSafe(orderId);
     if (!order) return false;
+
+    const printerReady = getPrinterAvailability();
+    if (!printerReady.ok) {
+      const reason = printerReady.reason || "Printer is not available.";
+      if (receiptHint) {
+        receiptHint.textContent = reason;
+      }
+      logSafe(`Receipt print blocked for ${order.id}: ${reason}`);
+      if (!options.auto) {
+        alertSafe(reason);
+      }
+      return false;
+    }
 
     const restaurant = getRestaurantById(order.restaurantId);
     const payload = {
@@ -3797,6 +4244,18 @@ async function browserPrintSlipOnly(orderId) {
 
   if (paymentMethodOnline) {
     paymentMethodOnline.addEventListener("change", () => {
+      const onlinePayment = getOnlinePaymentAvailability();
+      if (!onlinePayment.ok) {
+        paymentMethodOnline.checked = false;
+        paymentMethod = "";
+        saveSession();
+        renderPaymentMethodPanel();
+        if (paymentMethodError) {
+          paymentMethodError.textContent = onlinePayment.reason || "Online payment is temporarily unavailable.";
+          paymentMethodError.classList.remove("hidden");
+        }
+        return;
+      }
       setPaymentMethod("online");
     });
   }
@@ -3809,6 +4268,19 @@ async function browserPrintSlipOnly(orderId) {
 
   if (onlinePaymentOption) {
     onlinePaymentOption.addEventListener("click", () => {
+      const onlinePayment = getOnlinePaymentAvailability();
+      if (!onlinePayment.ok) {
+        if (paymentMethodOnline) paymentMethodOnline.checked = false;
+        paymentMethod = "";
+        saveSession();
+        renderPaymentMethodPanel();
+        if (paymentMethodError) {
+          paymentMethodError.textContent = onlinePayment.reason || "Online payment is temporarily unavailable.";
+          paymentMethodError.classList.remove("hidden");
+        }
+        return;
+      }
+
       if (paymentMethodOnline) paymentMethodOnline.checked = true;
       setPaymentMethod("online");
     });
@@ -3872,6 +4344,13 @@ async function browserPrintSlipOnly(orderId) {
   if (elCheckout) {
     elCheckout.onclick = async () => {
       if (!cart.length) return;
+
+      const hardwareBlockReason = getOrderingBlockReason();
+      if (hardwareBlockReason) {
+        updateKioskHardwareUiState();
+        alertSafe(hardwareBlockReason);
+        return;
+      }
 
       if (awaitingOrderId) {
         const existing = await getOrderSafe(awaitingOrderId);
@@ -4079,6 +4558,7 @@ async function browserPrintSlipOnly(orderId) {
       await renderMenu();
       renderCart();
       await refreshFlowPanel();
+      updateKioskHardwareUiState();
     } catch (err) {
       console.error("kiosk.js: renderAll failed", err);
     } finally {
@@ -4093,6 +4573,7 @@ async function browserPrintSlipOnly(orderId) {
   await seedSafe();
   await handleStripeReturn();
   await renderAll();
+  startKioskHardwareWatchers();
 
   window.addEventListener("fc:state-changed", async () => {
     await renderAll();
