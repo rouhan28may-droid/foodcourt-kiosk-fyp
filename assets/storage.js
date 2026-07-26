@@ -193,6 +193,7 @@ FC.defaultState = function () {
       idleAdsAfterSeconds: 240,
       paymentTimeoutSeconds: 180,
       approvalWindowSeconds: 20,
+      tableReservationMinutes: 20,
       kioskPin: "1234",
       staffPin: "1234"
     },
@@ -233,6 +234,7 @@ FC.defaultState = function () {
         unavailableMessage: "Online payment is temporarily unavailable. Please choose cash payment or contact staff."
       },
       kioskDisplay: {
+        enabled: true,
         online: true,
         manuallyControlled: false,
         brightness: 75,
@@ -481,6 +483,176 @@ FC.shouldAutoApproveOrder = function (order = {}) {
   );
 };
 
+
+// ---------- Dine-In Table Reservation (20 minutes) ----------
+FC.TABLE_RESERVATION_MINUTES = 20;
+
+FC.tableReservationMinutes = function () {
+  const s = FC.getState();
+  const n = Number(s.settings?.tableReservationMinutes || FC.TABLE_RESERVATION_MINUTES);
+  return Number.isFinite(n) && n > 0 ? n : FC.TABLE_RESERVATION_MINUTES;
+};
+
+FC.tableReservationMs = function () {
+  return FC.tableReservationMinutes() * 60 * 1000;
+};
+
+FC._dateMs = function (value) {
+  if (!value) return NaN;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : NaN;
+};
+
+FC._tableReservationStatusReleasesTable = function (status) {
+  return ["rejected", "cancelled", "timed_out"].includes(String(status || "").toLowerCase());
+};
+
+FC.tableReservationInfoFromOrder = function (order = {}, nowMs = Date.now()) {
+  const serviceType = FC._normalizeServiceType(
+    order.serviceType ||
+    order.service_type ||
+    order.orderType ||
+    order.order_type ||
+    ""
+  );
+
+  const tableNumber = FC._normalizeTableNumber(
+    serviceType,
+    order.tableNumber ||
+    order.table_number ||
+    order.tableNo ||
+    order.table_no ||
+    ""
+  ).toUpperCase();
+
+  if (serviceType !== "dine_in" || !tableNumber) return null;
+  if (FC._tableReservationStatusReleasesTable(order.status)) return null;
+
+  const payment = FC._safeObject(order.payment);
+  const reservedAtRaw =
+    order.tableReservedAt ||
+    order.table_reserved_at ||
+    payment.tableReservedAt ||
+    payment.table_reserved_at ||
+    order.createdAt ||
+    order.created_at ||
+    "";
+
+  const reservedAtMs = FC._dateMs(reservedAtRaw);
+  if (!Number.isFinite(reservedAtMs)) return null;
+
+  const minutes = Number(
+    order.tableReservationMinutes ||
+    order.table_reservation_minutes ||
+    payment.tableReservationMinutes ||
+    payment.table_reservation_minutes ||
+    FC.tableReservationMinutes()
+  );
+
+  const safeMinutes = Number.isFinite(minutes) && minutes > 0
+    ? minutes
+    : FC.tableReservationMinutes();
+
+  const explicitExpiresRaw =
+    order.tableReservationExpiresAt ||
+    order.table_reservation_expires_at ||
+    payment.tableReservationExpiresAt ||
+    payment.table_reservation_expires_at ||
+    "";
+
+  const explicitExpiresMs = FC._dateMs(explicitExpiresRaw);
+  const expiresAtMs = Number.isFinite(explicitExpiresMs)
+    ? explicitExpiresMs
+    : reservedAtMs + safeMinutes * 60 * 1000;
+
+  if (expiresAtMs <= Number(nowMs || Date.now())) return null;
+
+  return {
+    tableNumber,
+    orderId: String(order.id || ""),
+    restaurantId: String(order.restaurantId || order.restaurant_id || ""),
+    status: String(order.status || ""),
+    reservedAt: new Date(reservedAtMs).toISOString(),
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    reservedAtMs,
+    expiresAtMs,
+    minutes: safeMinutes,
+    minutesLeft: Math.max(1, Math.ceil((expiresAtMs - Number(nowMs || Date.now())) / 60000))
+  };
+};
+
+FC.getActiveTableReservations = function (orders, nowMs = Date.now()) {
+  const sourceOrders = Array.isArray(orders)
+    ? orders
+    : FC._safeArray(FC.getState().orders);
+
+  const reservations = {};
+
+  sourceOrders.forEach((order) => {
+    const info = FC.tableReservationInfoFromOrder(order, nowMs);
+    if (!info) return;
+
+    const current = reservations[info.tableNumber];
+
+    // Keep the newest active reservation if duplicate data appears.
+    if (!current || info.reservedAtMs > current.reservedAtMs) {
+      reservations[info.tableNumber] = info;
+    }
+  });
+
+  return reservations;
+};
+
+FC.getTableReservation = function (tableNumber, orders, nowMs = Date.now()) {
+  const table = String(tableNumber || "").trim().toUpperCase();
+  if (!table) return null;
+  return FC.getActiveTableReservations(orders, nowMs)[table] || null;
+};
+
+FC.isTableReserved = function (tableNumber, orders, excludeOrderId = "") {
+  const reservation = FC.getTableReservation(tableNumber, orders);
+  if (!reservation) return false;
+
+  if (excludeOrderId && String(reservation.orderId) === String(excludeOrderId)) {
+    return false;
+  }
+
+  return true;
+};
+
+FC.assertTableAvailable = function (tableNumber, orders, excludeOrderId = "") {
+  const table = String(tableNumber || "").trim().toUpperCase();
+
+  if (!table) {
+    throw new Error("Please select a table number for Dine In.");
+  }
+
+  const reservation = FC.getTableReservation(table, orders);
+
+  if (
+    reservation &&
+    (!excludeOrderId || String(reservation.orderId) !== String(excludeOrderId))
+  ) {
+    throw new Error(
+      `Table ${table} is reserved for approximately ${reservation.minutesLeft} more minute${reservation.minutesLeft === 1 ? "" : "s"}. Please select another table.`
+    );
+  }
+
+  return true;
+};
+
+FC.fetchActiveTableReservations = async function () {
+  let orders;
+
+  try {
+    orders = await FC.fetchAllOrders();
+  } catch {
+    orders = FC._safeArray(FC.getState().orders);
+  }
+
+  return FC.getActiveTableReservations(orders);
+};
+
 // ---------- Order Normalization ----------
 FC._normalizeOrder = function (order) {
   if (!order) return null;
@@ -509,6 +681,9 @@ FC._normalizeOrder = function (order) {
       rejectedByRestaurantId: order.rejected_by_restaurant_id || order.rejectedByRestaurantId || payment.rejectedByRestaurantId || null,
       approvedAt: order.approved_at || payment.approvedAt || null,
       paidAt: order.paid_at || null,
+      tableReservedAt: order.table_reserved_at || order.tableReservedAt || payment.tableReservedAt || payment.table_reserved_at || null,
+      tableReservationExpiresAt: order.table_reservation_expires_at || order.tableReservationExpiresAt || payment.tableReservationExpiresAt || payment.table_reservation_expires_at || null,
+      tableReservationMinutes: Number(order.table_reservation_minutes || order.tableReservationMinutes || payment.tableReservationMinutes || payment.table_reservation_minutes || 20),
       payment,
       paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.payment_method || "online"),
       trackingUrl: FC.orderTrackingUrl(order.id),
@@ -554,6 +729,9 @@ FC._normalizeOrder = function (order) {
     rejectedByRestaurantId: order.rejectedByRestaurantId || payment.rejectedByRestaurantId || null,
     approvedAt: order.approvedAt || payment.approvedAt || null,
     paidAt: order.paidAt || null,
+    tableReservedAt: order.tableReservedAt || order.table_reserved_at || payment.tableReservedAt || payment.table_reserved_at || null,
+    tableReservationExpiresAt: order.tableReservationExpiresAt || order.table_reservation_expires_at || payment.tableReservationExpiresAt || payment.table_reservation_expires_at || null,
+    tableReservationMinutes: Number(order.tableReservationMinutes || order.table_reservation_minutes || payment.tableReservationMinutes || payment.table_reservation_minutes || 20),
     payment,
     paymentMethod: FC._normalizePaymentMethod(payment.paymentMethod || payment.method || order.paymentMethod || "online"),
     trackingUrl: FC.orderTrackingUrl(order.id),
@@ -665,10 +843,31 @@ FC.createOrder = async function ({
   const normalizedTableNumber = FC._normalizeTableNumber(normalizedServiceType, tableNumber);
   const normalizedPaymentMethod = FC._normalizePaymentMethod(paymentMethod);
 
+  let latestOrders = FC._safeArray(FC.getState().orders);
+
+  if (normalizedServiceType === "dine_in") {
+    if (!normalizedTableNumber) {
+      throw new Error("Please select a table number for Dine In.");
+    }
+
+    try {
+      latestOrders = await FC.fetchAllOrders();
+    } catch (err) {
+      console.warn("Table reservation check is using cached orders:", err);
+    }
+
+    FC.assertTableAvailable(normalizedTableNumber, latestOrders);
+  }
+
   const orderId = FC.uid("ORD");
   const trackingToken = FC.uid("TRK");
   const cashToken = normalizedPaymentMethod === "cash" ? FC.uid("CASH") : null;
   const createdAt = FC.nowISO();
+  const tableReservedAt = normalizedServiceType === "dine_in" ? createdAt : null;
+  const tableReservationMinutes = FC.tableReservationMinutes();
+  const tableReservationExpiresAt = tableReservedAt
+    ? new Date(new Date(tableReservedAt).getTime() + tableReservationMinutes * 60 * 1000).toISOString()
+    : null;
 
   const payment = {
     attemptCount: 0,
@@ -686,7 +885,10 @@ FC.createOrder = async function ({
     approvalRequestedAt: createdAt,
     approvalRespondedAt: null,
     approvalMode: "pending_restaurant",
-    approvalWindowSeconds: FC.approvalWindowSeconds()
+    approvalWindowSeconds: FC.approvalWindowSeconds(),
+    tableReservedAt,
+    tableReservationExpiresAt,
+    tableReservationMinutes
   };
 
   const order = {
@@ -708,6 +910,9 @@ FC.createOrder = async function ({
     rejectedByRestaurantId: null,
     approvedAt: null,
     paidAt: null,
+    tableReservedAt,
+    tableReservationExpiresAt,
+    tableReservationMinutes,
     payment,
     paymentMethod: normalizedPaymentMethod,
     trackingUrl: payment.trackingUrl,
@@ -1184,6 +1389,40 @@ FC._normalizePrinterDevice = function (printer = {}) {
   };
 };
 
+
+FC._normalizeKioskDisplayDevice = function (device = {}) {
+  const k = FC._safeObject(device);
+
+  /*
+    Migration rule:
+    Older code used kioskDisplay.online as both heartbeat and manual ON/OFF.
+    If the old state was manually turned OFF, migrate that state to enabled=false.
+  */
+  const hasExplicitEnabled = Object.prototype.hasOwnProperty.call(k, "enabled");
+  const migratedEnabled = hasExplicitEnabled
+    ? k.enabled !== false
+    : !(
+        (k.manuallyControlled && k.online === false) ||
+        k.maintenanceMode === true ||
+        k.outOfOrder === true
+      );
+
+  return {
+    enabled: migratedEnabled,
+    online: k.online !== false,
+    manuallyControlled: !!k.manuallyControlled,
+    brightness: Number(k.brightness ?? 75),
+    locked: !!k.locked,
+    maintenanceMode: migratedEnabled ? !!k.maintenanceMode : true,
+    outOfOrder: migratedEnabled ? !!k.outOfOrder : true,
+    lastHeartbeatAt: k.lastHeartbeatAt || null,
+    lastSeenAt: k.lastSeenAt || null,
+    unavailableMessage: String(k.unavailableMessage || "Maintenance Break / Out of Order"),
+    updatedAt: k.updatedAt || null,
+    lastError: String(k.lastError || "")
+  };
+};
+
 FC._normalizeDevices = function (devices = {}) {
   const base = FC.defaultState().devices;
   const d = FC._safeObject(devices);
@@ -1201,10 +1440,10 @@ FC._normalizeDevices = function (devices = {}) {
       ...base.paymentGateway,
       ...FC._safeObject(d.paymentGateway)
     },
-    kioskDisplay: {
+    kioskDisplay: FC._normalizeKioskDisplayDevice({
       ...base.kioskDisplay,
       ...FC._safeObject(d.kioskDisplay)
-    },
+    }),
     localCache: {
       ...base.localCache,
       ...FC._safeObject(d.localCache)
@@ -1249,11 +1488,23 @@ FC.setDevice = function (deviceKey, patch) {
   }
 
   if (key === "kioskDisplay") {
-    next.maintenanceMode = cleanPatch.online === false ? true : !!next.maintenanceMode;
-    next.outOfOrder = cleanPatch.online === false ? true : !!next.outOfOrder;
-    if (cleanPatch.online === true) {
-      next.maintenanceMode = false;
-      next.outOfOrder = false;
+    /*
+      enabled = manual admin control
+      online  = heartbeat / kiosk browser alive status
+
+      A heartbeat is never allowed to change enabled, maintenanceMode,
+      or outOfOrder. This prevents a manually disabled kiosk from turning
+      itself back ON after a few seconds.
+    */
+    const hasEnabledPatch = Object.prototype.hasOwnProperty.call(cleanPatch, "enabled");
+
+    next = FC._normalizeKioskDisplayDevice(next);
+
+    if (hasEnabledPatch) {
+      next.enabled = cleanPatch.enabled !== false;
+      next.manuallyControlled = true;
+      next.maintenanceMode = !next.enabled;
+      next.outOfOrder = !next.enabled;
     }
   }
 
@@ -1266,8 +1517,34 @@ FC.setDevice = function (deviceKey, patch) {
   return next;
 };
 
+FC.setKioskDisplayEnabled = function (enabled) {
+  const isEnabled = !!enabled;
+
+  const updated = FC.setDevice("kioskDisplay", {
+    enabled: isEnabled,
+    manuallyControlled: true,
+    maintenanceMode: !isEnabled,
+    outOfOrder: !isEnabled,
+    updatedAt: FC.nowISO()
+  });
+
+  FC.deviceLog(
+    isEnabled
+      ? "Customer kiosk display enabled from admin console."
+      : "Customer kiosk display disabled. Maintenance / Out of Order mode enabled.",
+    isEnabled ? "INFO" : "WARN"
+  );
+
+  return updated;
+};
+
 FC.setDeviceOnline = function (deviceKey, online) {
   const label = String(deviceKey || "device");
+
+  if (label === "kioskDisplay") {
+    return FC.setKioskDisplayEnabled(online);
+  }
+
   const updated = FC.setDevice(label, {
     online: !!online,
     manuallyControlled: true,
@@ -1281,6 +1558,11 @@ FC.setDeviceOnline = function (deviceKey, online) {
 FC.toggleDeviceOnline = function (deviceKey) {
   const d = FC.getDevices()[deviceKey];
   if (!d) return null;
+
+  if (deviceKey === "kioskDisplay") {
+    return FC.setKioskDisplayEnabled(d.enabled === false);
+  }
+
   return FC.setDeviceOnline(deviceKey, !d.online);
 };
 
@@ -1385,26 +1667,37 @@ FC.canUseOnlinePayment = function () {
 
 FC.isKioskDisplayAvailable = function () {
   const k = FC.getDevices().kioskDisplay || {};
-  if (!k.online || k.maintenanceMode || k.outOfOrder || k.locked) {
+
+  if (k.enabled === false || k.maintenanceMode || k.outOfOrder || k.locked) {
     return {
       ok: false,
       reason: k.unavailableMessage || "Maintenance Break / Out of Order"
     };
   }
 
-  return { ok: true, reason: "Kiosk display active." };
+  return {
+    ok: true,
+    reason: "Kiosk display active.",
+    heartbeatOnline: k.online !== false
+  };
 };
 
 FC.updateDeviceHeartbeat = function (deviceKey = "kioskDisplay", patch = {}) {
   const now = FC.nowISO();
   const key = String(deviceKey || "kioskDisplay");
-  const cleanPatch = FC._safeObject(patch);
-  const current = FC.getDevices()[key] || {};
-  const keepManualOff = current.manuallyControlled && current.online === false && cleanPatch.force !== true;
+  const cleanPatch = { ...FC._safeObject(patch) };
+
+  // Heartbeat must never override manual kiosk availability fields.
+  if (key === "kioskDisplay") {
+    delete cleanPatch.enabled;
+    delete cleanPatch.maintenanceMode;
+    delete cleanPatch.outOfOrder;
+    delete cleanPatch.manuallyControlled;
+  }
 
   return FC.setDevice(key, {
-    online: keepManualOff ? false : cleanPatch.online !== false,
     ...cleanPatch,
+    online: cleanPatch.online !== false,
     lastHeartbeatAt: now,
     lastSeenAt: now,
     updatedAt: now
@@ -1415,8 +1708,11 @@ FC.updateKioskHeartbeat = function (patch = {}) {
   const now = FC.nowISO();
   const cleanPatch = FC._safeObject(patch);
   const devices = FC.getDevices();
-  const networkManualOff = devices.network?.manuallyControlled && devices.network?.online === false && cleanPatch.force !== true;
-  const displayManualOff = devices.kioskDisplay?.manuallyControlled && devices.kioskDisplay?.online === false && cleanPatch.force !== true;
+
+  const networkManualOff =
+    devices.network?.manuallyControlled &&
+    devices.network?.online === false &&
+    cleanPatch.force !== true;
 
   FC.setDevice("network", {
     online: networkManualOff ? false : cleanPatch.networkOnline !== false,
@@ -1427,10 +1723,15 @@ FC.updateKioskHeartbeat = function (patch = {}) {
     lastError: String(cleanPatch.lastError || "")
   });
 
+  /*
+    Only update heartbeat status here.
+    Do not update enabled / maintenanceMode / outOfOrder.
+  */
   return FC.setDevice("kioskDisplay", {
-    online: displayManualOff ? false : cleanPatch.displayOnline !== false,
+    online: cleanPatch.displayOnline !== false,
     lastHeartbeatAt: now,
     lastSeenAt: now,
+    lastError: String(cleanPatch.displayError || ""),
     updatedAt: now
   });
 };
@@ -1485,7 +1786,9 @@ FC.hardwareHealth = function () {
   if (paper <= FC.HARDWARE_LOW_PAPER_PERCENT && paper > 0) issues.push("Printer paper low");
   if (paper <= 0) issues.push("Printer out of paper");
   if (!d.paymentGateway?.online) issues.push("Payment gateway offline");
-  if (!d.kioskDisplay?.online || d.kioskDisplay?.maintenanceMode || d.kioskDisplay?.outOfOrder) issues.push("Kiosk display offline");
+  if (d.kioskDisplay?.enabled === false || d.kioskDisplay?.maintenanceMode || d.kioskDisplay?.outOfOrder) {
+    issues.push("Kiosk display in maintenance mode");
+  }
   if (d.kioskDisplay?.locked) issues.push("Kiosk is locked");
 
   return { ok: issues.length === 0, issues, paper, heartbeatStale };

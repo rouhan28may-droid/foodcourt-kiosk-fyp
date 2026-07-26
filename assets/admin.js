@@ -1287,7 +1287,7 @@
       network: { online: true, latencyMs: 42, lastHeartbeatAt: "" },
       printer: { online: true, paper: 100, paperPercent: 100, paperRollMeters: 80, lowPaper: false },
       paymentGateway: { online: true, provider: "Stripe / Cash Counter", lastVerifyAt: null },
-      kioskDisplay: { online: true, brightness: 75, locked: false, maintenanceMode: false, outOfOrder: false },
+      kioskDisplay: { enabled: true, online: true, brightness: 75, locked: false, maintenanceMode: false, outOfOrder: false },
       localCache: { enabled: true, queuedOrders: 0 }
     };
 
@@ -1318,16 +1318,22 @@
     const lastHeartbeatMs = lastHeartbeatRaw ? Date.parse(lastHeartbeatRaw) : NaN;
     const heartbeatStale = Number.isFinite(lastHeartbeatMs) && (Date.now() - lastHeartbeatMs) > HARDWARE_KIOSK_HEARTBEAT_STALE_MS;
 
+    const kioskEnabled =
+      d.kioskDisplay?.enabled !== false &&
+      !d.kioskDisplay?.maintenanceMode &&
+      !d.kioskDisplay?.outOfOrder;
+
     if (!d.network?.online || heartbeatStale) issues.push("Network offline");
     if (Number(d.network?.latencyMs || 0) > 150) issues.push("High network latency");
     if (!d.printer?.online) issues.push("Printer offline");
     if (paper <= HARDWARE_LOW_PAPER_PERCENT) issues.push("Printer paper low");
     if (!d.paymentGateway?.online) issues.push("Payment gateway offline");
-    if (!d.kioskDisplay?.online) issues.push("Kiosk display offline");
+    if (!kioskEnabled) issues.push("Kiosk display maintenance mode");
     if (d.kioskDisplay?.locked) issues.push("Kiosk locked");
 
-    return { ok: issues.length === 0, issues, heartbeatStale, paper };
+    return { ok: issues.length === 0, issues, heartbeatStale, paper, kioskEnabled };
   }
+
 
   function adminDeviceLog(message, level = "INFO") {
     try {
@@ -1380,16 +1386,53 @@
     );
   }
 
+  function adminSetKioskDisplayEnabled(enabled) {
+    const isEnabled = !!enabled;
+
+    return adminSetDevice(
+      "kioskDisplay",
+      {
+        enabled: isEnabled,
+        maintenanceMode: !isEnabled,
+        outOfOrder: !isEnabled,
+        manuallyControlled: true,
+        updatedAt: nowISO()
+
+        /*
+          Important:
+          Do NOT change kioskDisplay.online here.
+          online = heartbeat/screen alive status from kiosk.js
+          enabled = admin manual ON/OFF control
+          This prevents the kiosk heartbeat from automatically turning maintenance mode back ON.
+        */
+      },
+      isEnabled
+        ? "Customer kiosk display enabled from admin console."
+        : "Customer kiosk display disabled from admin console. Maintenance / Out of Order mode enabled."
+    );
+  }
+
   function adminToggleDevice(key) {
     const d = adminGetDevices();
+
+    if (key === "kioskDisplay") {
+      const kioskEnabled =
+        d.kioskDisplay?.enabled !== false &&
+        !d.kioskDisplay?.maintenanceMode &&
+        !d.kioskDisplay?.outOfOrder;
+
+      return adminSetKioskDisplayEnabled(!kioskEnabled);
+    }
+
     const labelMap = {
       network: "Network",
       printer: "Printer",
-      paymentGateway: "Payment gateway",
-      kioskDisplay: "Kiosk display"
+      paymentGateway: "Payment gateway"
     };
+
     return adminSetDeviceOnline(key, !d[key]?.online, labelMap[key] || key);
   }
+
 
   function adminSetPaperPercent(value, reason = "Paper percentage manually updated") {
     const nextPaper = clampPercent(value);
@@ -1424,7 +1467,13 @@
     const networkOnline = !!d.network?.online && !health.heartbeatStale;
     const printerOnline = !!d.printer?.online;
     const gatewayOnline = !!d.paymentGateway?.online;
-    const kioskOnline = !!d.kioskDisplay?.online;
+
+    const kioskEnabled =
+      d.kioskDisplay?.enabled !== false &&
+      !d.kioskDisplay?.maintenanceMode &&
+      !d.kioskDisplay?.outOfOrder;
+
+    const kioskHeartbeatOnline = !!d.kioskDisplay?.online && !health.heartbeatStale;
     const lowPaper = paper <= HARDWARE_LOW_PAPER_PERCENT;
 
     if (adminHardwareHealthLabel) {
@@ -1459,8 +1508,8 @@
     setBadge(adminPaymentGatewayStatusBadge, gatewayOnline, "ONLINE", "OFFLINE");
     setHidden(adminPaymentGatewayWarning, gatewayOnline);
 
-    setBadge(adminKioskDisplayStatusBadge, kioskOnline, "ONLINE", "MAINTENANCE");
-    setHidden(adminKioskDisplayWarning, kioskOnline);
+    setBadge(adminKioskDisplayStatusBadge, kioskEnabled, "CUSTOMER ON", "MAINTENANCE");
+    setHidden(adminKioskDisplayWarning, kioskEnabled);
 
     if (adminDevicesPanel) {
       const rows = [
@@ -1485,8 +1534,8 @@
         [
           "kioskDisplay",
           "Kiosk Display",
-          `${kioskOnline ? "Customer dashboard active" : "Maintenance / Out of Order"} • locked=${!!d.kioskDisplay?.locked}`,
-          kioskOnline
+          `${kioskEnabled ? "Customer dashboard allowed" : "Maintenance / Out of Order"} • heartbeat=${kioskHeartbeatOnline ? "alive" : "waiting"} • locked=${!!d.kioskDisplay?.locked}`,
+          kioskEnabled
         ],
         [
           "localCache",
@@ -1531,6 +1580,7 @@
         : `<div class="text-sm text-slate-400">No device events yet.</div>`;
     }
   }
+
 
   function renderAds(data) {
     if (!adsPanel) return;
@@ -2877,14 +2927,14 @@
 
   if (adminKioskDisplayOnlineBtn) {
     adminKioskDisplayOnlineBtn.onclick = async () => {
-      adminSetDevice("kioskDisplay", { online: true, maintenanceMode: false, outOfOrder: false, updatedAt: nowISO() }, "Customer kiosk display turned ON.");
+      adminSetKioskDisplayEnabled(true);
       await renderAll();
     };
   }
 
   if (adminKioskDisplayOfflineBtn) {
     adminKioskDisplayOfflineBtn.onclick = async () => {
-      adminSetDevice("kioskDisplay", { online: false, maintenanceMode: true, outOfOrder: true, updatedAt: nowISO() }, "Customer kiosk display turned OFF. Maintenance / Out of Order mode enabled.");
+      adminSetKioskDisplayEnabled(false);
       await renderAll();
     };
   }

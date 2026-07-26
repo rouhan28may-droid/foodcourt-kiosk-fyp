@@ -276,7 +276,14 @@
   function getKioskDisplayBlockReason() {
     const display = getDeviceSafe("kioskDisplay");
 
-    if (display.online === false || display.maintenanceMode || display.outOfOrder) {
+    /*
+      enabled = manual admin ON/OFF
+      online  = heartbeat / kiosk browser alive
+
+      Do not use online to control maintenance mode. Otherwise every heartbeat
+      can turn the customer dashboard back ON after the admin disables it.
+    */
+    if (display.enabled === false || display.maintenanceMode || display.outOfOrder) {
       return display.unavailableMessage || "Maintenance Break / Out of Order";
     }
 
@@ -1146,6 +1153,50 @@
         transform: translateY(-1px);
       }
 
+      .fc-table-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        line-height: 1.05;
+      }
+
+      .fc-table-number {
+        font-size: 14px;
+        font-weight: 950;
+      }
+
+      .fc-table-reserved-label {
+        font-size: 8px;
+        font-weight: 950;
+        letter-spacing: .05em;
+        color: #fecaca;
+      }
+
+      .fc-table-reserved-time {
+        font-size: 8px;
+        font-weight: 800;
+        color: #fca5a5;
+      }
+
+      .fc-table-btn-reserved,
+      .fc-table-btn-reserved:hover {
+        border-color: rgba(248,113,113,.72) !important;
+        background: linear-gradient(180deg, rgba(127,29,29,.60), rgba(69,10,10,.56)) !important;
+        color: #fee2e2 !important;
+        box-shadow: inset 0 0 0 1px rgba(254,202,202,.08) !important;
+        cursor: not-allowed !important;
+        opacity: .88 !important;
+        transform: none !important;
+      }
+
+      .fc-table-btn-own-reservation {
+        border-color: rgba(34,197,94,.68) !important;
+        background: rgba(34,197,94,.15) !important;
+        color: #dcfce7 !important;
+      }
+
       #restaurantApprovalModal {
         z-index: 70 !important;
       }
@@ -1646,6 +1697,11 @@
   let renderBusy = false;
   let rerenderRequested = false;
 
+  // Cached active reservations. storage.js remains the source of truth.
+  let activeTableReservations = {};
+  let tableReservationRefreshBusy = false;
+  let tableReservationLastRefreshAt = 0;
+
 
   let itemDetailModal = null;
   let itemDetailCurrentRestaurantId = null;
@@ -2044,9 +2100,88 @@
     return grid;
   }
 
+  function normalizeTableKey(value) {
+    return String(value || "").trim().toUpperCase();
+  }
+
+  function getCachedTableReservation(value) {
+    const key = normalizeTableKey(value);
+    if (!key) return null;
+
+    const reservation = safeObject(activeTableReservations[key]);
+    if (!reservation || !reservation.orderId) return null;
+
+    const expiresAtMs = Date.parse(reservation.expiresAt || "");
+    if (Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) {
+      delete activeTableReservations[key];
+      return null;
+    }
+
+    const minutesLeft = Number.isFinite(expiresAtMs)
+      ? Math.max(1, Math.ceil((expiresAtMs - Date.now()) / 60000))
+      : Math.max(1, Number(reservation.minutesLeft || 1));
+
+    return {
+      ...reservation,
+      tableNumber: key,
+      minutesLeft
+    };
+  }
+
+  function isOwnTableReservation(reservation) {
+    return !!(
+      reservation &&
+      awaitingOrderId &&
+      String(reservation.orderId || "") === String(awaitingOrderId)
+    );
+  }
+
+  async function refreshActiveTableReservations(options = {}) {
+    if (tableReservationRefreshBusy) return activeTableReservations;
+
+    tableReservationRefreshBusy = true;
+
+    try {
+      let reservations = null;
+
+      if (typeof FC.fetchActiveTableReservations === "function") {
+        reservations = await FC.fetchActiveTableReservations();
+      } else {
+        const orders = await fetchAllOrdersSafe();
+        if (typeof FC.getActiveTableReservations === "function") {
+          reservations = FC.getActiveTableReservations(orders);
+        }
+      }
+
+      activeTableReservations = safeObject(reservations);
+      tableReservationLastRefreshAt = Date.now();
+    } catch (err) {
+      console.warn("kiosk.js: table reservation refresh failed", err);
+    } finally {
+      tableReservationRefreshBusy = false;
+    }
+
+    if (options.render !== false) {
+      renderTableSelectionGrid();
+      renderCart();
+    }
+
+    return activeTableReservations;
+  }
+
   function selectTableNumber(value) {
+    const nextTable = normalizeTableKey(value);
+    const reservation = getCachedTableReservation(nextTable);
+
+    if (reservation && !isOwnTableReservation(reservation)) {
+      alertSafe(
+        `Table ${nextTable} is reserved for approximately ${reservation.minutesLeft} more minute${reservation.minutesLeft === 1 ? "" : "s"}. Please select another table.`
+      );
+      return;
+    }
+
     serviceType = "dine_in";
-    tableNumber = String(value || "").trim();
+    tableNumber = nextTable;
 
     if (tableNumberInput) {
       tableNumberInput.value = tableNumber;
@@ -2064,22 +2199,51 @@
     grid.innerHTML = "";
 
     TABLE_BUTTON_VALUES.forEach((value) => {
+      const reservation = getCachedTableReservation(value);
+      const ownReservation = isOwnTableReservation(reservation);
+      const reservedByAnotherOrder = !!reservation && !ownReservation;
+      const selected = String(tableNumber || "") === value;
+
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "fc-table-btn" + (String(tableNumber || "") === value ? " fc-table-active" : "");
-      btn.textContent = value;
-      btn.setAttribute("aria-pressed", String(String(tableNumber || "") === value));
+      btn.disabled = reservedByAnotherOrder;
+      btn.className =
+        "fc-table-btn" +
+        (selected ? " fc-table-active" : "") +
+        (reservedByAnotherOrder ? " fc-table-btn-reserved" : "") +
+        (ownReservation ? " fc-table-btn-own-reservation" : "");
+
+      if (reservation) {
+        btn.innerHTML = `
+          <span class="fc-table-number">${escapeHtml(value)}</span>
+          <span class="fc-table-reserved-label">${ownReservation ? "YOUR ORDER" : "RESERVED"}</span>
+          <span class="fc-table-reserved-time">${reservation.minutesLeft} min left</span>
+        `;
+      } else {
+        btn.innerHTML = `<span class="fc-table-number">${escapeHtml(value)}</span>`;
+      }
+
+      btn.setAttribute("aria-pressed", String(selected));
+      btn.setAttribute(
+        "aria-label",
+        reservation
+          ? `Table ${value}, ${ownReservation ? "reserved for your order" : "reserved"}, ${reservation.minutesLeft} minutes left`
+          : `Table ${value}, available`
+      );
+
       btn.addEventListener("click", (e) => {
         e.preventDefault();
+        if (reservedByAnotherOrder) return;
         selectTableNumber(value);
       });
+
       grid.appendChild(btn);
     });
   }
 
   function getServiceSelection() {
     const type = serviceType;
-    const table = String(tableNumberInput?.value ?? tableNumber ?? "").trim();
+    const table = normalizeTableKey(tableNumberInput?.value ?? tableNumber ?? "");
 
     if (!type) {
       return {
@@ -2091,8 +2255,19 @@
     if (type === "dine_in" && !table) {
       return {
         ok: false,
-        message: "Please enter table number for Dine In order."
+        message: "Please select a table number for Dine In order."
       };
+    }
+
+    if (type === "dine_in" && table) {
+      const reservation = getCachedTableReservation(table);
+
+      if (reservation && !isOwnTableReservation(reservation)) {
+        return {
+          ok: false,
+          message: `Table ${table} is reserved for approximately ${reservation.minutesLeft} more minute${reservation.minutesLeft === 1 ? "" : "s"}. Please select another table.`
+        };
+      }
     }
 
     return {
@@ -4379,6 +4554,38 @@ async function browserPrintSlipOnly(orderId) {
         return;
       }
 
+      if (serviceSelection.serviceType === "dine_in") {
+        try {
+          const latestOrders = await fetchAllOrdersSafe();
+
+          if (typeof FC.assertTableAvailable === "function") {
+            FC.assertTableAvailable(
+              serviceSelection.tableNumber,
+              latestOrders,
+              awaitingOrderId || ""
+            );
+          }
+
+          if (typeof FC.getActiveTableReservations === "function") {
+            activeTableReservations = safeObject(FC.getActiveTableReservations(latestOrders));
+          }
+        } catch (err) {
+          const message = String(err?.message || err || "Selected table is already reserved.");
+          tableNumber = "";
+          if (tableNumberInput) tableNumberInput.value = "";
+          saveSession();
+          renderTableSelectionGrid();
+
+          if (serviceError) {
+            serviceError.textContent = message;
+            serviceError.classList.remove("hidden");
+          }
+
+          alertSafe(message);
+          return;
+        }
+      }
+
       serviceType = serviceSelection.serviceType;
       tableNumber = serviceSelection.tableNumber;
       paymentMethod = paymentSelection.paymentMethod;
@@ -4464,6 +4671,9 @@ async function browserPrintSlipOnly(orderId) {
         autoCashSlipStartedForOrderId = null;
         autoCashPaidReceiptOpenedForOrderId = null;
         saveSession();
+
+        await refreshActiveTableReservations({ render: false });
+        renderTableSelectionGrid();
 
         renderFlow(orderForFlow);
         scheduleRestaurantAutoAccept(orderForFlow);
@@ -4572,10 +4782,19 @@ async function browserPrintSlipOnly(orderId) {
 
   await seedSafe();
   await handleStripeReturn();
+  await refreshActiveTableReservations({ render: false });
   await renderAll();
   startKioskHardwareWatchers();
 
+  // Keep RESERVED labels and remaining minutes current without reloading.
+  setInterval(async () => {
+    await refreshActiveTableReservations({ render: false });
+    renderTableSelectionGrid();
+    renderCart();
+  }, 15000);
+
   window.addEventListener("fc:state-changed", async () => {
+    await refreshActiveTableReservations({ render: false });
     await renderAll();
     if (awaitingOrderId) {
       const o = await getOrderSafe(awaitingOrderId);
@@ -4583,7 +4802,8 @@ async function browserPrintSlipOnly(orderId) {
     }
   });
 
-  window.addEventListener("focus", () => {
+  window.addEventListener("focus", async () => {
+    await refreshActiveTableReservations({ render: false });
     renderAll();
   });
 })();
