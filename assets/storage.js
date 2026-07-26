@@ -4,6 +4,13 @@ FC.KEY = "fc_state_v3";
 FC._realtimeStarted = false;
 FC._realtimeChannel = null;
 
+// Shared hardware state is stored in Supabase so Admin and Kiosk
+// work across different laptops, browsers and Raspberry Pi devices.
+FC.HARDWARE_DEVICE_TABLE = "hardware_devices";
+FC._hardwareRefreshTimer = null;
+FC._hardwareCloudReady = false;
+FC._hardwareCloudWarned = false;
+
 // ---------- Helpers ----------
 FC.nowISO = () => new Date().toISOString();
 
@@ -430,7 +437,21 @@ FC.seed = async function () {
 
   await FC.fetchAllOrders().catch(() => {});
 
+  // Load the shared Admin/Kiosk hardware controls from Supabase.
+  // Local state remains available as an offline fallback.
+  if (typeof FC.refreshHardwareDevicesFromSupabase === "function") {
+    await FC.refreshHardwareDevicesFromSupabase({
+      seedMissing: true,
+      silent: true
+    }).catch(() => {});
+  }
+
   FC.startRealtimeSync();
+
+  if (typeof FC.startHardwareCloudSync === "function") {
+    FC.startHardwareCloudSync();
+  }
+
   FC._emitStateChanged();
 };
 
@@ -1451,6 +1472,218 @@ FC._normalizeDevices = function (devices = {}) {
   };
 };
 
+// ---------- Supabase Hardware State Sync ----------
+FC._hardwareCloudDb = function () {
+  const db = FC._db();
+  return db && typeof db.from === "function" ? db : null;
+};
+
+FC._normalizeHardwareCloudRow = function (row = {}) {
+  const r = FC._safeObject(row);
+  const key = String(r.device_key || r.deviceKey || "").trim();
+  const state = FC._safeObject(r.state);
+
+  if (!key) return null;
+
+  return {
+    deviceKey: key,
+    state: {
+      ...state,
+      updatedAt: state.updatedAt || r.updated_at || r.updatedAt || null
+    }
+  };
+};
+
+FC._applyHardwareCloudRow = function (row, options = {}) {
+  const normalizedRow = FC._normalizeHardwareCloudRow(row);
+  if (!normalizedRow) return false;
+
+  const s = FC.getState();
+  s.devices = FC._normalizeDevices(s.devices || {});
+
+  const key = normalizedRow.deviceKey;
+  const previous = FC._safeObject(s.devices[key]);
+  let next = {
+    ...previous,
+    ...normalizedRow.state
+  };
+
+  if (key === "printer") {
+    next = FC._normalizePrinterDevice(next);
+  }
+
+  if (key === "kioskDisplay") {
+    next = FC._normalizeKioskDisplayDevice(next);
+  }
+
+  const changed = JSON.stringify(previous) !== JSON.stringify(next);
+  if (!changed) return false;
+
+  s.devices[key] = next;
+  FC.setState(s, { silent: true });
+
+  if (!options.silent) {
+    FC._emitStateChanged();
+  }
+
+  return true;
+};
+
+FC._seedMissingHardwareRows = async function (existingKeys = []) {
+  const db = FC._hardwareCloudDb();
+  if (!db) return false;
+
+  const existing = new Set(FC._safeArray(existingKeys).map((x) => String(x || "")));
+  const devices = FC.getDevices();
+  const rows = Object.entries(devices)
+    .filter(([key]) => !existing.has(key))
+    .map(([deviceKey, state]) => ({
+      device_key: deviceKey,
+      state: FC._clone(state),
+      updated_at: FC.nowISO()
+    }));
+
+  if (!rows.length) return true;
+
+  const { error } = await db
+    .from(FC.HARDWARE_DEVICE_TABLE)
+    .upsert(rows, { onConflict: "device_key", ignoreDuplicates: true });
+
+  if (error) throw error;
+  return true;
+};
+
+FC.refreshHardwareDevicesFromSupabase = async function (options = {}) {
+  const db = FC._hardwareCloudDb();
+  if (!db) return null;
+
+  try {
+    const { data, error } = await db
+      .from(FC.HARDWARE_DEVICE_TABLE)
+      .select("device_key,state,updated_at")
+      .order("device_key", { ascending: true });
+
+    if (error) throw error;
+
+    const rows = FC._safeArray(data);
+
+    if (options.seedMissing !== false) {
+      await FC._seedMissingHardwareRows(rows.map((row) => row.device_key));
+    }
+
+    let changed = false;
+    rows.forEach((row) => {
+      changed = FC._applyHardwareCloudRow(row, { silent: true }) || changed;
+    });
+
+    FC._hardwareCloudReady = true;
+    FC._hardwareCloudWarned = false;
+
+    if (changed && !options.silent) {
+      FC._emitStateChanged();
+    }
+
+    return FC.getDevices();
+  } catch (err) {
+    FC._hardwareCloudReady = false;
+
+    if (!FC._hardwareCloudWarned) {
+      FC._hardwareCloudWarned = true;
+      console.warn(
+        "Hardware cloud sync is unavailable. Run the supplied Supabase hardware_devices SQL once. Local browser state will continue working.",
+        err
+      );
+    }
+
+    return null;
+  }
+};
+
+FC._syncHardwareDevicePatchToSupabase = async function (deviceKey, patch = {}) {
+  const db = FC._hardwareCloudDb();
+  const key = String(deviceKey || "").trim();
+  if (!db || !key) return null;
+
+  const cleanPatch = {
+    ...FC._safeObject(patch),
+    updatedAt: FC._safeObject(patch).updatedAt || FC.nowISO()
+  };
+
+  try {
+    // The SQL function performs an atomic JSON merge. A heartbeat therefore
+    // cannot overwrite Admin fields such as kioskDisplay.enabled.
+    const rpcResult = await db.rpc("merge_hardware_device", {
+      p_device_key: key,
+      p_patch: cleanPatch
+    });
+
+    if (!rpcResult.error) {
+      const row = Array.isArray(rpcResult.data) ? rpcResult.data[0] : rpcResult.data;
+      if (row) FC._applyHardwareCloudRow(row, { silent: false });
+      FC._hardwareCloudReady = true;
+      FC._hardwareCloudWarned = false;
+      return row || true;
+    }
+
+    // Fallback for projects where the merge function was not created yet.
+    const { data: existing, error: readError } = await db
+      .from(FC.HARDWARE_DEVICE_TABLE)
+      .select("device_key,state,updated_at")
+      .eq("device_key", key)
+      .maybeSingle();
+
+    if (readError) throw rpcResult.error || readError;
+
+    const mergedState = {
+      ...FC._safeObject(existing?.state),
+      ...cleanPatch
+    };
+
+    const { data: saved, error: saveError } = await db
+      .from(FC.HARDWARE_DEVICE_TABLE)
+      .upsert({
+        device_key: key,
+        state: mergedState,
+        updated_at: FC.nowISO()
+      }, { onConflict: "device_key" })
+      .select("device_key,state,updated_at")
+      .single();
+
+    if (saveError) throw saveError;
+
+    FC._applyHardwareCloudRow(saved, { silent: false });
+    FC._hardwareCloudReady = true;
+    FC._hardwareCloudWarned = false;
+    return saved;
+  } catch (err) {
+    FC._hardwareCloudReady = false;
+
+    if (!FC._hardwareCloudWarned) {
+      FC._hardwareCloudWarned = true;
+      console.warn(
+        `Hardware ${key} cloud update failed. The local browser value was retained.`,
+        err
+      );
+    }
+
+    return null;
+  }
+};
+
+FC.startHardwareCloudSync = function () {
+  const db = FC._hardwareCloudDb();
+  if (!db || FC._hardwareRefreshTimer) return;
+
+  // Realtime normally updates instantly. Polling is retained as a reliable
+  // fallback when Realtime publication is disabled or briefly disconnected.
+  FC._hardwareRefreshTimer = setInterval(() => {
+    FC.refreshHardwareDevicesFromSupabase({
+      seedMissing: true,
+      silent: false
+    }).catch(() => {});
+  }, 5000);
+};
+
 FC.getDevices = function () {
   const s = FC.getState();
   return FC._normalizeDevices(s.devices || {});
@@ -1514,6 +1747,55 @@ FC.setDevice = function (deviceKey, patch) {
 
   s.devices[key] = next;
   FC.setState(s);
+
+  const cloudPatch = {
+    ...cleanPatch,
+    updatedAt: next.updatedAt || cleanPatch.updatedAt || FC.nowISO()
+  };
+
+  if (key === "printer") {
+    const paperFieldsChanged = [
+      "paper",
+      "paperPercent",
+      "paperRollMeters",
+      "paperUsedMeters",
+      "paperRemainingMeters",
+      "lowPaper",
+      "lastPrintAt",
+      "lastPaperUpdateAt"
+    ].some((field) => Object.prototype.hasOwnProperty.call(cleanPatch, field));
+
+    if (paperFieldsChanged) {
+      Object.assign(cloudPatch, {
+        paper: next.paper,
+        paperPercent: next.paperPercent,
+        paperRollMeters: next.paperRollMeters,
+        paperUsedMeters: next.paperUsedMeters,
+        paperRemainingMeters: next.paperRemainingMeters,
+        lowPaper: next.lowPaper,
+        lastPrintAt: next.lastPrintAt,
+        lastPaperUpdateAt: next.lastPaperUpdateAt
+      });
+    }
+  }
+
+  if (key === "kioskDisplay" && Object.prototype.hasOwnProperty.call(cleanPatch, "enabled")) {
+    Object.assign(cloudPatch, {
+      enabled: next.enabled,
+      manuallyControlled: true,
+      maintenanceMode: next.maintenanceMode,
+      outOfOrder: next.outOfOrder
+    });
+  }
+
+  if (key === "paymentGateway") {
+    cloudPatch.unavailableMessage = next.unavailableMessage;
+  }
+
+  // Immediate local update keeps the current browser responsive.
+  // Supabase then distributes the same patch to every other device.
+  void FC._syncHardwareDevicePatchToSupabase(key, cloudPatch);
+
   return next;
 };
 
@@ -1839,6 +2121,20 @@ FC.startRealtimeSync = function () {
             console.warn("Realtime menu refresh failed:", err);
           }
           FC._emitStateChanged();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: FC.HARDWARE_DEVICE_TABLE },
+        (payload) => {
+          if (payload?.eventType === "DELETE") {
+            FC.refreshHardwareDevicesFromSupabase({ seedMissing: true, silent: false }).catch(() => {});
+            return;
+          }
+
+          if (payload?.new) {
+            FC._applyHardwareCloudRow(payload.new, { silent: false });
+          }
         }
       )
       .subscribe((status) => {
